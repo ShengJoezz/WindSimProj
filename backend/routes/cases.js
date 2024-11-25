@@ -253,5 +253,176 @@ router.get('/:caseId/terrain', (req, res) => {
       });
     }
   });
+// 获取工况参数
+router.get('/:caseId/parameters', (req, res) => {
+  const { caseId } = req.params;
+  const casePath = path.join(__dirname, '../uploads', caseId);
+  const parametersPath = path.join(casePath, 'parameters.json');
+
+  try {
+    // 检查参数文件是否存在
+    if (fs.existsSync(parametersPath)) {
+      const parameters = JSON.parse(fs.readFileSync(parametersPath, 'utf-8'));
+      res.json({
+        success: true,
+        parameters: {
+          caseName: caseId, // 使用工况文件夹名作为工况名称
+          ...parameters
+        }
+      });
+    } else {
+      // 如果参数文件不存在，返回默认参数
+      res.json({
+        success: true,
+        parameters: {
+          caseName: caseId,
+          calculationDomain: {
+            width: 10000,
+            height: 800
+          },
+          conditions: {
+            windDirection: 0,
+            inletWindSpeed: 10
+          },
+          grid: {
+            encryptionHeight: 210,
+            encryptionLayers: 21,
+            gridGrowthRate: 1.2,
+            maxExtensionLength: 360,
+            encryptionRadialLength: 50,
+            downstreamRadialLength: 100,
+            encryptionRadius: 200,
+            encryptionTransitionRadius: 400,
+            terrainRadius: 4000,
+            terrainTransitionRadius: 5000,
+            downstreamLength: 2000,
+            downstreamWidth: 600,
+            scale: 0.001
+          },
+          simulation: {
+            cores: 1,
+            steps: 100
+          },
+          postProcessing: {
+            resultLayers: 10,
+            layerSpacing: 20,
+            layerDataWidth: 1000,
+            layerDataHeight: 1000
+          }
+        }
+      });
+    }
+  } catch (error) {
+    console.error('获取参数失败:', error);
+    res.status(500).json({
+      success: false,
+      message: '获取参数失败'
+    });
+  }
+});
+
+// 保存工况参数
+router.post('/:caseId/parameters', (req, res) => {
+  const { caseId } = req.params;
+  const parameters = req.body;
+  const casePath = path.join(__dirname, '../uploads', caseId);
+  const parametersPath = path.join(casePath, 'parameters.json');
+
+  try {
+    if (!fs.existsSync(casePath)) {
+      return res.status(404).json({
+        success: false,
+        message: '工况不存在'
+      });
+    }
+
+    // 保存参数到文件
+    fs.writeFileSync(parametersPath, JSON.stringify(parameters, null, 2));
+    
+    res.json({
+      success: true,
+      message: '参数保存成功'
+    });
+  } catch (error) {
+    console.error('保存参数失败:', error);
+    res.status(500).json({
+      success: false,
+      message: '保存参数失败'
+    });
+  }
+});
+
+// 获取计算结果
+router.get('/:caseId/results', (req, res) => {
+  const { caseId } = req.params;
+  const casePath = path.join(__dirname, '../uploads', caseId);
+  const resultsPath = path.join(casePath, 'results.json');
+
+  try {
+    if (!fs.existsSync(resultsPath)) {
+      return res.json({
+        success: true,
+        results: null,
+        message: '暂无计算结果'
+      });
+    }
+
+    const results = JSON.parse(fs.readFileSync(resultsPath, 'utf-8'));
+    res.json({
+      success: true,
+      results: results
+    });
+  } catch (error) {
+    console.error('获取结果失败:', error);
+    res.status(500).json({
+      success: false,
+      message: '获取结果失败'
+    });
+  }
+});
+
+// 开始计算
+router.post('/:caseId/calculate', (req, res) => {
+  const { caseId } = req.params;
+  const casePath = path.join(__dirname, '../uploads', caseId);
+
+  try {
+    // 检查工况是否存在
+    if (!fs.existsSync(casePath)) {
+      return res.status(404).json({
+        success: false,
+        message: '工况不存在'
+      });
+    }
+
+    // 在这里可以添加启动计算的逻辑
+    // 例如：创建一个模拟的计算结果
+    const mockResults = {
+      status: 'completed',
+      timestamp: new Date().toISOString(),
+      metrics: {
+        totalPower: Math.random() * 100,
+        averageWindSpeed: Math.random() * 10 + 5
+      }
+    };
+
+    // 保存模拟结果
+    fs.writeFileSync(
+      path.join(casePath, 'results.json'),
+      JSON.stringify(mockResults, null, 2)
+    );
+
+    res.json({
+      success: true,
+      message: '计算已启动'
+    });
+  } catch (error) {
+    console.error('启动计算失败:', error);
+    res.status(500).json({
+      success: false,
+      message: '启动计算失败'
+    });
+  }
+});
   
 module.exports = router;

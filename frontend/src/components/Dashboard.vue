@@ -17,13 +17,19 @@
         </el-icon>
       </div>
 
+      <!-- 返回按钮，只在工况详情页显示 -->
       <template v-if="isCaseDetail">
+        <div class="back-btn" @click="backToMain">
+          <el-icon><Back /></el-icon>
+          <span v-if="!isCollapse">返回工况列表</span>
+        </div>
+
+        <el-divider />
+
         <el-menu-item :index="`/cases/${caseId}/terrain`">
           <el-icon><Location /></el-icon>
           <template #title>地形展示</template>
         </el-menu-item>
-
-        <el-divider />
 
         <el-menu-item :index="`/cases/${caseId}/parameters`">
           <el-icon><Setting /></el-icon>
@@ -41,6 +47,7 @@
         </el-menu-item>
       </template>
 
+      <!-- 主界面菜单项 -->
       <template v-else>
         <el-menu-item index="/">
           <el-icon><House /></el-icon>
@@ -61,7 +68,7 @@
 
 <script setup>
 import { ref, computed } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import {
   House,
   Plus,
@@ -71,24 +78,35 @@ import {
   DataLine,
   Location,
   Fold,
-  Expand
+  Expand,
+  Back
 } from '@element-plus/icons-vue';
 
 const route = useRoute();
+const router = useRouter();
 const isCollapse = ref(false);
+
+// 判断是否在工况详情页
+const isCaseDetail = computed(() => {
+  return route.path.includes('/cases/') && route.params.caseId;
+});
+
+// 获取当前工况ID
+const caseId = computed(() => route.params.caseId);
+
+// 计算当前激活的菜单项
+const defaultActive = computed(() => route.path);
 
 const toggleCollapse = () => {
   isCollapse.value = !isCollapse.value;
 };
 
-const isCaseDetail = computed(() => {
-  return route.path.includes('/cases/') && route.params.caseId;
-});
+// 返回工况列表
+const backToMain = () => {
+  router.push('/cases');
+};
 
-const caseId = computed(() => route.params.caseId);
-
-const defaultActive = computed(() => route.path);
-
+// 菜单样式
 const menuBackground = '#2c3e50';
 const menuTextColor = '#ecf0f1';
 const menuActiveTextColor = '#ffd04b';
@@ -109,20 +127,50 @@ const menuActiveTextColor = '#ffd04b';
   width: 64px;
 }
 
-.collapse-btn {
+.collapse-btn, .back-btn {
   height: 56px;
   line-height: 56px;
   text-align: center;
   cursor: pointer;
   transition: background-color 0.3s;
+  color: #ecf0f1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 20px;
 }
 
-.collapse-btn:hover {
+.collapse-btn:hover, .back-btn:hover {
   background-color: rgba(255, 255, 255, 0.1);
+}
+
+.el-menu--collapse .back-btn {
+  padding: 0;
+  justify-content: center;
+}
+
+.back-btn {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.back-btn span {
+  font-size: 14px;
+  transition: opacity 0.3s;
 }
 
 .el-divider {
   background-color: rgba(255, 255, 255, 0.1);
   margin: 8px 0;
+}
+
+/* 确保图标垂直居中 */
+:deep(.el-menu-item) {
+  display: flex;
+  align-items: center;
+}
+
+:deep(.el-menu-item .el-icon) {
+  margin-right: 5px;
 }
 </style>
