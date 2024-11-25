@@ -1,30 +1,22 @@
 <!-- frontend/src/components/ParameterSettings.vue -->
 <template>
-    <div class="parameter-settings">
-      <h3>参数设置</h3>
-      <el-form :model="parameters" :rules="rules" ref="formRef" label-width="200px">
-        <!-- 工况名称，地形，风机 -->
-        <el-form-item label="工况名称" prop="caseName">
-          <el-input v-model="parameters.caseName" readonly />
+  <div class="parameter-settings">
+    <h3>参数设置</h3>
+    <el-form :model="parameters" :rules="rules" ref="formRef" label-width="200px">
+      <!-- 只保留工况名称，并设为只读 -->
+      <el-form-item label="工况名称" prop="caseName">
+        <el-input v-model="parameters.caseName" readonly />
+      </el-form-item>
+      
+      <!-- 计算域 -->
+      <el-form-item label="计算域">
+        <el-form-item label="宽度 (m)" prop="calculationDomain.width" :inline="true">
+          <el-input-number v-model="parameters.calculationDomain.width" :min="0" style="width: 120px;" />
         </el-form-item>
-        
-        <el-form-item label="地形" prop="terrain">
-          <el-input v-model="parameters.terrain" readonly />
+        <el-form-item label="高度 (m)" prop="calculationDomain.height" :inline="true">
+          <el-input-number v-model="parameters.calculationDomain.height" :min="0" style="width: 120px;" />
         </el-form-item>
-        
-        <el-form-item label="风机" prop="windTurbines">
-          <el-input v-model="parameters.windTurbines" readonly />
-        </el-form-item>
-        
-        <!-- 计算域 -->
-        <el-form-item label="计算域">
-          <el-form-item label="宽度 (m)" prop="calculationDomain.width" :inline="true">
-            <el-input-number v-model="parameters.calculationDomain.width" :min="0" style="width: 120px;" />
-          </el-form-item>
-          <el-form-item label="高度 (m)" prop="calculationDomain.height" :inline="true">
-            <el-input-number v-model="parameters.calculationDomain.height" :min="0" style="width: 120px;" />
-          </el-form-item>
-        </el-form-item>
+      </el-form-item>
         
         <!-- 工况 -->
         <el-form-item label="工况">
@@ -171,65 +163,74 @@
     }
   });
   
-  const rules = {
-    caseName: [
-      { required: true, message: '请输入工况名称', trigger: 'blur' }
-    ],
-    terrain: [
-      { required: true, message: '地形数据不能为空', trigger: 'change' }
-    ],
-    windTurbines: [
-      { required: true, message: '风机数据不能为空', trigger: 'change' }
-    ],
-    'calculationDomain.width': [
-      { required: true, message: '请输入计算域宽度', trigger: 'blur' }
-    ],
-    'calculationDomain.height': [
-      { required: true, message: '请输入计算域高度', trigger: 'blur' }
-    ]
+// 修改验证规则，移除不需要的规则
+const rules = {
+  caseName: [
+    { required: true, message: '工况名称不能为空', trigger: 'blur' }
+  ],
+  'calculationDomain.width': [
+    { required: true, message: '请输入计算域宽度', trigger: 'blur' }
+  ],
+  'calculationDomain.height': [
+    { required: true, message: '请输入计算域高度', trigger: 'blur' }
+  ]
   };
   
-  const initializeParameters = async () => {
-    try {
-      const response = await axios.get(`/api/cases/${caseId}/parameters`);
-      if (response.data.success && response.data.parameters) {
-        Object.assign(parameters, response.data.parameters);
-        parameters.windTurbines = `读取 ${response.data.parameters.windTurbines?.length || 0} 个风机`;
-        parameters.terrain = `山 读取`;
-      }
-    } catch (error) {
-      ElMessage.error('获取参数失败');
-      console.error('获取参数失败:', error);
+// 修改参数初始化函数
+const initializeParameters = async () => {
+  try {
+    const response = await axios.get(`/api/cases/${caseId}/parameters`);
+    if (response.data && response.data.parameters) {
+      // 只更新需要的字段
+      const { caseName, calculationDomain, conditions, grid, simulation, postProcessing } = response.data.parameters;
+      
+      // 更新各个字段
+      parameters.caseName = caseName;
+      if (calculationDomain) Object.assign(parameters.calculationDomain, calculationDomain);
+      if (conditions) Object.assign(parameters.conditions, conditions);
+      if (grid) Object.assign(parameters.grid, grid);
+      if (simulation) Object.assign(parameters.simulation, simulation);
+      if (postProcessing) Object.assign(parameters.postProcessing, postProcessing);
     }
-  };
+  } catch (error) {
+    console.error('获取参数失败:', error);
+    ElMessage({
+      message: '获取参数失败，已加载默认参数',
+      type: 'warning'
+    });
+  }
+};
+
+// 修改提交函数
+const submitParameters = async () => {
+  if (!formRef.value) return;
   
-  const submitParameters = async () => {
-    if (!formRef.value) return;
+  try {
+    await formRef.value.validate();
     
-    try {
-      await formRef.value.validate();
-      
-      const response = await axios.post(`/api/cases/${caseId}/parameters`, parameters);
-      
-      if (response.data.success) {
-        submissionSuccess.value = true;
-        submissionMessage.value = '参数提交成功，计算输出可以开始。';
-        ElMessage.success('参数提交成功，计算输出可以开始。');
-        store.setParameters(parameters);
-      } else {
-        throw new Error(response.data.message || '参数提交失败');
-      }
-    } catch (error) {
-      submissionSuccess.value = false;
-      submissionMessage.value = error.response?.data?.message || error.message || '服务器错误，参数提交失败';
-      ElMessage.error(submissionMessage.value);
+    const response = await axios.post(`/api/cases/${caseId}/parameters`, parameters);
+    
+    if (response.data.success) {
+      ElMessage({
+        message: '参数提交成功',
+        type: 'success'
+      });
+      store.setParameters(parameters);
+    } else {
+      throw new Error(response.data.message || '参数提交失败');
     }
-  };
-  
-  onMounted(() => {
-    initializeParameters();
-  });
-  </script>
+  } catch (error) {
+    ElMessage({
+      message: error.response?.data?.message || '参数提交失败',
+      type: 'error'
+    });
+  }
+};
+
+onMounted(() => {
+  initializeParameters();
+});
+</script>
   
   <style scoped>
   .parameter-settings {
