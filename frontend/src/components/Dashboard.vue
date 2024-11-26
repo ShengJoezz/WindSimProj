@@ -1,4 +1,3 @@
-<!-- frontend/src/components/Dashboard.vue -->
 <template>
   <div class="dashboard-container">
     <el-menu
@@ -11,11 +10,13 @@
       router
     >
       <!-- 折叠按钮 -->
-      <div class="collapse-btn" @click="toggleCollapse">
-        <el-icon :size="20">
-          <component :is="isCollapse ? 'Expand' : 'Fold'" />
-        </el-icon>
-      </div>
+      <el-tooltip content="折叠/展开目录" placement="right" effect="dark">
+        <div class="collapse-btn" @click="toggleCollapse">
+          <el-icon :size="24">
+            <component :is="isCollapse ? 'Expand' : 'Menu'" />
+          </el-icon>
+        </div>
+      </el-tooltip>
 
       <!-- 返回按钮，只在工况详情页显示 -->
       <template v-if="isCaseDetail">
@@ -77,7 +78,7 @@ import {
   Monitor,
   DataLine,
   Location,
-  Fold,
+  Menu,
   Expand,
   Back
 } from '@element-plus/icons-vue';
@@ -118,9 +119,10 @@ const menuActiveTextColor = '#ffd04b';
   display: flex;
 }
 
-.el-menu-vertical-demo:not(.el-menu--collapse) {
+.el-menu-vertical-demo {
   width: 200px;
   min-height: 100vh;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .el-menu--collapse {
@@ -136,18 +138,28 @@ const menuActiveTextColor = '#ffd04b';
   color: #ecf0f1;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 8px;
   padding: 0 20px;
 }
 
-.collapse-btn:hover, .back-btn:hover {
-  background-color: rgba(255, 255, 255, 0.1);
+.collapse-btn {
+  background-color: #34495e;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-right: 2px solid #409EFF; /* Added for visual cue */
 }
 
-.el-menu--collapse .back-btn {
-  padding: 0;
-  justify-content: center;
+.collapse-btn:hover {
+  background-color: #2c3e50;
+}
+
+.collapse-btn .el-icon {
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+
+.collapse-btn:hover .el-icon {
+  transform: rotate(45deg);
+  color: #ffffff;
 }
 
 .back-btn {
@@ -165,12 +177,12 @@ const menuActiveTextColor = '#ffd04b';
 }
 
 /* 确保图标垂直居中 */
-:deep(.el-menu-item) {
+.el-menu-item {
   display: flex;
   align-items: center;
 }
 
-:deep(.el-menu-item .el-icon) {
+.el-menu-item .el-icon {
   margin-right: 5px;
 }
 </style>
