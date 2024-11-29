@@ -2,7 +2,6 @@
 <template>
   <div class="app-container">
     <Dashboard />
-    <TerrainMap />
     <div class="main-content">
       <router-view />
     </div>
