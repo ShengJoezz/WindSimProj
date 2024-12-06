@@ -2,6 +2,7 @@
 <template>
   <div>
     <TerrainMap :caseId="caseId" />
+
   </div>
 </template>
 
@@ -9,6 +10,7 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import TerrainMap from '../components/TerrainMap.vue'
+
 
 const route = useRoute()
 // 使用 params 而不是 query

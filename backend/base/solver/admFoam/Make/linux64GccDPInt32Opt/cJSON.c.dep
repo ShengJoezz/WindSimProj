@@ -1,0 +1,5 @@
+$(OBJECTS_DIR)/cJSON.c.dep: \
+cJSON.c \
+cJSON.h \
+
+#END

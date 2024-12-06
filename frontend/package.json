@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
+    "@tweenjs/tween.js": "^25.0.0",
     "axios": "^1.7.7",
     "element-plus": "^2.8.6",
     "express": "^4.21.1",
@@ -17,6 +18,7 @@
     "gsap": "^3.12.5",
     "leaflet": "^1.9.4",
     "multer": "^1.4.5-lts.1",
+    "papaparse": "^5.4.1",
     "pinia": "^2.2.4",
     "proj4": "^2.15.0",
     "socket.io-client": "^4.8.1",
