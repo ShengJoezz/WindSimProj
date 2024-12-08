@@ -1,89 +1,70 @@
 <!-- frontend/src/views/NewCase.vue -->
 <template>
-    <div>
-      <h2>新建工况</h2>
-      <el-form
-        ref="formRef"
-        :model="form"
-        :rules="rules"
-        label-width="120px"
-        @submit.prevent="handleSubmit"
-      >
-        <el-form-item label="工况名称" prop="caseName">
-          <el-input v-model="form.caseName" placeholder="输入工况名称" />
-        </el-form-item>
-  
-        <el-form-item label="地形数据 (GeoTIFF)" prop="terrainFile">
-          <el-upload
-            class="upload-demo"
-            drag
-            :file-list="terrainFileList"
-            :before-upload="beforeUploadGeoTIFF"
-            :on-remove="removeTerrainFile"
-            accept=".tif,.tiff"
-            :auto-upload="false"
-            :on-change="handleTerrainChange"
-          >
-            <i class="el-icon-upload"></i>
-            <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
-            <div class="el-upload__tip">仅支持 .tif/.tiff 文件</div>
-          </el-upload>
-        </el-form-item>
-  
-        <el-form-item label="风机数据 (CSV/TXT)" prop="turbineFile">
-          <el-upload
-            class="upload-demo"
-            drag
-            :file-list="turbineFileList"
-            :before-upload="beforeUploadWindTurbines"
-            :on-remove="removeTurbineFile"
-            accept=".csv,.txt"
-            :auto-upload="false"
-            :on-change="handleTurbineChange" 
-          >
-            <i class="el-icon-upload"></i>
-            <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
-            <div class="el-upload__tip">仅支持 .csv/.txt 文件</div>
-          </el-upload>
-        </el-form-item>
-  
-        <el-form-item>
-          <el-button type="primary" @click="handleSubmit">创建工况</el-button>
-        </el-form-item>
-      </el-form>
-      <div v-if="message" :class="{'success-message': success, 'error-message': !success}" style="margin-top: 20px;">
-        {{ message }}
-      </div>
+  <div>
+    <h2>新建工况</h2>
+    <el-form
+      ref="formRef"
+      :model="form"
+      :rules="rules"
+      label-width="120px"
+      @submit.prevent="handleSubmit"
+    >
+      <el-form-item label="工况名称" prop="caseName">
+        <el-input v-model="form.caseName" placeholder="输入工况名称" />
+      </el-form-item>
+
+      <el-form-item label="地形数据 (GeoTIFF)" prop="terrainFile">
+        <el-upload
+          class="upload-demo"
+          drag
+          :file-list="terrainFileList"
+          :before-upload="beforeUploadGeoTIFF"
+          :on-remove="removeTerrainFile"
+          accept=".tif,.tiff"
+          :auto-upload="false"
+          :on-change="handleTerrainChange"
+        >
+          <i class="el-icon-upload"></i>
+          <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
+          <div class="el-upload__tip">仅支持 .tif/.tiff 文件</div>
+        </el-upload>
+      </el-form-item>
+
+      <el-form-item>
+        <el-button type="primary" @click="handleSubmit">创建工况</el-button>
+      </el-form-item>
+    </el-form>
+    <div v-if="message" :class="{'success-message': success, 'error-message': !success}" style="margin-top: 20px;">
+      {{ message }}
     </div>
+  </div>
 </template>
-  
+
 <script setup>
 import { reactive, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import axios from 'axios';
 import { useRouter } from 'vue-router';
-  
+
 // 表单数据
 const form = reactive({
   caseName: '',
   terrainFile: null,
-  turbineFile: null
 });
-  
+
 // 上传文件列表
 const terrainFileList = ref([]);
-const turbineFileList = ref([]);
-  
+
 // 消息提示
 const success = ref(true);
 const message = ref('');
-  
+
 // 表单引用
 const formRef = ref(null);
-  
+
 // 路由
 const router = useRouter();
-  
+
 // 规则定义
 const rules = {
   caseName: [
@@ -103,20 +84,6 @@ const rules = {
       }
     }
   ],
-  turbineFile: [
-    {
-      required: true, 
-      message: '请上传风机数据文件', 
-      trigger: ['change', 'blur'],
-      validator: (rule, value, callback) => {
-        if (!form.turbineFile) {
-          callback(new Error('请上传风机数据文件'));
-        } else {
-          callback();
-        }
-      }
-    }
-  ]
 };
 
 // 文件变更处理函数
@@ -124,12 +91,6 @@ const handleTerrainChange = (file) => {
   form.terrainFile = file.raw;
   terrainFileList.value = [file];
   formRef.value?.validateField('terrainFile');
-};
-
-const handleTurbineChange = (file) => {
-  form.turbineFile = file.raw;
-  turbineFileList.value = [file];
-  formRef.value?.validateField('turbineFile');
 };
 
 // 上传前处理函数
@@ -141,14 +102,6 @@ const beforeUploadGeoTIFF = (file) => {
   return false;
 };
 
-const beforeUploadWindTurbines = (file) => {
-  console.log('Selected Wind Turbines file:', file);
-  form.turbineFile = file;
-  turbineFileList.value = [file];
-  formRef.value?.validateField('turbineFile');
-  return false;
-};
-
 // 文件移除处理函数
 const removeTerrainFile = () => {
   form.terrainFile = null;
@@ -156,18 +109,11 @@ const removeTerrainFile = () => {
   formRef.value?.validateField('terrainFile');
 };
 
-const removeTurbineFile = () => {
-  form.turbineFile = null;
-  turbineFileList.value = [];
-  formRef.value?.validateField('turbineFile');
-};
-  
 // 提交表单
 const handleSubmit = async () => {
   console.log('Form state before validation:', {
     caseName: form.caseName,
     terrainFile: form.terrainFile,
-    turbineFile: form.turbineFile
   });
 
   if (!formRef.value) return;
@@ -179,9 +125,6 @@ const handleSubmit = async () => {
       formData.append('caseName', form.caseName);
       if (form.terrainFile) {
         formData.append('terrainFile', form.terrainFile);
-      }
-      if (form.turbineFile) {
-        formData.append('turbineFile', form.turbineFile);
       }
 
       try {
@@ -197,9 +140,7 @@ const handleSubmit = async () => {
           // 清空表单
           form.caseName = '';
           form.terrainFile = null;
-          form.turbineFile = null;
           terrainFileList.value = [];
-          turbineFileList.value = [];
           // 跳转到工况列表
           router.push('/cases');
         } else {
@@ -219,7 +160,7 @@ const handleSubmit = async () => {
   });
 };
 </script>
-  
+
 <style scoped>
 .success-message {
   color: green;
