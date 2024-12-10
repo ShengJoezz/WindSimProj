@@ -1,1 +1,35 @@
-{}
+{
+  "calculationDomain": {
+    "width": 10000,
+    "height": 800
+  },
+  "conditions": {
+    "windDirection": 0,
+    "inletWindSpeed": 10
+  },
+  "grid": {
+    "encryptionHeight": 210,
+    "encryptionLayers": 21,
+    "gridGrowthRate": 1.2,
+    "maxExtensionLength": 360,
+    "encryptionRadialLength": 50,
+    "downstreamRadialLength": 100,
+    "encryptionRadius": 200,
+    "encryptionTransitionRadius": 400,
+    "terrainRadius": 4000,
+    "terrainTransitionRadius": 5000,
+    "downstreamLength": 2000,
+    "downstreamWidth": 600,
+    "scale": 0.001
+  },
+  "simulation": {
+    "cores": 1,
+    "steps": 100
+  },
+  "postProcessing": {
+    "resultLayers": 10,
+    "layerSpacing": 20,
+    "layerDataWidth": 1000,
+    "layerDataHeight": 1000
+  }
+}

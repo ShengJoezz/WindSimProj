@@ -1,4 +1,5 @@
 // backend/app.js
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -18,11 +19,11 @@ app.use('/api/cases', casesRouter);
 
 // 处理 404
 app.use((req, res, next) => {
-    console.log('\n=== 新请求 ===');
-    console.log(`${req.method} ${req.url}`);
-    console.log('Headers:', req.headers);
-    next();
-  });
+  console.log('\n=== 新请求 ===');
+  console.log(`${req.method} ${req.url}`);
+  console.log('Headers:', req.headers);
+  res.status(404).json({ success: false, message: 'Route not found' }); // 修改为发送 JSON 响应
+});
 
 // 全局错误处理
 app.use((err, req, res, next) => {

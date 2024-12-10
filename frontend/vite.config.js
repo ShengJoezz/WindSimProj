@@ -1,3 +1,5 @@
+// frontend/vite.config.js
+
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 
@@ -6,10 +8,10 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:5000',
+        target: 'http://localhost:5000', // 后端服务器地址和端口
         changeOrigin: true,
         secure: false,
-        // 添加这些调试选项
+        // 添加调试选项
         configure: (proxy, options) => {
           proxy.on('error', (err, req, res) => {
             console.log('proxy error', err);
