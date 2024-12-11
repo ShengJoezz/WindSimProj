@@ -6,101 +6,41 @@ import { ref } from 'vue';
 import { ElMessage } from 'element-plus';
 
 export const useMapStore = defineStore('mapStore', () => {
-  // 现有状态
-  const parameters = ref({});
-  const results = ref({});
-  const windTurbines = ref([]);
+// Existing State
+// Remove case-related states from here if they exist
+// For example, if parameters, windTurbines, infoExists were here, remove them
 
-  // 新增 info.json 是否存在的状态
-  const infoExists = ref(false);
+// Example:
+// const parameters = ref({});
+// const windTurbines = ref([]);
+// const infoExists = ref(false);
 
-  // 现有 Actions
-  const setParameters = (params) => {
-    parameters.value = params;
-  };
+const mapData = ref(null); // Example map-related state
 
-  const setResults = (res) => {
-    results.value = res;
-  };
+// Existing Actions
+// Remove case-related actions
+// For example, remove setParameters, setResults, checkInfoExists, loadWindTurbines, generateInfoJson, downloadInfoJson
 
-  // 新增 Actions
-  const checkInfoExists = async (caseId) => {
-    try {
-      const response = await axios.get(`/api/cases/${caseId}/info-exists`);
-      infoExists.value = response.data.exists;
-    } catch (error) {
-      console.error('检查 info.json 失败:', error);
-      ElMessage.error('检查 info.json 失败');
-    }
-  };
+// Example:
+// const setParameters = (params) => { ... };
+// const setResults = (res) => { ... };
 
-  const loadWindTurbines = async (caseId) => {
-    try {
-      const response = await axios.get(`/api/cases/${caseId}/wind-turbines/list`);
-      windTurbines.value = response.data.windTurbines || [];
-    } catch (error) {
-      console.error('加载风机数据失败:', error);
-      windTurbines.value = [];
-      ElMessage.error('加载风机数据失败');
-    }
-  };
+const loadMapData = async () => {
+try {
+const response = await axios.get('/api/map-data');
+mapData.value = response.data;
+} catch (error) {
+console.error('加载地图数据失败:', error);
+ElMessage.error('加载地图数据失败');
+}
+};
 
-  const generateInfoJson = async (caseId) => {
-    try {
-      const response = await axios.post(`/api/cases/${caseId}/info`, {
-        parameters: parameters.value,
-        windTurbines: windTurbines.value
-      }, { responseType: 'blob' });
+return {
+// State
+mapData,
 
-      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/json' }));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', 'info.json');
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url); // 释放内存
-      ElMessage.success("info.json 生成成功并已下载");
-
-      // 更新 infoExists 为 true
-      infoExists.value = true;
-
-    } catch (error) {
-      console.error('生成 info.json 失败:', error);
-      ElMessage.error("生成 info.json 失败");
-    }
-  };
-
-  const downloadInfoJson = async (caseId) => {
-    try {
-      const response = await axios.get(`/api/cases/${caseId}/info-download`, { responseType: 'blob' });
-
-      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/json' }));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', 'info.json');
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url); // 释放内存
-      ElMessage.success("info.json 已下载");
-
-    } catch (error) {
-      console.error('下载 info.json 失败:', error);
-      ElMessage.error("下载 info.json 失败");
-    }
-  };
-
-  return {
-    parameters,
-    results,
-    windTurbines,
-    infoExists,
-    setParameters,
-    setResults,
-    loadWindTurbines,
-    generateInfoJson,
-    checkInfoExists,
-    downloadInfoJson
-  };
+// Actions
+loadMapData
+// Remove case-related actions here
+};
 });

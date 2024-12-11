@@ -1,4 +1,5 @@
 // frontend/src/router/index.js
+
 import { createRouter, createWebHistory } from 'vue-router';
 import Home from '../views/Home.vue';
 import NewCase from '../views/NewCase.vue';
@@ -23,7 +24,7 @@ const routes = [
       {
         path: 'terrain',    // 添加地形视图路由
         name: 'TerrainView',
-        component: () => import('../components/TerrainMap.vue')
+        component: () => import('../components/TerrainMap/TerrainMap.vue')
       },
       {
         path: 'parameters',

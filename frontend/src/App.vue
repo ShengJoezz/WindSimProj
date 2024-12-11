@@ -10,7 +10,7 @@
 
 <script setup>
 import Dashboard from './components/Dashboard.vue';
-import TerrainMap from './components/TerrainMap.vue';
+import TerrainMap from './components/TerrainMap/TerrainMap.vue';
 </script>
 
 <style>

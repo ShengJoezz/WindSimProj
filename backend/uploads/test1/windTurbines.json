@@ -1,0 +1,156 @@
+[
+  {
+    "id": "F2",
+    "longitude": 103.2365214,
+    "latitude": 23.91730417,
+    "hubHeight": 110,
+    "rotorDiameter": 191
+  },
+  {
+    "id": "F3",
+    "longitude": 103.2539611,
+    "latitude": 23.90948861,
+    "hubHeight": 110,
+    "rotorDiameter": 191
+  },
+  {
+    "id": "F4",
+    "longitude": 103.2544286,
+    "latitude": 23.90504194,
+    "hubHeight": 110,
+    "rotorDiameter": 191
+  },
+  {
+    "id": "F5",
+    "longitude": 103.2558353,
+    "latitude": 23.90175667,
+    "hubHeight": 110,
+    "rotorDiameter": 191
+  },
+  {
+    "id": "F6",
+    "longitude": 103.2566714,
+    "latitude": 23.89788639,
+    "hubHeight": 110,
+    "rotorDiameter": 191
+  },
+  {
+    "id": "F7",
+    "longitude": 103.2579894,
+    "latitude": 23.89441861,
+    "hubHeight": 110,
+    "rotorDiameter": 191
+  },
+  {
+    "id": "F8",
+    "longitude": 103.2491675,
+    "latitude": 23.89384056,
+    "hubHeight": 110,
+    "rotorDiameter": 191
+  },
+  {
+    "id": "F9",
+    "longitude": 103.2461369,
+    "latitude": 23.89519333,
+    "hubHeight": 110,
+    "rotorDiameter": 191
+  },
+  {
+    "id": "F10",
+    "longitude": 103.2322339,
+    "latitude": 23.88858833,
+    "hubHeight": 110,
+    "rotorDiameter": 191
+  },
+  {
+    "id": "F11",
+    "longitude": 103.2350025,
+    "latitude": 23.88667194,
+    "hubHeight": 110,
+    "rotorDiameter": 191
+  },
+  {
+    "id": "F12",
+    "longitude": 103.2420206,
+    "latitude": 23.88604583,
+    "hubHeight": 110,
+    "rotorDiameter": 191
+  },
+  {
+    "id": "F13",
+    "longitude": 103.2483903,
+    "latitude": 23.88675333,
+    "hubHeight": 110,
+    "rotorDiameter": 191
+  },
+  {
+    "id": "F14",
+    "longitude": 103.2517397,
+    "latitude": 23.88538917,
+    "hubHeight": 110,
+    "rotorDiameter": 191
+  },
+  {
+    "id": "F15",
+    "longitude": 103.2294697,
+    "latitude": 23.87532944,
+    "hubHeight": 110,
+    "rotorDiameter": 191
+  },
+  {
+    "id": "F16",
+    "longitude": 103.2310392,
+    "latitude": 23.87269278,
+    "hubHeight": 110,
+    "rotorDiameter": 191
+  },
+  {
+    "id": "F17",
+    "longitude": 103.2331064,
+    "latitude": 23.86779389,
+    "hubHeight": 110,
+    "rotorDiameter": 191
+  },
+  {
+    "id": "F18",
+    "longitude": 103.2512636,
+    "latitude": 23.87406278,
+    "hubHeight": 110,
+    "rotorDiameter": 191
+  },
+  {
+    "id": "F19",
+    "longitude": 103.253575,
+    "latitude": 23.87969556,
+    "hubHeight": 110,
+    "rotorDiameter": 191
+  },
+  {
+    "id": "F20",
+    "longitude": 103.2834331,
+    "latitude": 23.89516556,
+    "hubHeight": 110,
+    "rotorDiameter": 191
+  },
+  {
+    "id": "F21",
+    "longitude": 103.2880831,
+    "latitude": 23.90239111,
+    "hubHeight": 110,
+    "rotorDiameter": 191
+  },
+  {
+    "id": "F22",
+    "longitude": 103.2837294,
+    "latitude": 23.90492917,
+    "hubHeight": 110,
+    "rotorDiameter": 191
+  },
+  {
+    "id": "F23",
+    "longitude": 103.282085,
+    "latitude": 23.91157306,
+    "hubHeight": 110,
+    "rotorDiameter": 191
+  }
+]

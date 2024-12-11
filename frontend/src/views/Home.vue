@@ -3,10 +3,12 @@
     <div class="banner" ref="banner">
       <div class="overlay"></div>
       <div id="particles-js"></div>
-      <h1 class="title">欢迎使用该平台</h1>
-      <h2 class="subtitle">华中科技大学 刘震卿教授课题组</h2>
-      <h3 class="platform-name">风流场模拟平台</h3>
-      <p class="description">
+
+      <img src="/HUST_LOGO.png" alt="HUST Logo" class="logo" /> <div class="title-group">
+        <h1 class="title">风流场模拟平台</h1>
+        <h2 class="subtitle">华中科技大学 刘震卿教授课题组</h2>
+      </div>
+       <p class="description">
         致力于前沿技术研究，提供高效、精准的复杂地形风流场仿真解决方案。
       </p>
       <div class="scroll-down" @click="scrollToMap">
@@ -51,7 +53,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
-import TerrainMap from '../components/TerrainMap.vue';
+import TerrainMap from '../components/TerrainMap/TerrainMap.vue';
 import { gsap } from 'gsap';
 
 const route = useRoute();
@@ -68,11 +70,19 @@ onMounted(() => {
     ease: 'power3.out',
   });
 
+  gsap.from('.logo', {
+    duration: 1,
+    opacity: 0,
+    y: -50,
+    delay: 0.5,
+    ease: 'power3.out',
+  });
+
   gsap.from('.title', {
     duration: 1,
     opacity: 0,
     x: -50,
-    delay: 0.5,
+    delay: 0.8,
     ease: 'power3.out',
   });
 
@@ -80,22 +90,22 @@ onMounted(() => {
     duration: 1,
     opacity: 0,
     x: 50,
-    delay: 0.8,
+    delay: 1.1,
     ease: 'power3.out',
   });
 
-  gsap.from('.platform-name', {
+  gsap.from('.hust-name', {
     duration: 1,
     opacity: 0,
     y: 50,
-    delay: 1.2,
+    delay: 1.4,
     ease: 'power3.out',
   });
 
   gsap.from('.description', {
     duration: 1,
     opacity: 0,
-    delay: 1.5,
+    delay: 1.7,
     ease: 'power3.out',
   });
 
@@ -109,49 +119,26 @@ onMounted(() => {
     ease: 'power3.out',
   });
 
-  // 粒子特效 - 通过 window.particlesJS 调用
-  if (window.particlesJS) {
+  // 粒子特效
+  window.particlesJS &&
     window.particlesJS('particles-js', {
       particles: {
-        number: {
-          value: 80,
-          density: {
-            enable: true,
-            value_area: 800,
-          },
-        },
-        color: {
-          value: '#ffffff',
-        },
+        number: { value: 80, density: { enable: true, value_area: 800 } },
+        color: { value: '#ffffff' },
         shape: {
           type: 'circle',
-          stroke: {
-            width: 0,
-            color: '#000000',
-          },
-          polygon: {
-            nb_sides: 5,
-          },
+          stroke: { width: 0, color: '#000000' },
+          polygon: { nb_sides: 5 },
         },
         opacity: {
           value: 0.5,
           random: true,
-          anim: {
-            enable: true,
-            speed: 1,
-            opacity_min: 0.1,
-            sync: false,
-          },
+          anim: { enable: true, speed: 1, opacity_min: 0.1, sync: false },
         },
         size: {
           value: 3,
           random: true,
-          anim: {
-            enable: false,
-            speed: 40,
-            size_min: 0.1,
-            sync: false,
-          },
+          anim: { enable: false, speed: 40, size_min: 0.1, sync: false },
         },
         line_linked: {
           enable: true,
@@ -168,61 +155,30 @@ onMounted(() => {
           straight: false,
           out_mode: 'out',
           bounce: false,
-          attract: {
-            enable: false,
-            rotateX: 600,
-            rotateY: 1200,
-          },
+          attract: { enable: false, rotateX: 600, rotateY: 1200 },
         },
       },
       interactivity: {
         detect_on: 'canvas',
         events: {
-          onhover: {
-            enable: true,
-            mode: 'grab',
-          },
-          onclick: {
-            enable: true,
-            mode: 'push',
-          },
+          onhover: { enable: true, mode: 'grab' },
+          onclick: { enable: true, mode: 'push' },
           resize: true,
         },
         modes: {
-          grab: {
-            distance: 140,
-            line_linked: {
-              opacity: 1,
-            },
-          },
-          bubble: {
-            distance: 400,
-            size: 40,
-            duration: 2,
-            opacity: 8,
-            speed: 3,
-          },
-          repulse: {
-            distance: 200,
-            duration: 0.4,
-          },
-          push: {
-            particles_nb: 4,
-          },
-          remove: {
-            particles_nb: 2,
-          },
+          grab: { distance: 140, line_linked: { opacity: 1 } },
+          bubble: { distance: 400, size: 40, duration: 2, opacity: 8, speed: 3 },
+          repulse: { distance: 200, duration: 0.4 },
+          push: { particles_nb: 4 },
+          remove: { particles_nb: 2 },
         },
       },
       retina_detect: true,
     });
-  }
 });
 
 const scrollToMap = () => {
-  if (mapSection.value) {
-    mapSection.value.scrollIntoView({ behavior: 'smooth' });
-  }
+  mapSection.value?.scrollIntoView({ behavior: 'smooth' });
 };
 </script>
 
@@ -306,26 +262,37 @@ const scrollToMap = () => {
   }
 }
 
+.logo {
+  width: 200px;
+  height: auto;
+  margin-bottom: 10px;
+  z-index: 2;
+}
+
+.title-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 1;
+}
+
 .title {
   font-size: 60px;
   font-weight: bold;
   margin-bottom: 20px;
   text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
-  z-index: 1;
 }
 
 .subtitle {
-  font-size: 42px;
+  font-size: 30px;
   font-weight: bold;
   margin-bottom: 15px;
-  z-index: 1;
 }
 
-.platform-name {
-  font-size: 36px;
-  font-weight: 600;
+.hust-name {
+  width: 400px;
+  height: auto;
   margin-bottom: 30px;
-  color: #f8f8f8;
   z-index: 1;
 }
 
@@ -422,6 +389,19 @@ const scrollToMap = () => {
 .intro-icon {
   font-size: 36px;
   color: #fff;
+  /* 如果是图标字体 */
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.intro-icon img {
+  /* 如果是图片 */
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .intro-card:hover .intro-icon {
