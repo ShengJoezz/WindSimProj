@@ -1,3 +1,9 @@
+
+
+
+
+
+
 <template>
   <div class="parameter-settings">
     <h3>参数设置</h3>
@@ -173,7 +179,6 @@
             v-model="caseStore.parameters.simulation.cores"
             :min="1"
             style="width: 120px;"
-            :disabled="caseStore.infoExists"
           />
         </el-form-item>
         <el-form-item label="步数" prop="simulation.steps" :inline="true">
@@ -181,7 +186,13 @@
             v-model="caseStore.parameters.simulation.steps"
             :min="1"
             style="width: 120px;"
-            :disabled="caseStore.infoExists"
+          />
+        </el-form-item>
+        <el-form-item label="时间步长" prop="simulation.deltaT" :inline="true">
+          <el-input-number
+            v-model="caseStore.parameters.simulation.deltaT"
+            :min="0.001"
+            style="width: 120px;"
           />
         </el-form-item>
       </el-form-item>

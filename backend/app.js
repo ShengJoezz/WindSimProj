@@ -39,7 +39,7 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: 'http://localhost:5173', // 前端地址，根据您的实际情况调整
+    origin: 'http://localhost:8080', // 前端地址，根据您的实际情况调整
     methods: ['GET', 'POST'],
   },
 });

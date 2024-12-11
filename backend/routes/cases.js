@@ -4,7 +4,8 @@ const Joi = require('joi');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const { spawn } = require('child_process'); 
+const { exec } = require('child_process'); // 导入 child_process 的 exec
+const { spawn } = require('child_process');
 
 // Multer 存储配置：首先上传到临时目录
 const storage = multer.diskStorage({
@@ -45,7 +46,7 @@ const upload = multer({
 ]);
 
 /**
- * 1. 创建新案例
+ * 创建新案例
  * POST /api/cases
  */
 router.post('/', (req, res) => {
@@ -59,28 +60,25 @@ router.post('/', (req, res) => {
       console.error('Upload Error:', err.message);
       return res.status(400).json({ success: false, message: err.message });
     }
-
     const caseName = req.body.caseName;
     if (!caseName) {
       return res.status(400).json({ success: false, message: '工况名称不能为空' });
     }
-
-    // 创建目标目录
-    const targetDir = path.join(__dirname, '../uploads', caseName);
-    fs.mkdirSync(targetDir, { recursive: true });
-
+    // 创建目标目录（这行代码重复了，可以删除）
+    // const targetDir = path.join(__dirname, '../uploads', caseName);
+    // fs.mkdirSync(targetDir, { recursive: true });
+    
     // 将 terrainFile 从临时目录移动到目标目录
     if (req.files['terrainFile'] && req.files['terrainFile'][0]) {
       const terrainFile = req.files['terrainFile'][0];
       const tempPath = terrainFile.path;
-      const targetPath = path.join(targetDir, terrainFile.filename);
+      const targetPath = path.join(path.dirname(tempPath), terrainFile.filename); // 使用 path.dirname 获取临时目录
       fs.renameSync(tempPath, targetPath);
       console.log(`Moved terrainFile to ${targetPath}`);
     } else {
       console.error('terrainFile is missing');
       return res.status(400).json({ success: false, message: '请上传 GeoTIFF 文件' });
     }
-
     res.json({ success: true, message: '工况创建成功', caseName: caseName });
   });
 });
@@ -108,7 +106,6 @@ router.get('/', (req, res) => {
 router.get('/:caseId/wind-turbines/list', (req, res) => {
   const { caseId } = req.params;
   const turbinesJsonPath = path.join(__dirname, '../uploads', caseId, 'windTurbines.json');
-
   // 检查 windTurbines.json 是否存在
   if (!fs.existsSync(turbinesJsonPath)) {
     console.log(`No wind turbines data found for case: ${caseId}`);
@@ -132,7 +129,6 @@ router.get('/:caseId/wind-turbines/list', (req, res) => {
 router.post('/:caseId/wind-turbines', async (req, res) => {
   const { caseId } = req.params;
   const windTurbines = req.body;
-
   if (!windTurbines) {
     return res.status(400).json({ success: false, message: '风机数据缺失' });
   }
@@ -154,12 +150,11 @@ router.post('/:caseId/wind-turbines', async (req, res) => {
  */
 router.get('/:caseId/terrain', (req, res) => {
   const { caseId } = req.params;
-
   // 验证 caseId
   if (!caseId || caseId === 'undefined' || caseId === 'null') {
     return res.status(400).json({
       success: false,
-      message: '请先选择工况'
+      message: '请先选择工况',
     });
   }
 
@@ -169,7 +164,7 @@ router.get('/:caseId/terrain', (req, res) => {
   if (!fs.existsSync(casePath)) {
     return res.status(404).json({
       success: false,
-      message: '工况不存在'
+      message: '工况不存在',
     });
   }
 
@@ -179,18 +174,18 @@ router.get('/:caseId/terrain', (req, res) => {
   if (!fs.existsSync(terrainFilePath)) {
     return res.status(404).json({
       success: false,
-      message: '未找到地形数据'
+      message: '未找到地形数据',
     });
   }
 
   res.sendFile(terrainFilePath, {
-    headers: { 'Content-Type': 'image/tiff' }
+    headers: { 'Content-Type': 'image/tiff' },
   }, (err) => {
     if (err) {
       console.error('发送GeoTIFF文件失败:', err);
       res.status(500).json({
         success: false,
-        message: '服务器错误'
+        message: '服务器错误',
       });
     }
   });
@@ -203,7 +198,6 @@ router.get('/:caseId/terrain', (req, res) => {
 router.delete('/:caseId', (req, res) => {
   const { caseId } = req.params;
   const casePath = path.join(__dirname, '../uploads', caseId);
-
   console.log('\n=== DELETE 请求处理 ===');
   console.log('caseId:', caseId);
   console.log('完整路径:', casePath);
@@ -231,7 +225,7 @@ router.delete('/:caseId', (req, res) => {
     res.status(500).json({
       success: false,
       message: '删除工况失败',
-      error: err.message
+      error: err.message,
     });
   }
 });
@@ -245,7 +239,6 @@ router.get('/:caseId/parameters', (req, res) => {
   const casePath = path.join(__dirname, '../uploads', caseId);
   const parametersPath = path.join(casePath, 'parameters.json');
   const infoJsonPath = path.join(casePath, 'info.json'); // 添加 info.json 路径
-
   try {
     let parameters = {};
 
@@ -333,12 +326,11 @@ router.post('/:caseId/parameters', (req, res) => {
   const parameters = req.body;
   const casePath = path.join(__dirname, '../uploads', caseId);
   const parametersPath = path.join(casePath, 'parameters.json');
-
   try {
     if (!fs.existsSync(casePath)) {
       return res.status(404).json({
         success: false,
-        message: '工况不存在'
+        message: '工况不存在',
       });
     }
 
@@ -347,13 +339,13 @@ router.post('/:caseId/parameters', (req, res) => {
 
     res.json({
       success: true,
-      message: '参数保存成功'
+      message: '参数保存成功',
     });
   } catch (error) {
     console.error('保存参数失败:', error);
     res.status(500).json({
       success: false,
-      message: '保存参数失败'
+      message: '保存参数失败',
     });
   }
 });
@@ -366,26 +358,25 @@ router.get('/:caseId/results', (req, res) => {
   const { caseId } = req.params;
   const casePath = path.join(__dirname, '../uploads', caseId);
   const resultsPath = path.join(casePath, 'results.json');
-
   try {
     if (!fs.existsSync(resultsPath)) {
       return res.json({
         success: true,
         results: null,
-        message: '暂无计算结果'
+        message: '暂无计算结果',
       });
     }
 
     const results = JSON.parse(fs.readFileSync(resultsPath, 'utf-8'));
     res.json({
       success: true,
-      results: results
+      results: results,
     });
   } catch (error) {
     console.error('获取结果失败:', error);
     res.status(500).json({
       success: false,
-      message: '获取结果失败'
+      message: '获取结果失败',
     });
   }
 });
@@ -397,13 +388,12 @@ router.get('/:caseId/results', (req, res) => {
 router.post('/:caseId/calculate', (req, res) => {
   const { caseId } = req.params;
   const casePath = path.join(__dirname, '../uploads', caseId);
-
   try {
     // 检查案例是否存在
     if (!fs.existsSync(casePath)) {
       return res.status(404).json({
         success: false,
-        message: '工况不存在'
+        message: '工况不存在',
       });
     }
 
@@ -415,26 +405,26 @@ router.post('/:caseId/calculate', (req, res) => {
       timestamp: new Date().toISOString(),
       metrics: {
         totalPower: Math.random() * 100, // 示例指标
-        averageWindSpeed: Math.random() * 10 + 5 // 示例指标
-      }
+        averageWindSpeed: Math.random() * 10 + 5, // 示例指标
+      },
     };
 
     // 保存模拟结果
     fs.writeFileSync(
       path.join(casePath, 'results.json'),
-      JSON.stringify(mockResults, null, 2)
+      JSON.stringify(mockResults, null, 2),
     );
 
     res.json({
       success: true,
       message: '计算已完成',
-      results: mockResults
+      results: mockResults,
     });
   } catch (error) {
     console.error('启动计算失败:', error);
     res.status(500).json({
       success: false,
-      message: '启动计算失败'
+      message: '启动计算失败',
     });
   }
 });
@@ -446,7 +436,6 @@ router.post('/:caseId/calculate', (req, res) => {
 router.get('/:caseId/info-exists', (req, res) => {
   const { caseId } = req.params;
   const infoJsonPath = path.join(__dirname, '../uploads', caseId, 'info.json');
-
   console.log(`Received /info-exists request for caseId: ${caseId}`);
   console.log(`Checking info.json path: ${infoJsonPath}`);
 
@@ -467,13 +456,12 @@ router.get('/:caseId/info-exists', (req, res) => {
 router.get('/:caseId/info-download', (req, res) => {
   const { caseId } = req.params;
   const infoJsonPath = path.join(__dirname, '../uploads', caseId, 'info.json');
-
   if (!fs.existsSync(infoJsonPath)) {
     return res.status(404).json({ success: false, message: 'info.json 不存在' });
   }
 
   res.sendFile(infoJsonPath, {
-    headers: { 'Content-Type': 'application/json' }
+    headers: { 'Content-Type': 'application/json' },
   }, (err) => {
     if (err) {
       console.error('发送 info.json 失败:', err);
@@ -494,14 +482,13 @@ const turbineSchema = Joi.object({
   type: Joi.string().optional(),
   name: Joi.string().optional(), // 添加这一行，允许 'name' 为可选字段
 });
-
 const schema = Joi.object({
   parameters: Joi.object().required(),
   windTurbines: Joi.array().items(turbineSchema).min(1).required(),
 });
 
 // 为了确认 schema 已正确更新，可以打印其描述
-console.log("Joi Schema Description:", JSON.stringify(schema.describe(), null, 2));
+console.log('Joi Schema Description:', JSON.stringify(schema.describe(), null, 2));
 
 /**
  * 辅助函数：计算 x 和 y 坐标
@@ -512,12 +499,11 @@ console.log("Joi Schema Description:", JSON.stringify(schema.describe(), null, 2
  * @returns {Object} - 包含 x 和 y 的对象
  */
 const calculateXY = (lon, lat, centerLon, centerLat) => {
-  console.log("calculateXY - Input:", { lon, lat, centerLon, centerLat });
+  console.log('calculateXY - Input:', { lon, lat, centerLon, centerLat });
   const EARTH_RADIUS = 6371000; // 地球半径，单位：米
   const RAD_PER_DEG = Math.PI / 180;
   const METER_PER_DEG_LAT = EARTH_RADIUS * RAD_PER_DEG; // 每度纬度对应的米数
   const LONG_LAT_RATIO = Math.cos(centerLat * RAD_PER_DEG); // 经度与纬度的比例因子
-
   const tempAngle = 0 * RAD_PER_DEG; // 旋转角度，单位：弧度（0 表示不旋转）
 
   // 计算相对中心的 x 和 y
@@ -528,7 +514,7 @@ const calculateXY = (lon, lat, centerLon, centerLat) => {
   const projx = tempX * Math.cos(tempAngle) - tempY * Math.sin(tempAngle);
   const projy = tempY * Math.cos(tempAngle) + tempX * Math.sin(tempAngle);
 
-  console.log("calculateXY - Output:", { x: projx, y: projy });
+  console.log('calculateXY - Output:', { x: projx, y: projy });
   return { x: projx, y: projy };
 };
 
@@ -537,43 +523,35 @@ const calculateXY = (lon, lat, centerLon, centerLat) => {
  * POST /api/cases/:caseId/info
  */
 router.post('/:caseId/info', async (req, res) => {
-  console.log("Request Body (Before Validation):", JSON.stringify(req.body, null, 2)); 
+  console.log('Request Body (Before Validation):', JSON.stringify(req.body, null, 2));
   try {
     // 进行数据验证
     const { error, value } = schema.validate(req.body, { abortEarly: false }); // Added abortEarly: false
     if (error) {
-      console.error("Validation Error:", error.details);
+      console.error('Validation Error:', error.details);
       const errorMessages = error.details.map(detail => detail.message);
       return res.status(400).json({ success: false, message: errorMessages }); // Send all validation errors
     }
-
     const caseId = req.params.caseId;
     const { parameters, windTurbines } = value;
-
     // 增加风机数量的检查
     if (!windTurbines || windTurbines.length === 0) {
       return res.status(400).json({ success: false, message: '请先导入至少一个风机' });
     }
-
     // 提取所有经度和纬度
     const longitudes = windTurbines.map(turbine => turbine.longitude);
     const latitudes = windTurbines.map(turbine => turbine.latitude);
-
-    console.log("Wind Turbines Longitudes:", longitudes);
-    console.log("Wind Turbines Latitudes:", latitudes);
-
+    console.log('Wind Turbines Longitudes:', longitudes);
+    console.log('Wind Turbines Latitudes:', latitudes);
     // 计算经度的最大值和最小值
     const minLon = Math.min(...longitudes);
     const maxLon = Math.max(...longitudes);
     const centerLon = (minLon + maxLon) / 2;
-
     // 计算纬度的最大值和最小值
     const minLat = Math.min(...latitudes);
     const maxLat = Math.max(...latitudes);
     const centerLat = (minLat + maxLat) / 2;
-
-    console.log("Center Coordinates:", { centerLon, centerLat });
-
+    console.log('Center Coordinates:', { centerLon, centerLat });
     // 构造 info.json 结构
     const infoJson = {
       key: caseId, // 使用 caseId 作为 key
@@ -612,7 +590,7 @@ router.post('/:caseId/info', async (req, res) => {
       },
       turbines: windTurbines.map(turbine => {
         const { x, y } = calculateXY(turbine.longitude, turbine.latitude, centerLon, centerLat);
-        console.log("Turbine Data:", turbine);
+        console.log('Turbine Data:', turbine);
         return {
           id: turbine.id,
           lon: turbine.longitude,
@@ -621,7 +599,7 @@ router.post('/:caseId/info', async (req, res) => {
           d: turbine.rotorDiameter, // 使用 'rotorDiameter' 作为 'd'
           x: x,
           y: y,
-          type: turbine.type || "GWH191-6.7",
+          type: turbine.type || 'GWH191-6.7',
         };
       }),
       center: { // 将中心经纬度作为 info.json 的一部分
@@ -629,20 +607,16 @@ router.post('/:caseId/info', async (req, res) => {
         lat: centerLat,
       },
     };
-
-    console.log("Generated infoJson:", JSON.stringify(infoJson, null, 2)); // 调试日志
-
+    console.log('Generated infoJson:', JSON.stringify(infoJson, null, 2));
+    // 调试日志
     const casePath = path.join(__dirname, '../uploads', caseId);
     fs.mkdirSync(casePath, { recursive: true });
-
     const infoJsonPath = path.join(casePath, 'info.json');
-
     fs.writeFileSync(infoJsonPath, JSON.stringify(infoJson, null, 2), 'utf-8');
     console.log(`info.json 已保存到 ${infoJsonPath}`);
-
     res.json({ success: true, message: 'info.json 生成成功' });
   } catch (error) {
-    console.error("生成和保存 info.json 失败:", error);
+    console.error('生成和保存 info.json 失败:', error);
     return res.status(500).json({ success: false, message: '生成和保存 info.json 失败' });
   }
 });
@@ -679,9 +653,6 @@ router.post('/:caseId/run', (req, res) => {
     const output = data.toString();
     console.log(`run.sh stdout: ${output}`);
 
-    // 发送日志消息
-    io.to(caseId).emit('log', output.trim());
-
     // 解析进度信息，例如 "Progress: 10%"
     const progressMatch = output.match(/Progress:\s+(\d+)%/);
     if (progressMatch) {
@@ -690,6 +661,9 @@ router.post('/:caseId/run', (req, res) => {
         io.to(caseId).emit('calculationProgress', percent);
         console.log(`发送进度: ${percent}%`);
       }
+    } else {
+      // 其他输出可以选择是否需要处理
+      // io.to(caseId).emit('log', output);
     }
   });
 
@@ -697,7 +671,7 @@ router.post('/:caseId/run', (req, res) => {
   child.stderr.on('data', (data) => {
     const errorOutput = data.toString();
     console.error(`run.sh stderr: ${errorOutput}`);
-    io.to(caseId).emit('calculationError', { message: '脚本错误', details: errorOutput.trim() });
+    io.to(caseId).emit('calculationError', { message: '脚本错误', details: errorOutput });
   });
 
   // 处理脚本结束
@@ -720,6 +694,5 @@ router.post('/:caseId/run', (req, res) => {
     res.status(500).json({ success: false, message: '运行脚本时发生错误' });
   });
 });
-
 
 module.exports = router;
