@@ -1,5 +1,3 @@
-// backend/app.js
-
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -7,6 +5,7 @@ const http = require('http'); // 新增
 const { Server } = require('socket.io'); // 新增
 
 const casesRouter = require('./routes/cases');
+const errorHandler = require('./middleware/errorHandler'); // 引入错误处理中间件
 
 const app = express();
 
@@ -29,33 +28,31 @@ app.use((req, res, next) => {
 });
 
 // 全局错误处理
-app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(500).json({ success: false, message: '服务器内部错误' });
-});
+app.use(errorHandler);
+
 
 // 创建 HTTP 服务器并集成 Socket.io
 const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: 'http://localhost:8080', // 前端地址，根据您的实际情况调整
+    origin: 'http://localhost:5173', // 前端地址，根据您的实际情况调整
     methods: ['GET', 'POST'],
   },
 });
 
 // 处理 Socket.io 连接
 io.on('connection', (socket) => {
-  console.log('新客户端已连接');
+  console.log('新客户端已连接:', socket.id);
 
   // 处理加入案例房间
   socket.on('joinCase', (caseId) => {
     socket.join(caseId);
-    console.log(`客户端加入案例房间: ${caseId}`);
+    console.log(`客户端 ${socket.id} 加入案例房间: ${caseId}`);
   });
 
   socket.on('disconnect', () => {
-    console.log('客户端已断开连接');
+    console.log('客户端已断开连接:', socket.id);
   });
 });
 

@@ -1,5 +1,3 @@
-// frontend/src/store/caseStore.js
-
 import { defineStore } from 'pinia';
 import axios from 'axios';
 import { ref } from 'vue';
@@ -7,46 +5,50 @@ import { ElMessage } from 'element-plus';
 
 export const useCaseStore = defineStore('caseStore', () => {
   // State
-  const caseId = ref(null); // 案例的唯一标识符
-  const caseName = ref(null); // 案例的显示名称
+  const caseId = ref(null);
+  const caseName = ref(null);
   const parameters = ref({
-    calculationDomain: {
-      width: 10000,
-      height: 800
-    },
-    conditions: {
-      windDirection: 0,
-      inletWindSpeed: 10
-    },
+    calculationDomain: { width: 10000, height: 800 },
+    conditions: { windDirection: 0, inletWindSpeed: 10 },
     grid: {
-      encryptionHeight: 210,
-      encryptionLayers: 21,
-      gridGrowthRate: 1.2,
-      maxExtensionLength: 360,
-      encryptionRadialLength: 50,
-      downstreamRadialLength: 100,
-      encryptionRadius: 200,
-      encryptionTransitionRadius: 400,
-      terrainRadius: 4000,
-      terrainTransitionRadius: 5000,
-      downstreamLength: 2000,
-      downstreamWidth: 600,
-      scale: 0.001
+      encryptionHeight: 210, encryptionLayers: 21, gridGrowthRate: 1.2, maxExtensionLength: 360,
+      encryptionRadialLength: 50, downstreamRadialLength: 100, encryptionRadius: 200,
+      encryptionTransitionRadius: 400, terrainRadius: 4000, terrainTransitionRadius: 5000,
+      downstreamLength: 2000, downstreamWidth: 600, scale: 0.001
     },
-    simulation: {
-      cores: 1,
-      steps: 100
-    },
-    postProcessing: {
-      resultLayers: 10,
-      layerSpacing: 20,
-      layerDataWidth: 1000,
-      layerDataHeight: 1000
-    }
+    simulation: { cores: 1, steps: 100 },
+    postProcessing: { resultLayers: 10, layerSpacing: 20, layerDataWidth: 1000, layerDataHeight: 1000 }
   });
   const windTurbines = ref([]);
   const infoExists = ref(false);
   const results = ref({});
+  const calculationStatus = ref('not_started'); // 新增计算状态
+    const isCalculating = ref(false);
+  const currentTask = ref(null);
+  const overallProgress = ref(0);
+  const calculationOutputs = ref([]);
+    const tasks = ref([
+        {
+            id: 'computation_start',
+            name: '计算启动',
+            status: 'pending',
+            icon: 'Loading' // 新增默认图标
+        },
+        { id: 'clean_files', name: '清理文件', status: 'pending' },
+        { id: 'rebuild_directories', name: '重建目录', status: 'pending' },
+        { id: 'copy_files', name: '复制文件', status: 'pending' },
+        { id: 'change_directory', name: '进入运行目录', status: 'pending' },
+        { id: 'modeling', name: '模型构建', status: 'pending' },
+        { id: 'build_terrain', name: '地形构建', status: 'pending' },
+        { id: 'make_input', name: '生成输入文件', status: 'pending' },
+        { id: 'gambit_to_foam', name: 'Gambit到Foam转换', status: 'pending' },
+        { id: 'modify_boundaries', name: '修改边界', status: 'pending' },
+        { id: 'decompose_parallel', name: '并行分解', status: 'pending' },
+        { id: 'run_admfoam', name: '运行计算', status: 'pending' },
+        { id: 'post_process', name: '后处理', status: 'pending' },
+        { id: 'execute_post_script', name: '执行后处理脚本', status: 'pending' },
+        { id: 'computation_end', name: '计算完成', status: 'pending' },
+    ]);
 
   // Actions
 
@@ -62,10 +64,21 @@ export const useCaseStore = defineStore('caseStore', () => {
     }
 
     caseId.value = id;
-    caseName.value = name || id; // 如果未提供名称，则回退到 id
-    await checkInfoExists();
-    await fetchParameters();
-    await fetchWindTurbines();
+    caseName.value = name || id;
+
+     // 并行执行所有初始化操作
+    const [statusResult, paramsResult, turbinesResult] = await Promise.all([
+      fetchCalculationStatus(),
+      fetchParameters(),
+      fetchWindTurbines()
+    ]);
+
+    // 如果获取计算状态失败，可以稍后重试
+    if (!statusResult) {
+      setTimeout(async () => {
+        await fetchCalculationStatus();
+      }, 2000);
+    }
   };
 
   /**
@@ -112,6 +125,22 @@ export const useCaseStore = defineStore('caseStore', () => {
     }
   };
 
+   /**
+   * 获取计算状态
+   */
+    const fetchCalculationStatus = async () => {
+        try {
+            const response = await axios.get(`/api/cases/${caseId.value}/calculation-status`);
+            calculationStatus.value = response.data.calculationStatus;
+             return true;
+        } catch (error) {
+            console.error('获取计算状态失败:', error);
+            // 设置一个默认状态而不是抛出错误
+            calculationStatus.value = 'not_started';
+            return false;
+        }
+    };
+
   /**
    * 将仿真参数提交到后端。
    */
@@ -146,6 +175,7 @@ export const useCaseStore = defineStore('caseStore', () => {
 
       if (response.data.success) {
         ElMessage.success('info.json 生成成功');
+        calculationStatus.value = 'not_completed';
         infoExists.value = true;
       } else {
         throw new Error(response.data.message || '生成 info.json 失败');
@@ -278,13 +308,55 @@ export const useCaseStore = defineStore('caseStore', () => {
     }
   };
 
-  /**
-   * 设置计算结果
-   * @param {Object} newResults 
-   */
-  const setResults = (newResults) => {
-    results.value = newResults;
-  };
+    /**
+     * 设置计算结果
+     * @param {Object} newResults
+     */
+    const setResults = (newResults) => {
+        results.value = newResults;
+        calculationStatus.value = 'completed'; // 更新计算状态为完成
+    };
+
+    // 新增计算进度状态持久化
+    const saveCalculationProgress = async () => {
+        const progressData = {
+          isCalculating: isCalculating.value,
+          currentTask: currentTask.value,
+          tasks: tasks.value,
+            progress: overallProgress.value,
+            outputs: calculationOutputs.value
+        };
+        
+        localStorage.setItem(`calculation_${caseId.value}`, JSON.stringify(progressData));
+        
+        // 同时保存到后端
+        try {
+            await axios.post(`/api/cases/${caseId.value}/calculation-progress`, progressData);
+        } catch (error) {
+            console.error('保存计算进度失败:', error);
+        }
+    };
+    
+    // 加载计算进度
+    const loadCalculationProgress = async () => {
+        try {
+             // 先从后端获取
+            const response = await axios.get(`/api/cases/${caseId.value}/calculation-progress`);
+            if (response.data.progress) {
+              return response.data.progress;
+            }
+
+            // 如果后端没有，尝试从本地存储获取
+           const savedProgress = localStorage.getItem(`calculation_${caseId.value}`);
+           if (savedProgress) {
+              return JSON.parse(savedProgress);
+            }
+        } catch (error) {
+            console.error('加载计算进度失败:', error);
+        }
+        return null;
+    };
+
 
   return {
     // State
@@ -294,18 +366,27 @@ export const useCaseStore = defineStore('caseStore', () => {
     windTurbines,
     infoExists,
     results,
+    calculationStatus,
+      isCalculating,
+      currentTask,
+      overallProgress,
+    calculationOutputs,
+    tasks,
 
     // Actions
     initializeCase,
     fetchParameters,
     fetchWindTurbines,
     checkInfoExists,
+    fetchCalculationStatus,
     submitParameters,
     generateInfoJson,
     downloadInfoJson,
     addWindTurbine,
     removeWindTurbine,
     updateWindTurbine,
-    setResults, // 确保 setResults 被正确导出
+      setResults,
+       saveCalculationProgress,
+      loadCalculationProgress
   };
 });

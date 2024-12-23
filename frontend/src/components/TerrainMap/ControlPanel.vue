@@ -1,7 +1,7 @@
 <!-- frontend/src/components/ControlPanel.vue -->
 <template>
   <el-drawer
-    v-model:visible="localVisible"
+    v-model="localVisible"
     direction="ltr"
     size="350px"
     :with-header="false"
@@ -111,9 +111,16 @@ const activeSections = ref(["controlPanel"]);
 const localBladeRotation = ref(props.bladeRotation);
 const localRotationSpeed = ref(props.rotationSpeed);
 
-// 同步 visible
+// 确保正确响应 visible 的变化
 watch(() => props.visible, (newVal) => {
+  console.log('Visible prop changed:', newVal);
   localVisible.value = newVal;
+});
+
+// 同时监听 localVisible 的变化
+watch(() => localVisible.value, (newVal) => {
+  console.log('Local visible changed:', newVal);
+  emit('update:visible', newVal);
 });
 
 // 关闭抽屉

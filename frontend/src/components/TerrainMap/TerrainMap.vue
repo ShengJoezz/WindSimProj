@@ -121,12 +121,18 @@ const formattedGeoBounds = computed(() => {
 // 方法
 
 // 切换侧边栏
+// 修改 toggleSidebar 方法
 const toggleSidebar = (type) => {
-  if (type === "control") {
-    sidebars.value.management = false;
-  } else if (type === "management") {
-    sidebars.value.control = false;
-  }
+  console.log('Toggling sidebar:', type, 'Current state:', sidebars.value[type]);
+  
+  // 关闭其他侧边栏
+  Object.keys(sidebars.value).forEach(key => {
+    if (key !== type) {
+      sidebars.value[key] = false;
+    }
+  });
+  
+  // 切换目标侧边栏
   sidebars.value[type] = !sidebars.value[type];
 };
 

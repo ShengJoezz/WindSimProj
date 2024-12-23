@@ -1,9 +1,3 @@
-
-
-
-
-
-
 <template>
   <div class="parameter-settings">
     <h3>参数设置</h3>
@@ -238,12 +232,12 @@
         <el-input readonly :value="centerCoordinates" clearable />
       </el-form-item>
 
-      <!-- 按钮区域 -->
-      <el-form-item>
+     <!-- 按钮区域 -->
+     <el-form-item>
         <el-button
           type="primary"
           @click="handleGenerateClick"
-          :disabled="caseStore.infoExists || caseStore.windTurbines.length === 0"
+           :disabled="caseStore.infoExists || caseStore.windTurbines.length === 0"
         >
           提交参数
         </el-button>
@@ -320,7 +314,7 @@ const rules = {
 
 // Handle parameter submission
 const handleGenerateClick = async () => {
-  console.log("handleGenerateClick called!"); // Add this for debugging
+  console.log("handleGenerateClick called!");
   if (caseStore.windTurbines.length === 0) {
     ElMessage.error('请先上传风机数据');
     return;
@@ -329,7 +323,9 @@ const handleGenerateClick = async () => {
   try {
     await formRef.value.validate();
     await caseStore.submitParameters();
+    // 添加这一行，确保生成 info.json
     await caseStore.generateInfoJson();
+    
     submissionSuccess.value = true;
     submissionMessage.value = '参数提交成功，info.json 已生成';
     ElMessage.success('参数提交成功，info.json 已生成');

@@ -24,8 +24,17 @@ import 'element-plus/dist/index.css';
 // 导入全局样式文件，用于应用的全局样式。
 import './assets/styles.css';
 
+import * as ElementPlusIconsVue from '@element-plus/icons-vue'; // 添加这行
+
 // 使用createApp函数创建一个新的Vue应用实例。
 const app = createApp(App);
+// 使用Element Plus库，将其添加到Vue应用中。
+// 这使得应用能够使用Element Plus提供的各种UI组件。
+for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+    app.component(key, component)
+  }
+  
+  app.use(ElementPlus)
 
 // 使用createPinia创建Pinia实例，并将其添加到Vue应用中。
 // Pinia实例用于管理应用的状态。
@@ -35,9 +44,6 @@ app.use(createPinia());
 // 这使得应用能够响应路由的变化。
 app.use(router);
 
-// 使用Element Plus库，将其添加到Vue应用中。
-// 这使得应用能够使用Element Plus提供的各种UI组件。
-app.use(ElementPlus);
 
 // 将Vue应用实例挂载到id为'app'的DOM元素上。
 // 这是应用渲染的起点。
