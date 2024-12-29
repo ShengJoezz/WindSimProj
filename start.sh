@@ -10,5 +10,4 @@ echo "Starting backend..."
 cd ../backend
 node app.js &  
 
-
 wait

@@ -7,12 +7,13 @@
     :with-header="false"
     custom-class="sidebar-drawer"
     :before-close="handleClose"
+    aria-labelledby="windTurbineManagementTitle"
   >
     <div class="sidebar-container management-panel">
       <el-collapse v-model="activeSections" accordion>
         <el-collapse-item name="windTurbineManagement">
           <template #title>
-            <h3 class="collapse-title">
+            <h3 class="collapse-title" id="windTurbineManagementTitle">
               <i class="el-icon-wind-power"></i> 风机管理
             </h3>
           </template>
@@ -79,9 +80,20 @@ const activeSections = ref(["windTurbineManagement"]);
 const activeTab = ref("add");
 
 // Sync localVisible with prop
-watch(() => props.visible, (newVal) => {
-  localVisible.value = newVal;
-});
+watch(
+  () => props.visible,
+  (newVal) => {
+    localVisible.value = newVal;
+  },
+  { immediate: true }
+);
+
+watch(
+  () => localVisible.value,
+  (newVal) => {
+    emit("update:visible", newVal);
+  }
+);
 
 const handleClose = () => {
   emit("update:visible", false);

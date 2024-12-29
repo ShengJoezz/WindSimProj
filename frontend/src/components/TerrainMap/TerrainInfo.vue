@@ -1,5 +1,5 @@
 <template>
-  <div class="terrain-info">
+  <div class="terrain-info" role="region" aria-label="Terrain Information">
     <el-card class="info-card">
       <template #header>
         <div class="card-header">
@@ -12,8 +12,15 @@
           <div class="section-title">地形高程</div>
           <div class="color-scale">
             <div class="gradient-bar"></div>
-            <div class="scale-labels">
-              <span v-for="label in elevationLabels" :key="label" class="scale-label">{{ label }}m</span>
+            <div class="scale-labels" role="list">
+              <span
+                v-for="label in elevationLabels"
+                :key="label"
+                class="scale-label"
+                role="listitem"
+              >
+                {{ label }}m
+              </span>
             </div>
           </div>
         </div>
@@ -28,9 +35,9 @@
                   <i class="el-icon-top-left" /> 经度范围
                 </td>
                 <td class="bounds-value">
-                  <span class="value-longitude">{{ geographicBounds.minLon }}°</span>
+                  <span class="value-longitude">{{ geographicBounds.minLon ?? 'N/A' }}°</span>
                   <span class="tilde">~</span>
-                  <span class="value-longitude">{{ geographicBounds.maxLon }}°</span>
+                  <span class="value-longitude">{{ geographicBounds.maxLon ?? 'N/A' }}°</span>
                 </td>
               </tr>
               <tr class="bounds-table-row">
@@ -38,9 +45,9 @@
                   <i class="el-icon-bottom-right" /> 纬度范围
                 </td>
                 <td class="bounds-value">
-                  <span class="value-latitude">{{ geographicBounds.minLat }}°</span>
+                  <span class="value-latitude">{{ geographicBounds.minLat ?? 'N/A' }}°</span>
                   <span class="tilde">~</span>
-                  <span class="value-latitude">{{ geographicBounds.maxLat }}°</span>
+                  <span class="value-latitude">{{ geographicBounds.maxLat ?? 'N/A' }}°</span>
                 </td>
               </tr>
             </tbody>
@@ -96,7 +103,7 @@ const props = defineProps({
 }
 
 .info-content {
-  padding: 10px; 
+  padding: 10px;
 }
 
 /* Section Styles */
@@ -113,7 +120,7 @@ const props = defineProps({
 }
 
 .gradient-bar {
-  height: 18px; 
+  height: 18px;
   border-radius: 4px;
   background: linear-gradient(
     to right,
@@ -122,13 +129,13 @@ const props = defineProps({
     #c4a484 60%,
     #f5f5f5 100%
   );
-  margin-bottom: 5px; 
+  margin-bottom: 5px;
 }
 
 .scale-labels {
   display: flex;
   justify-content: space-between;
-  font-size: 11px; 
+  font-size: 11px;
   color: #606266;
 }
 
@@ -143,7 +150,7 @@ const props = defineProps({
 }
 
 .bounds-table-row {
-  border-bottom: 1px dashed #ebeef5; 
+  border-bottom: 1px dashed #ebeef5;
 }
 
 .bounds-label {

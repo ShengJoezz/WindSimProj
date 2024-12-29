@@ -1,11 +1,14 @@
-<!-- frontend/src/components/TerrainMap.vue -->
+<!-- frontend/src/components/TerrainMap/TerrainMap.vue -->
 <template>
   <div class="map-wrapper">
     <!-- Terrain Rendering Area -->
     <div class="terrain-renderer" ref="terrainContainer"></div>
 
     <!-- Top Toolbar -->
-    <TopToolbar @toggle-sidebar="toggleSidebar" @add-turbine="handleAddTurbineClick" />
+    <TopToolbar
+      @toggle-sidebar="toggleSidebar"
+      @add-turbine="handleAddTurbineClick"
+    />
 
     <!-- Left Sidebar: Control Panel -->
     <ControlPanel
@@ -31,10 +34,18 @@
     />
 
     <!-- Terrain Info Box -->
-    <TerrainInfo v-if="hasGeoTIFF" :elevationLabels="elevationLabels" :geographicBounds="formattedGeoBounds" />
+    <TerrainInfo
+      v-if="hasGeoTIFF"
+      :elevationLabels="elevationLabels"
+      :geographicBounds="formattedGeoBounds"
+    />
 
     <!-- Turbine Tooltip -->
-    <TurbineTooltip v-if="hoveredTurbine" :turbine="hoveredTurbine" :position="tooltipPos" />
+    <TurbineTooltip
+      v-if="hoveredTurbine"
+      :turbine="hoveredTurbine"
+      :position="tooltipPos"
+    />
   </div>
 </template>
 
@@ -96,6 +107,9 @@ const elevationColors = [
   "#F5F5F5", // 浅灰白 - 高海拔(雪)
 ];
 
+// 缓存颜色映射
+const elevationColorCache = new Map();
+
 // 计算属性
 const elevationLabels = computed(() => {
   const range = caseStore.maxElevation - caseStore.minElevation;
@@ -111,27 +125,43 @@ const elevationLabels = computed(() => {
 
 const formattedGeoBounds = computed(() => {
   return {
-    minLat: typeof caseStore.minLatitude === 'number' ? caseStore.minLatitude.toFixed(6) : "N/A",
-    maxLat: typeof caseStore.maxLatitude === 'number' ? caseStore.maxLatitude.toFixed(6) : "N/A",
-    minLon: typeof caseStore.minLongitude === 'number' ? caseStore.minLongitude.toFixed(6) : "N/A",
-    maxLon: typeof caseStore.maxLongitude === 'number' ? caseStore.maxLongitude.toFixed(6) : "N/A",
+    minLat:
+      typeof caseStore.minLatitude === "number"
+        ? caseStore.minLatitude.toFixed(6)
+        : "N/A",
+    maxLat:
+      typeof caseStore.maxLatitude === "number"
+        ? caseStore.maxLatitude.toFixed(6)
+        : "N/A",
+    minLon:
+      typeof caseStore.minLongitude === "number"
+        ? caseStore.minLongitude.toFixed(6)
+        : "N/A",
+    maxLon:
+      typeof caseStore.maxLongitude === "number"
+        ? caseStore.maxLongitude.toFixed(6)
+        : "N/A",
   };
 });
 
 // 方法
 
 // 切换侧边栏
-// 修改 toggleSidebar 方法
 const toggleSidebar = (type) => {
-  console.log('Toggling sidebar:', type, 'Current state:', sidebars.value[type]);
-  
+  console.log(
+    "Toggling sidebar:",
+    type,
+    "Current state:",
+    sidebars.value[type]
+  );
+
   // 关闭其他侧边栏
-  Object.keys(sidebars.value).forEach(key => {
+  Object.keys(sidebars.value).forEach((key) => {
     if (key !== type) {
       sidebars.value[key] = false;
     }
   });
-  
+
   // 切换目标侧边栏
   sidebars.value[type] = !sidebars.value[type];
 };
@@ -161,6 +191,13 @@ const resetCamera = () => {
 
     camera.position.set(center.x + distance, center.y + height, center.z + distance);
     controls.target.copy(center);
+    controls.update();
+  } else {
+    // 添加处理当 `terrainMesh` 不存在时的逻辑
+    console.warn("Terrain mesh is not available to reset camera.");
+    // 可以选择设置一个默认的摄像机位置和目标
+    camera.position.set(0, 1000, 1000);
+    controls.target.set(0, 0, 0);
     controls.update();
   }
 };
@@ -234,6 +271,7 @@ const addWindTurbineToScene = (turbine) => {
   const name = turbine.name;
 
   const turbineGroup = new THREE.Group();
+  turbineGroup.userData.turbineId = turbine.id; // 添加这一行来存储风机的 ID
 
   // 桅杆
   const towerGeometry = new THREE.CylinderGeometry(2, 4, hubHeight, 32);
@@ -297,10 +335,10 @@ const deleteWindTurbineFromScene = (turbineId) => {
 // 将经纬度映射到 XZ 坐标
 const mapLatLonToXZ = (latitude, longitude) => {
   if (
-    typeof caseStore.minLatitude !== 'number' ||
-    typeof caseStore.maxLatitude !== 'number' ||
-    typeof caseStore.minLongitude !== 'number' ||
-    typeof caseStore.maxLongitude !== 'number'
+    typeof caseStore.minLatitude !== "number" ||
+    typeof caseStore.maxLatitude !== "number" ||
+    typeof caseStore.minLongitude !== "number" ||
+    typeof caseStore.maxLongitude !== "number"
   ) {
     console.warn("GeoTIFF bounds are not set.");
     return { x: 0, z: 0 };
@@ -458,6 +496,10 @@ const loadGeoTIFF = async (caseId) => {
 
 // 获取地形颜色
 const getElevationColor = (elevation) => {
+  // 检查缓存中是否存在
+  if (elevationColorCache.has(elevation)) {
+    return elevationColorCache.get(elevation);
+  }
   const colorStops = [
     { threshold: 0, color: elevationColors[0] },
     { threshold: 0.2, color: elevationColors[1] },
@@ -479,14 +521,21 @@ const getElevationColor = (elevation) => {
         (colorStops[i + 1].threshold - colorStops[i].threshold);
       const color1 = hexToRgb(colorStops[i].color);
       const color2 = hexToRgb(colorStops[i + 1].color);
-      return new THREE.Color(
+      const interpolatedColor = new THREE.Color(
         color1.r + (color2.r - color1.r) * t,
         color1.g + (color2.g - color1.g) * t,
         color1.b + (color2.b - color1.b) * t
       );
+
+      // 缓存颜色
+      elevationColorCache.set(elevation, interpolatedColor);
+      return interpolatedColor;
     }
   }
-  return hexToRgb(colorStops[colorStops.length - 1].color);
+  // 超出范围时返回最后一个颜色
+  const defaultColor = hexToRgb(colorStops[colorStops.length - 1].color);
+  elevationColorCache.set(elevation, defaultColor);
+  return defaultColor;
 };
 
 // 将16进制颜色转换为 THREE.Color 对象
@@ -508,6 +557,8 @@ const hexToRgb = (hex) => {
 
 // 初始化 Three.js 场景
 const initThreeJS = () => {
+  if (!terrainContainer.value) return;
+
   const width = terrainContainer.value.clientWidth;
   const height = terrainContainer.value.clientHeight;
 
@@ -604,6 +655,8 @@ const handleBulkImport = (turbines) => {
 
 // 鼠标移动事件处理，用于显示工具提示
 const onMouseMove = (event) => {
+  if (!renderer || !renderer.domElement) return;
+
   const rect = renderer.domElement.getBoundingClientRect();
   mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -614,18 +667,23 @@ const onMouseMove = (event) => {
 
   // 光线投射
   raycaster.setFromCamera(mouse, camera);
-  const meshes = Array.from(turbineMeshes.value.values()).flatMap(group =>
-    group.children.filter(child => child.isMesh)
+  const meshes = Array.from(turbineMeshes.value.values()).flatMap((group) =>
+    group.children.filter((child) => child.isMesh)
   );
   const intersects = raycaster.intersectObjects(meshes, true);
 
   if (intersects.length > 0) {
-    const intersected = intersects[0].object.parent; // 假设网格在 Group 内
-    const turbineEntry = Array.from(turbineMeshes.value.entries()).find(
-      ([id, group]) => group === intersected
-    );
-    if (turbineEntry) {
-      hoveredTurbine.value = caseStore.windTurbines.find(t => t.id === turbineEntry[0]);
+    let parentGroup = intersects[0].object.parent;
+
+    // 遍历直到找到根 Group
+    while (parentGroup && !parentGroup.userData.turbineId) {
+      parentGroup = parentGroup.parent;
+    }
+
+    if (parentGroup && parentGroup.userData.turbineId) {
+      hoveredTurbine.value = caseStore.windTurbines.find(
+        (t) => t.id === parentGroup.userData.turbineId
+      );
       return;
     }
   }
@@ -633,39 +691,10 @@ const onMouseMove = (event) => {
   hoveredTurbine.value = null;
 };
 
-// 生命周期钩子
-onMounted(async () => {
-  const { caseId, caseName } = route.params;
-  const queryCaseName = route.query.caseName;
-
-  // 初始化 Case
-  await caseStore.initializeCase(caseId, queryCaseName);
-
-  // 初始化 Three.js
-  initThreeJS();
-  animate();
-
-  if (caseStore.caseId) {
-    await loadGeoTIFF(caseStore.caseId);
-  }
-
-  // 添加已存在的风机到场景
-  caseStore.windTurbines.forEach(turbine => {
-    addWindTurbineToScene(turbine);
-  });
-});
-
-onBeforeUnmount(() => {
-  if (animationFrameId) {
-    cancelAnimationFrame(animationFrameId);
-  }
-  renderer.domElement.removeEventListener("mousemove", onMouseMove, false);
-  window.removeEventListener("resize", onWindowResize, false);
-  renderer.dispose();
-});
-
 // 窗口大小变化处理
 const onWindowResize = () => {
+  if (!terrainContainer.value || !camera || !renderer) return;
+
   const width = terrainContainer.value.clientWidth;
   const height = terrainContainer.value.clientHeight;
 
@@ -674,6 +703,79 @@ const onWindowResize = () => {
 
   renderer.setSize(width, height);
 };
+
+// 清理 Three.js 资源
+const disposeThreeResources = () => {
+  if (terrainMesh) {
+    terrainMesh.geometry.dispose();
+    terrainMesh.material.dispose();
+    scene.remove(terrainMesh);
+    terrainMesh = null;
+  }
+
+  turbineMeshes.value.forEach((turbineGroup) => {
+    turbineGroup.traverse((child) => {
+      if (child.isMesh) {
+        child.geometry.dispose();
+        if (Array.isArray(child.material)) {
+          child.material.forEach((material) => material.dispose());
+        } else {
+          child.material.dispose();
+        }
+      }
+    });
+    scene.remove(turbineGroup);
+  });
+  turbineMeshes.value.clear();
+
+  if (controls) {
+    controls.dispose();
+    controls = null;
+  }
+
+  if (renderer) {
+    renderer.dispose();
+    renderer = null;
+  }
+};
+
+// 生命周期钩子
+onMounted(async () => {
+  try {
+    const { caseId, caseName } = route.params;
+    const queryCaseName = route.query.caseName;
+
+    // 初始化 Case
+    await caseStore.initializeCase(caseId, queryCaseName);
+
+    // 初始化 Three.js
+    initThreeJS();
+    animate();
+
+    if (caseStore.caseId) {
+      await loadGeoTIFF(caseStore.caseId);
+    }
+
+    // 添加已存在的风机到场景
+    caseStore.windTurbines.forEach((turbine) => {
+      addWindTurbineToScene(turbine);
+    });
+  } catch (error) {
+    console.error("Initialization error:", error);
+    ElMessage.error("初始化失败，请稍后重试。");
+  }
+});
+
+onBeforeUnmount(() => {
+  if (animationFrameId) {
+    cancelAnimationFrame(animationFrameId);
+  }
+  if (renderer) {
+    renderer.domElement.removeEventListener("mousemove", onMouseMove, false);
+  }
+  window.removeEventListener("resize", onWindowResize, false);
+  disposeThreeResources();
+});
 </script>
 
 <style scoped>

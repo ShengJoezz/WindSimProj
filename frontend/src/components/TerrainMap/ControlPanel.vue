@@ -22,13 +22,20 @@
               <div class="control-group">
                 <div class="group-title">地形显示</div>
                 <el-button-group class="control-buttons">
-                  <el-button type="primary" @click="$emit('reset-camera')" icon="el-icon-refresh">
+                  <el-button
+                    type="primary"
+                    @click="$emit('reset-camera')"
+                    icon="el-icon-refresh"
+                    aria-label="重置视角"
+                  >
                     重置视角
                   </el-button>
                   <el-button
                     :type="wireframe ? 'warning' : 'primary'"
                     @click="$emit('toggle-wireframe')"
                     icon="el-icon-s-grid"
+                    :aria-pressed="wireframe"
+                    aria-label="切换网格显示"
                   >
                     {{ wireframe ? '隐藏网格' : '显示网格' }}
                   </el-button>
@@ -45,6 +52,7 @@
                       active-text="叶片旋转"
                       inactive-text="叶片停止"
                       @change="$emit('update-blade-rotation', $event)"
+                      aria-label="控制叶片旋转"
                     />
                   </el-col>
                   <el-col :span="12">
@@ -56,6 +64,7 @@
                         :max="2"
                         :step="0.1"
                         @input="$emit('update-rotation-speed', $event)"
+                        aria-label="调节旋转速度"
                       />
                     </div>
                   </el-col>
@@ -76,7 +85,7 @@
  * 左侧抽屉面板，包含地形显示和风机动画的控制。
  */
 
-import { ref, watch } from "vue";
+import { ref, watch, nextTick } from "vue";
 
 const props = defineProps({
   visible: {
@@ -112,16 +121,37 @@ const localBladeRotation = ref(props.bladeRotation);
 const localRotationSpeed = ref(props.rotationSpeed);
 
 // 确保正确响应 visible 的变化
-watch(() => props.visible, (newVal) => {
-  console.log('Visible prop changed:', newVal);
-  localVisible.value = newVal;
-});
+watch(
+  () => props.visible,
+  (newVal) => {
+    localVisible.value = newVal;
+  },
+  { immediate: true }
+);
 
 // 同时监听 localVisible 的变化
-watch(() => localVisible.value, (newVal) => {
-  console.log('Local visible changed:', newVal);
-  emit('update:visible', newVal);
-});
+watch(
+  () => localVisible.value,
+  (newVal) => {
+    emit("update:visible", newVal);
+  }
+);
+
+watch(
+  () => props.bladeRotation,
+  (newVal) => {
+    localBladeRotation.value = newVal;
+  },
+  { immediate: true }
+);
+
+watch(
+  () => props.rotationSpeed,
+  (newVal) => {
+    localRotationSpeed.value = newVal;
+  },
+  { immediate: true }
+);
 
 // 关闭抽屉
 const handleClose = () => {

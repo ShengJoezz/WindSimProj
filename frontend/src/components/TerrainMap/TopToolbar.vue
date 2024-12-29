@@ -2,15 +2,30 @@
 <template>
   <div class="top-toolbar">
     <el-button-group>
-      <el-button type="primary" @click="$emit('toggle-sidebar', 'control')" class="toolbar-button">
+      <el-button
+        type="primary"
+        @click="$emit('toggle-sidebar', 'control')"
+        class="toolbar-button"
+        aria-label="打开控制面板"
+      >
         <el-icon><Menu /></el-icon>
         控制面板
       </el-button>
-      <el-button type="primary" @click="$emit('toggle-sidebar', 'management')" class="toolbar-button">
+      <el-button
+        type="primary"
+        @click="$emit('toggle-sidebar', 'management')"
+        class="toolbar-button"
+        aria-label="打开风机管理"
+      >
         <el-icon><Setting /></el-icon>
         风机管理
       </el-button>
-      <el-button type="success" @click="$emit('add-turbine')" class="toolbar-button add-turbine-button">
+      <el-button
+        type="success"
+        @click="$emit('add-turbine')"
+        class="toolbar-button add-turbine-button"
+        aria-label="添加风机"
+      >
         <el-icon><Plus /></el-icon>
         添加风机
       </el-button>

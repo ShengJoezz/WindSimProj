@@ -1,26 +1,27 @@
 <!-- frontend/src/components/TurbineTooltip.vue -->
 <template>
   <div
+    v-if="turbine"
     class="turbine-tooltip"
     :style="{ top: position.y + 'px', left: position.x + 'px' }"
   >
-    <div class="tooltip-title">{{ turbine.name }}</div>
+    <div class="tooltip-title">{{ turbine.name ?? 'N/A' }}</div>
     <div class="tooltip-content">
       <div class="tooltip-item">
         <span class="label">经度:</span>
-        <span class="value">{{ turbine.longitude }}°</span>
+        <span class="value">{{ turbine.longitude !== undefined && turbine.longitude !== null ? turbine.longitude.toFixed(6) + '°' : 'N/A' }}</span>
       </div>
       <div class="tooltip-item">
         <span class="label">纬度:</span>
-        <span class="value">{{ turbine.latitude }}°</span>
+        <span class="value">{{ turbine.latitude !== undefined && turbine.latitude !== null ? turbine.latitude.toFixed(6) + '°' : 'N/A' }}</span>
       </div>
       <div class="tooltip-item">
         <span class="label">桅杆高度:</span>
-        <span class="value">{{ turbine.hubHeight }}m</span>
+        <span class="value">{{ turbine.hubHeight ?? 'N/A' }}m</span>
       </div>
       <div class="tooltip-item">
         <span class="label">转子直径:</span>
-        <span class="value">{{ turbine.rotorDiameter }}m</span>
+        <span class="value">{{ turbine.rotorDiameter ?? 'N/A' }}m</span>
       </div>
     </div>
   </div>

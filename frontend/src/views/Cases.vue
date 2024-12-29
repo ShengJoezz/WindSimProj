@@ -1,5 +1,3 @@
-<!-- frontend/src/views/Cases.vue -->
-<!-- frontend/src/views/Cases.vue -->
 <template>
   <div class="page-container">
     <div class="content-wrapper">
