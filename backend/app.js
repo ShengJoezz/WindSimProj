@@ -1,3 +1,14 @@
+/*
+ * @Author: joe 847304926@qq.com
+ * @Date: 2025-01-10 16:46:19
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-01-10 17:51:54
+ * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\backend\app.js
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+ */
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -10,7 +21,11 @@ const errorHandler = require('./middleware/errorHandler'); // 引入错误处理
 const app = express();
 
 // 中间件
-app.use(cors());
+app.use(cors({
+  origin: ['http://localhost:5173'], // Specify allowed origins
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  credentials: true,
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

@@ -1,3 +1,14 @@
+/*
+ * @Author: joe 847304926@qq.com
+ * @Date: 2025-01-10 16:06:44
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-01-10 17:52:28
+ * @FilePath: <<filepath('relative')>>
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+ */
+
 const path = require("path");
 const fs = require('fs');
 const Joi = require("joi");
@@ -38,17 +49,24 @@ const checkCalculationStatus = async (req, res, next) => {
     __dirname,
     `../uploads/${caseId}/status.json`
   );
-
+  const infoJsonPath = path.join(__dirname, `../uploads/${caseId}/info.json`);
   try {
     let status = "not_started"; // 如果文件不存在，则默认状态
 
-    if (fs.existsSync(statusPath)) {
-      const statusData = JSON.parse(
-        await fs.promises.readFile(statusPath, "utf-8")
-      );
-      status = allowedStatuses.includes(statusData.calculationStatus)
-        ? statusData.calculationStatus
-        : "unknown";
+    if (fs.existsSync(infoJsonPath)) {
+        const data = JSON.parse(await fs.promises.readFile(infoJsonPath, 'utf-8'));
+          status = allowedStatuses.includes(data.calculationStatus)
+            ? data.calculationStatus
+            : "unknown";
+
+     }
+      else if (fs.existsSync(statusPath)) {
+        const statusData = JSON.parse(
+            await fs.promises.readFile(statusPath, "utf-8")
+        );
+        status = allowedStatuses.includes(statusData.calculationStatus)
+            ? statusData.calculationStatus
+            : "unknown";
     }
 
     req.calculationStatus = status;

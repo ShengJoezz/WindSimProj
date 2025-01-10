@@ -1,3 +1,13 @@
+<!--
+ * @Author: joe 847304926@qq.com
+ * @Date: 2025-01-10 15:19:05
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-01-10 17:18:49
+ * @FilePath: \WindSimProj\frontend\src\components\TerrainMap\TerrainInfo.vue
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved. 
+-->
 <template>
   <div class="terrain-info" role="region" aria-label="Terrain Information">
     <el-card class="info-card">
@@ -59,6 +69,8 @@
 </template>
 
 <script setup>
+import { computed } from "vue";
+
 const props = defineProps({
   elevationLabels: {
     type: Array,
@@ -69,6 +81,11 @@ const props = defineProps({
     required: true,
   },
 });
+
+const elevationLabels = computed(() => {
+  const sorted = [...props.elevationLabels].sort((a, b) => a - b);
+  return sorted;
+});
 </script>
 
 <style scoped>
@@ -76,8 +93,13 @@ const props = defineProps({
   position: absolute;
   bottom: 20px;
   right: 20px;
-  width: 320px;
+  width: 280px;
   z-index: 10;
+  
+  @media (max-width: 600px) {
+    width: 90%;
+    right: 5%;
+  }
 }
 
 .info-card {

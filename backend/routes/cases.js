@@ -1,3 +1,14 @@
+/*
+ * @Author: joe 847304926@qq.com
+ * @Date: 2024-12-30 10:58:27
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-01-10 17:51:18
+ * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\backend\routes\cases.js
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+ */
+
 const express = require("express");
 const router = express.Router();
 const Joi = require("joi");
@@ -9,6 +20,7 @@ const checkCalculationStatus = require("../middleware/statusCheck");
 const { v4: uuidv4 } = require("uuid");
 const rateLimit = require('express-rate-limit');
 const { knownTasks } = require('../utils/tasks');
+const windTurbinesRouter = require('./windTurbines');
 
 // 应用速率限制器到所有路由
 const limiter = rateLimit({
@@ -88,35 +100,36 @@ router.use("/:caseId", validateCaseId);
  * 1. 创建新案例
  * POST /api/cases
  */
-router.post('/', (req, res) => {
-    upload(req, res, (err) => {
-        if (err instanceof multer.MulterError) {
-            // Multer-specific errors
-            console.error('Multer Error:', err.message);
-            return res.status(500).json({ success: false, message: err.message });
-        } else if (err) {
-            // Other errors
-            console.error('Upload Error:', err.message);
-            return res.status(400).json({ success: false, message: err.message });
-        }
-        const caseName = req.body.caseName;
-        if (!caseName) {
-            return res.status(400).json({ success: false, message: '工况名称不能为空' });
-        }
+router.post('/', async (req, res) => {
+    try {
+      await new Promise((resolve, reject) => {
+        upload(req, res, (err) => {
+          if (err) return reject(err);
+          resolve();
+        });
+      });
 
-        // Move terrainFile if necessary
-        if (req.files['terrainFile'] && req.files['terrainFile'][0]) {
-            const terrainFile = req.files['terrainFile'][0];
-            const tempPath = terrainFile.path;
-            const targetPath = path.join(path.dirname(tempPath), terrainFile.filename);
-            fs.renameSync(tempPath, targetPath);
-            console.log(`Moved terrainFile to ${targetPath}`);
-        } else {
-            console.error('terrainFile is missing');
-            return res.status(400).json({ success: false, message: '请上传 GeoTIFF 文件' });
-        }
-        res.json({ success: true, message: '工况创建成功', caseName: caseName });
-    });
+      const caseName = req.body.caseName;
+      if (!caseName) {
+        return res.status(400).json({ success: false, message: '工况名称不能为空' });
+      }
+
+      // Move terrainFile asynchronously
+      if (req.files['terrainFile'] && req.files['terrainFile'][0]) {
+        const terrainFile = req.files['terrainFile'][0];
+        const tempPath = terrainFile.path;
+        const targetPath = path.join(path.dirname(tempPath), terrainFile.filename);
+        await fs.promises.rename(tempPath, targetPath);
+        console.log(`Moved terrainFile to ${targetPath}`);
+      } else {
+        console.error('terrainFile is missing');
+        return res.status(400).json({ success: false, message: '请上传 GeoTIFF 文件' });
+      }
+      res.json({ success: true, message: '工况创建成功', caseName: caseName });
+    } catch (err) {
+      console.error('Error in creating case:', err);
+      res.status(500).json({ success: false, message: err.message || '文件处理失败' });
+    }
 });
 /**
  * 2. 获取所有工况
@@ -141,68 +154,6 @@ router.get("/", async (req, res) => {
   }
 });
 
-/**
- * 3. 获取特定工况的风力涡轮机列表
- * GET /api/cases/:caseId/wind-turbines/list
- */
-router.get("/:caseId/wind-turbines/list", async (req, res) => {
-  const { caseId } = req.params;
-  const turbinesJsonPath = path.join(
-    __dirname,
-    "../uploads",
-    caseId,
-    "windTurbines.json"
-  );
-
-  try {
-    if (!fs.existsSync(turbinesJsonPath)) {
-      console.log(`未找到工况 ${caseId} 的风机数据`);
-      return res.json({ windTurbines: [] });
-    }
-
-    const data = await fs.promises.readFile(turbinesJsonPath, "utf-8");
-    const windTurbines = JSON.parse(data);
-    console.log(`找到工况 ${caseId} 的风机数据`);
-    res.json({ windTurbines });
-  } catch (err) {
-    console.error("读取风机 JSON 文件失败:", err);
-    res.status(500).json({
-      success: false,
-      message: "读取风机数据失败",
-    });
-  }
-});
-
-/**
- * 4. 保存特定工况的风力涡轮机
- * POST /api/cases/:caseId/wind-turbines
- */
-router.post("/:caseId/wind-turbines", async (req, res) => {
-  const { caseId } = req.params;
-  const windTurbines = req.body;
-  if (!windTurbines) {
-    return res.status(400).json({ success: false, message: "风机数据缺失" });
-  }
-
-  const turbinesJsonPath = path.join(
-    __dirname,
-    "../uploads",
-    caseId,
-    "windTurbines.json"
-  );
-
-  try {
-    await fs.promises.writeFile(
-      turbinesJsonPath,
-      JSON.stringify(windTurbines, null, 2),
-      "utf-8"
-    );
-    res.json({ success: true, message: "风机数据保存成功" });
-  } catch (error) {
-    console.error("保存风机数据失败:", error);
-    res.status(500).json({ success: false, message: "保存风机数据失败" });
-  }
-});
 
 /**
  * 5. 获取特定工况的地形文件
@@ -357,12 +308,12 @@ router.get("/:caseId/parameters", async (req, res) => {
             terrainTransitionRadius: 5000,
             downstreamLength: 2000,
             downstreamWidth: 600,
-            scale: 0.001,
+             scale: 0.001,
           },
           simulation: {
             cores: 1,
             steps: 100,
-            deltaT: 1
+              deltaT: 1
           },
           postProcessing: {
             resultLayers: 10,
@@ -507,7 +458,7 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
 
 
     // 运行子进程
-    const child = spawn("bash", [scriptPath], { cwd: casePath });
+    const child = spawn("bash", [scriptPath], { cwd: casePath, shell: false });
 
     // 创建本次运行的日志文件
     const logFilePath = path.join(casePath, `calculation_log_${Date.now()}.txt`);
@@ -799,7 +750,7 @@ router.post('/:caseId/info', async (req, res) => {
             tr2: parameters.grid.terrainTransitionRadius,
             wakeL: parameters.grid.downstreamLength,
             wakeB: parameters.grid.downstreamWidth,
-            scale: parameters.grid.scale,
+              scale: parameters.grid.scale,
         },
         simulation: {
             core: parameters.simulation.cores,
@@ -934,13 +885,16 @@ router.get('/:caseId/openfoam-output', async (req, res) => {
         if(fs.existsSync(outputPath)) {
             const output = await fs.promises.readFile(outputPath, 'utf-8');
             res.json({ output });
-        } else {
-            res.json({output: ''});
-        }
-
-    } catch (error) {
-        console.error("获取 OpenFOAM 输出失败:", error);
-        res.status(500).json({ success: false, error: error.message});
-    }
-});
-module.exports = router;
+          } else {
+              res.json({output: ''});
+          }
+  
+      } catch (error) {
+          console.error("获取 OpenFOAM 输出失败:", error);
+          res.status(500).json({ success: false, error: error.message});
+      }
+  });
+  
+  
+    router.use("/:caseId/wind-turbines", windTurbinesRouter);
+  module.exports = router;

@@ -1,8 +1,22 @@
-<!-- frontend/src/components/TerrainMap/TerrainMap.vue -->
-<template>
+<!--
+ * @Author: joe 847304926@qq.com
+ * @Date: 2025-01-10 16:12:45
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-01-10 18:06:59
+ * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\TerrainMap.vue
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+ -->
+
+ <template>
   <div class="map-wrapper">
     <!-- Terrain Rendering Area -->
     <div class="terrain-renderer" ref="terrainContainer"></div>
+
+    <div v-if="!hasGeoTIFF" class="terrain-loading">
+      <el-loading text="加载地形中..." />
+    </div>
 
     <!-- Top Toolbar -->
     <TopToolbar
@@ -71,6 +85,7 @@ import axios from "axios";
 import { fromArrayBuffer } from "geotiff";
 import Papa from "papaparse";
 import * as TWEEN from "@tweenjs/tween.js";
+import lodash from 'lodash';
 
 // 初始化 Store 和 Route
 const caseStore = useCaseStore();
@@ -256,6 +271,10 @@ const confirmDeleteTurbine = (turbine) => {
 
 // 添加风机到 Three.js 场景
 const addWindTurbineToScene = (turbine) => {
+  if (turbineMeshes.value.has(turbine.id)) {
+    console.warn(`Wind turbine with ID ${turbine.id} already exists in the scene.`);
+    return;
+  }
   const { latitude, longitude } = turbine;
   const { x, z } = mapLatLonToXZ(latitude, longitude);
   const terrainHeight = getTerrainHeight(x, z);
@@ -555,6 +574,47 @@ const hexToRgb = (hex) => {
     : new THREE.Color(0x333333); // 默认颜色
 };
 
+// 鼠标移动事件处理，用于显示工具提示
+const onMouseMove = (event) => {
+    if (!renderer || !renderer.domElement) return;
+
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    // 更新工具提示位置
+    tooltipPos.value.x = event.clientX + 20;
+    tooltipPos.value.y = event.clientY + 20;
+
+    // 光线投射
+    raycaster.setFromCamera(mouse, camera);
+    const meshes = Array.from(turbineMeshes.value.values()).flatMap((group) =>
+      group.children.filter((child) => child.isMesh)
+    );
+    const intersects = raycaster.intersectObjects(meshes, true);
+
+    if (intersects.length > 0) {
+      let parentGroup = intersects[0].object.parent;
+
+      // 遍历直到找到根 Group
+      while (parentGroup && !parentGroup.userData.turbineId) {
+        parentGroup = parentGroup.parent;
+      }
+
+      if (parentGroup && parentGroup.userData.turbineId) {
+        hoveredTurbine.value = caseStore.windTurbines.find(
+          (t) => t.id === parentGroup.userData.turbineId
+        );
+        return;
+      }
+    }
+
+    hoveredTurbine.value = null;
+  };
+// 创建 throttled 版本
+const onMouseMoveThrottled = lodash.throttle(onMouseMove, 100);
+
+
 // 初始化 Three.js 场景
 const initThreeJS = () => {
   if (!terrainContainer.value) return;
@@ -614,8 +674,9 @@ const initThreeJS = () => {
   const hemisphereLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 0.5);
   scene.add(hemisphereLight);
 
-  // 监听鼠标移动事件
-  renderer.domElement.addEventListener("mousemove", onMouseMove, false);
+   // 监听鼠标移动事件
+  renderer.domElement.addEventListener("mousemove", onMouseMoveThrottled, false);
+
 
   // 监听窗口大小变化
   window.addEventListener("resize", onWindowResize, false);
@@ -651,44 +712,6 @@ const handleBulkImport = (turbines) => {
     caseStore.addWindTurbine(turbine);
     addWindTurbineToScene(turbine);
   });
-};
-
-// 鼠标移动事件处理，用于显示工具提示
-const onMouseMove = (event) => {
-  if (!renderer || !renderer.domElement) return;
-
-  const rect = renderer.domElement.getBoundingClientRect();
-  mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-  mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-  // 更新工具提示位置
-  tooltipPos.value.x = event.clientX + 20;
-  tooltipPos.value.y = event.clientY + 20;
-
-  // 光线投射
-  raycaster.setFromCamera(mouse, camera);
-  const meshes = Array.from(turbineMeshes.value.values()).flatMap((group) =>
-    group.children.filter((child) => child.isMesh)
-  );
-  const intersects = raycaster.intersectObjects(meshes, true);
-
-  if (intersects.length > 0) {
-    let parentGroup = intersects[0].object.parent;
-
-    // 遍历直到找到根 Group
-    while (parentGroup && !parentGroup.userData.turbineId) {
-      parentGroup = parentGroup.parent;
-    }
-
-    if (parentGroup && parentGroup.userData.turbineId) {
-      hoveredTurbine.value = caseStore.windTurbines.find(
-        (t) => t.id === parentGroup.userData.turbineId
-      );
-      return;
-    }
-  }
-
-  hoveredTurbine.value = null;
 };
 
 // 窗口大小变化处理
@@ -747,7 +770,7 @@ onMounted(async () => {
 
     // 初始化 Case
     await caseStore.initializeCase(caseId, queryCaseName);
-
+      caseStore.connectSocket(caseId);
     // 初始化 Three.js
     initThreeJS();
     animate();
@@ -771,9 +794,10 @@ onBeforeUnmount(() => {
     cancelAnimationFrame(animationFrameId);
   }
   if (renderer) {
-    renderer.domElement.removeEventListener("mousemove", onMouseMove, false);
+    renderer.domElement.removeEventListener("mousemove", onMouseMoveThrottled, false);
   }
   window.removeEventListener("resize", onWindowResize, false);
+  caseStore.disconnectSocket();
   disposeThreeResources();
 });
 </script>
@@ -791,7 +815,13 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
 }
-
+  .terrain-loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 100;
+  }
 /* 工具栏样式在 TopToolbar.vue 中定义 */
 
 /* 地形信息和工具提示样式在各自的组件中定义 */

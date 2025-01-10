@@ -1,4 +1,13 @@
-<!-- frontend/src/components/WindTurbineList.vue -->
+<!--
+ * @Author: joe 847304926@qq.com
+ * @Date: 2025-01-10 17:32:19
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-01-10 18:08:03
+ * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\WindTurbineList.vue
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+ -->
 <template>
   <div v-if="windTurbines.length" class="turbine-list">
     <el-card
@@ -19,10 +28,12 @@
           </el-tooltip>
           <el-tooltip content="删除风机" placement="top">
             <el-button
-              type="text"
-              icon="el-icon-delete"
-              @click="confirmDelete(turbine)"
-              class="action-button"
+                type="text"
+                icon="el-icon-delete"
+                @click="confirmDelete(turbine)"
+                class="action-button"
+                  :loading="deletingTurbineId === turbine.id"
+                  :disabled="deletingTurbineId !== null && deletingTurbineId !== turbine.id"
             />
           </el-tooltip>
         </div>
@@ -56,7 +67,10 @@
  *
  * 展示已安装风机的列表组件，包含聚焦和删除操作。
  */
+import { ref } from 'vue';
 import { ElMessageBox } from 'element-plus';
+import { throttle } from 'lodash';
+
 
 const props = defineProps({
   windTurbines: {
@@ -66,6 +80,12 @@ const props = defineProps({
 });
 
 const emit = defineEmits(["focus-turbine", "delete-turbine"]);
+
+const deletingTurbineId = ref(null);
+
+const confirmDeleteThrottled = lodash.throttle((turbine) => {
+  confirmDelete(turbine);
+}, 500); // Throttle to 500ms
 
 const confirmDelete = (turbine) => {
   ElMessageBox.confirm(
@@ -77,10 +97,14 @@ const confirmDelete = (turbine) => {
       type: "warning",
     }
   )
-    .then(() => {
-      emit("delete-turbine", turbine);
+    .then(async () => {
+        deletingTurbineId.value = turbine.id;
+        await emit("delete-turbine", turbine);
+         deletingTurbineId.value = null;
     })
-    .catch(() => {});
+    .catch(() => {
+      deletingTurbineId.value = null;
+    });
 };
 </script>
 

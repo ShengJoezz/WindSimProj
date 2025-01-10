@@ -1,4 +1,15 @@
-<template>
+<!--
+ * @Author: joe 847304926@qq.com
+ * @Date: 2024-12-30 10:58:27
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-01-10 18:12:31
+ * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\components\CalculationOutput.vue
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+ -->
+
+ <template>
   <div class="calculation-output-container">
   <h2>计算输出</h2>
   <el-button
@@ -108,11 +119,12 @@
   import axios from 'axios';
   import { useRoute, useRouter } from 'vue-router';
   import { useCaseStore } from '../store/caseStore';
-  import { io } from 'socket.io-client';
+  //import { io } from 'socket.io-client';
   import { knownTasks } from '../utils/tasks'; // Import the centralized task list
+  //import lodash from 'lodash';
   
   // 引入动态组件方法
-  import { defineAsyncComponent } from 'vue';
+  //import { defineAsyncComponent } from 'vue';
   
   // 动态导入图标组件
   const components = {
@@ -177,15 +189,15 @@
   const startTime = ref(null);
   const eta = ref(null);
   // const isLogVisible = ref(false); // Remove unused ref
-  let socket;
+  
   const openfoamOutput = ref('');
   const outputScrollbar = ref(null);
+    const tasks = ref(knownTasks.map(task => ({ ...task, status: 'pending' })));
+
   
   // 计算是否已完成
   const isCalculationCompleted = computed(() => store.calculationStatus.value === 'completed');
   
-  // Use the centralized task list
-  const tasks = ref(knownTasks.map(task => ({ ...task, status: 'pending' })));
   
   const progressFormat = () => `${overallProgress.value}%`;
   
@@ -207,238 +219,149 @@
   const showEta = computed(() => {
   return overallProgress.value >= 5 && eta.value !== null;
   });
-  
+   const calculateETA = () => {
+     if (!startTime.value || overallProgress.value === 0) {
+       eta.value = null;
+       return;
+     }
+     const elapsed = (Date.now() - startTime.value) / 1000;
+     const estimatedTotal = (elapsed / overallProgress.value) * 100;
+     const remaining = Math.max(Math.round(estimatedTotal - elapsed), 0);
+     eta.value = remaining;
+   };
+    
   // 在组件挂载时检查计算状态
   onMounted(async () => {
   console.log("onMounted - route.params:", route.params); // 检查路由参数
   console.log("onMounted - caseId:", caseId);
-  await store.fetchCalculationStatus();
-  // 加载计算进度
-  const savedProgress = await store.loadCalculationProgress();
-  if (savedProgress) {
-  isCalculating.value = savedProgress.isCalculating || false;
-  overallProgress.value = savedProgress.progress || 0;
-  tasks.value = savedProgress.tasks || tasks.value;
-  calculationOutputs.value = savedProgress.outputs || [];
-  // 如果正在计算且没有计算完成，则启动监听
-  if (isCalculating.value && store.calculationStatus.value !== 'completed') {
-  connectSocket(); // 恢复 socket 连接
-  }
-  }
-  // 加载已有输出
-  try {
-  const response = await axios.get(`/api/cases/${caseId}/openfoam-output`);
-  if (response.data.output) {
-  openfoamOutput.value = response.data.output;
-  }
-  } catch (error) {
-  console.error('加载计算输出失败:', error);
-  }
+      await store.initializeCase(caseId);
+      store.connectSocket(caseId);
+      store.listenToSocketEvents();
+    
+      // 加载计算进度
+    const savedProgress = await store.loadCalculationProgress();
+    if (savedProgress) {
+      isCalculating.value = savedProgress.isCalculating || false;
+      overallProgress.value = savedProgress.progress || 0;
+      tasks.value = savedProgress.tasks || tasks.value;
+      calculationOutputs.value = savedProgress.outputs || [];
+      // 如果正在计算且没有计算完成，则启动监听
+     
+    }
+      // 加载已有输出
+      try {
+        const response = await axios.get(`/api/cases/${caseId}/openfoam-output`);
+        if (response.data.output) {
+          openfoamOutput.value = response.data.output;
+        }
+      } catch (error) {
+        console.error('加载计算输出失败:', error);
+      }
+        
+       watch(() => overallProgress.value, () => {
+          calculateETA();
+        });
+
+        watch(() => store.calculationStatus.value, (newStatus) => {
+        if (newStatus === 'completed') {
+          isCalculating.value = false;
+          completed.value = true;
+          overallProgress.value = 100;
+            calculationOutputs.value.push({ type: 'task', taskName: '计算完成', message: '计算完成' });
+            ElMessage.success('计算完成');
+          }
+        });
   });
   
-  // 监听计算状态变化
-  watch(() => store.calculationStatus.value, (newStatus) => {
-  if (newStatus === 'completed') {
-  isCalculationCompleted.value = true;
-  completed.value = true;
-  isCalculating.value = false;
-  // 更新所有任务的状态为已完成
-  tasks.value.forEach(task => {
-  task.status = 'completed';
-  });
-  }
-  });
   
-  const connectSocket = () => {
-  socket = io('http://localhost:5000', {
-  transports: ['websocket'],
-  reconnectionAttempts: 5,
-  timeout: 10000,
-  });
-  socket.on('connect_error', (err) => {
-  console.error('Socket连接错误:', err);
-  ElMessage.error('实时通信连接失败');
-  });
   
-  socket.emit("joinCase", caseId);
-  console.log("正在发送 joinCase，caseId 为:", caseId); // 检查该值
-  socket.on('taskStarted', (taskId) => {
-  const task = tasks.value.find(t => t.id === taskId);
-  if (task) {
-  task.status = 'running';
-  calculationOutputs.value.push({ type: 'task', taskName: task.name, message: `${task.name} 启动` });
-  }
-  });
-  
-  socket.on('calculationProgress', (data) => {
-  overallProgress.value = data.progress;
-  computationMessage.value = `计算中... (${data.progress}%)`;
-  calculationOutputs.value.push({ type: 'task', taskName: tasks.value.find(t => t.id === data.taskId)?.name || '未知任务', message: `${data.progress}%` });
-  updateETA();
-  
-  // Associate progress with tasks
-  if (data.taskId) {
-  const task = tasks.value.find(t => t.id === data.taskId);
-  if (task) {
-  calculationOutputs.value.push({ type: 'task', taskName: task.name, message: `进度: ${data.progress}%` });
-  }
-  }
-  store.saveCalculationProgress(); // 保存进度
-  });
-  
-  socket.on('taskCompleted', (taskId) => {
-  const task = tasks.value.find(t => t.id === taskId);
-  if (task) {
-  task.status = 'completed';
-  calculationOutputs.value.push({ type: 'task', taskName: task.name, message: '完成' });
-  }
-  });
-  socket.on('calculationOutput', (output) => {
-  openfoamOutput.value += output;
-  nextTick(() => {
-  const scrollbar = outputScrollbar.value;
-  if (scrollbar) {
-  scrollbar.setScrollTop(scrollbar.wrap.scrollHeight);
-  }
-  });
-  });
-  socket.on('calculationCompleted', (res) => {
-  overallProgress.value = 100;
-  computationMessage.value = '计算完成';
-  isCalculating.value = false;
-  completed.value = true;
-  store.setResults(res);
-  // 标记最后一个任务为完成
-  const finalTask = tasks.value.find(t => t.id === 'computation_end');
-  if (finalTask && finalTask.status !== 'completed') {
-  finalTask.status = 'completed';
-  calculationOutputs.value.push({ type: 'task', taskName: finalTask.name, message: '计算完成' });
-  }
-  ElMessage.success('计算完成');
-  socket.disconnect();
-  });
-  socket.on('calculationError', (err) => {
-  computationMessage.value = err.message || '计算过程中出错';
-  computationError.value = true;
-  isCalculating.value = false;
-  calculationOutputs.value.push({ type: 'task', taskName: tasks.value.find(t => t.id === err.taskId)?.name || '未知任务', message: '发生错误' });
-  ElMessage.error(computationMessage.value);
-  socket.disconnect();
-  });
-  socket.on('calculationFailed', (err) => {
-  computationMessage.value = err.message || '计算失败';
-  computationError.value = true;
-  isCalculating.value = false;
-  calculationOutputs.value.push({ type: 'task', taskName: '计算失败', message: `[失败] ${err.message || '计算失败'}` });
-  ElMessage.error(computationMessage.value);
-  socket.disconnect();
-  });
-  };
-  
+    
   // 启动计算
   const startComputation = async () => {
-  if (isCalculating.value || completed.value || isCalculationCompleted.value) {
-  ElMessage.warning('计算已完成或正在进行中');
-  return;
-  }
-  
-  try {
-  isCalculating.value = true;
-  overallProgress.value = 0;
-  computationMessage.value = '计算开始...';
-  computationError.value = false;
-  completed.value = false;
-  calculationOutputs.value = [{ type: 'task', taskName: '计算启动', message: '计算启动...' }];
-  startTime.value = Date.now();
-  eta.value = null;
-  
-  tasks.value.forEach(task => {
-  task.status = 'pending';
-  });
-  // 保存当前状态
-  store.saveCalculationProgress();
-  
-  // 获取最新计算状态
-  await store.fetchCalculationStatus();
-  
-  if (store.calculationStatus.value === 'completed') {
-  throw new Error('该工况的计算已完成，无法重新计算。');
-  }
-  connectSocket();
-  const saveParamsResponse = await axios.post(`/api/cases/${caseId}/parameters`, store.parameters);
-  
-  if (saveParamsResponse.data.success) {
-  ElMessage.success('参数已保存，开始计算');
-  
-  const runResponse = await axios.post(`/api/cases/${caseId}/calculate`);
-  if (!runResponse.data.success) {
-  throw new Error(runResponse.data.message || '启动计算失败');
-  }
-  } else {
-  throw new Error(saveParamsResponse.data.message || '参数保存失败');
-  }
-  } catch (error) {
-  isCalculating.value = false;
-  computationMessage.value = error.response?.data?.message || error.message || '计算启动失败';
-  computationError.value = true;
-  calculationOutputs.value.push({ type: 'task', taskName: '启动失败', message: `[启动失败] ${computationMessage.value}` });
-  ElMessage.error(computationMessage.value);
-  if (socket) socket.disconnect();
-  }
+    if (isCalculating.value || completed.value || isCalculationCompleted.value) {
+      ElMessage.warning('计算已完成或正在进行中');
+      return;
+    }
+
+    try {
+      isCalculating.value = true;
+      overallProgress.value = 0;
+      computationMessage.value = '计算开始...';
+      computationError.value = false;
+      completed.value = false;
+      calculationOutputs.value = [{ type: 'task', taskName: '计算启动', message: '计算启动...' }];
+      startTime.value = Date.now();
+      eta.value = null;
+      
+      tasks.value.forEach(task => {
+          task.status = 'pending';
+      });
+        // 保存当前状态
+      store.saveCalculationProgress();
+
+      // 获取最新计算状态
+      await store.fetchCalculationStatus();
+      
+      if (store.calculationStatus.value === 'completed') {
+        throw new Error('该工况的计算已完成，无法重新计算。');
+      }
+        
+     const response = await axios.post(`/api/cases/${caseId}/calculate`);
+     if (!response.data.success) {
+        throw new Error(response.data.message || '启动计算失败');
+      }
+      ElMessage.success('计算已启动');
+
+    } catch (error) {
+      isCalculating.value = false;
+      computationMessage.value = error.response?.data?.message || error.message || '计算启动失败';
+      computationError.value = true;
+        calculationOutputs.value.push({ type: 'task', taskName: '启动失败', message: `[启动失败] ${computationMessage.value}` });
+      ElMessage.error(computationMessage.value);
+    
+    }
   };
   
-  const updateETA = () => {
-  if (!startTime.value || overallProgress.value === 0) {
-  eta.value = null;
-  return;
-  }
-  const elapsed = (Date.now() - startTime.value) / 1000;
-  const estimatedTotal = (elapsed / overallProgress.value) * 100;
-  const remaining = Math.max(Math.round(estimatedTotal - elapsed), 0);
-  eta.value = remaining;
-  };
   
   const viewResults = () => {
-  router.push({ name: 'ResultsDisplay', params: { caseId } });
+    router.push({ name: 'ResultsDisplay', params: { caseId } });
   };
   
   const resetComputation = async () => {
-  isCalculating.value = false;
-  overallProgress.value = 0;
-  computationMessage.value = '';
-  computationError.value = false;
-  completed.value = false;
-  calculationOutputs.value = [];
-  openfoamOutput.value = '';
-  eta.value = null;
-  tasks.value.forEach(task => {
-  task.status = 'pending';
-  });
-  
-  // 清除 localStorage 保存的计算进度
-  localStorage.removeItem(`calculation_${caseId}`);
-  try {
-  await axios.delete(`/api/cases/${caseId}/calculation-progress`);
-  } catch (error) {
-  console.error("Failed to clear calculation progress in backend", error);
-  }
-  
+    try {
+        await axios.delete(`/api/cases/${caseId}/calculation-progress`);
+        isCalculating.value = false;
+        overallProgress.value = 0;
+        computationMessage.value = '';
+        computationError.value = false;
+        completed.value = false;
+        calculationOutputs.value = [];
+        openfoamOutput.value = '';
+        eta.value = null;
+        tasks.value.forEach(task => {
+          task.status = 'pending';
+        });
+         store.resetCalculationProgress();
+        ElMessage.success("计算已重置");
+    } catch (error) {
+       ElMessage.error("重置计算失败");
+       console.error("重置计算失败:", error);
+    }
   };
+    
   
-  watch(calculationOutputs, () => {
-  nextTick(() => {
-  if (outputScrollbar.value && outputScrollbar.value.wrap) { // Add a check here
-  outputScrollbar.value.setScrollTop(
-  outputScrollbar.value.wrap.scrollHeight
-  );
-  }
-  });
-  });
+    watch(calculationOutputs, () => {
+      nextTick(() => {
+        if (outputScrollbar.value && outputScrollbar.value.wrap) { // Add a check here
+          outputScrollbar.value.setScrollTop(
+            outputScrollbar.value.wrap.scrollHeight
+          );
+        }
+      });
+    });
   
   onBeforeUnmount(() => {
-  if (socket) {
-  socket.disconnect();
-  }
+      store.disconnectSocket();
   });
   </script>
   
@@ -513,10 +436,12 @@
   
   .task-completed {
   background-color: #f0fff4; /* Light green background */
+     border-left: 4px solid #34d399;
   }
   
   .task-error {
   background-color: #fff0f0; /* Light red background */
+     border-left: 4px solid #f56c6c;
   }
   
   .task-running {

@@ -1,4 +1,15 @@
-<template>
+<!--
+ * @Author: joe 847304926@qq.com
+ * @Date: 2024-12-30 10:58:27
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-01-10 17:35:14
+ * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\components\Dashboard.vue
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+ -->
+
+ <template>
   <div class="dashboard-container" role="navigation">
     <el-menu
       class="el-menu-vertical-demo"
@@ -9,6 +20,10 @@
       :default-active="defaultActive"
       role="menubar"
       router
+      tabindex="0"
+      @keydown.enter="handleMenuEnter"
+      @keydown.arrow-down="handleArrowDown"
+      @keydown.arrow-up="handleArrowUp"
     >
       <div class="collapse-btn-wrapper">
         <el-tooltip content="折叠/展开目录" placement="right" effect="dark">
@@ -81,21 +96,23 @@ const menuBackground = "#2c3e50";
 const menuTextColor = "#ecf0f1";
 const menuActiveTextColor = "#ffd04b";
 
-const menuItems = computed(() =>
-  isCaseDetail.value
-    ? [
+
+const menuItems = computed(() => {
+  if (isCaseDetail.value && caseId.value) {
+      return [
         { index: `/cases/${caseId.value}/terrain`, icon: Location, title: "地形展示" },
         { index: `/cases/${caseId.value}/parameters`, icon: Setting, title: "参数设置" },
         { index: `/cases/${caseId.value}/calculation`, icon: Monitor, title: "计算输出" },
         { index: `/cases/${caseId.value}/results`, icon: DataLine, title: "结果展示" },
-      ]
-    : [
+      ];
+    } else {
+      return [
         { index: "/", icon: House, title: "首页" },
         { index: "/new", icon: Plus, title: "新建工况" },
         { index: "/cases", icon: Files, title: "工况列表" },
-      ]
-);
-
+      ];
+    }
+  });
 const getMenuItemClass = (item) => {
   // 示例：应用动态类
   const classes = ['menu-item-shine'];
@@ -104,6 +121,49 @@ const getMenuItemClass = (item) => {
   // if (item.isActive) classes.push('active-item');
   return classes;
 };
+  const handleMenuEnter = (event) => {
+      const target = event.target;
+       if (target.classList.contains("el-menu-item")) {
+            target.click();
+         }
+      if(target.classList.contains('back-btn')) {
+           target.click();
+      }
+  };
+  const handleArrowDown = (event) => {
+     const menu = event.target.querySelector('#menu-items');
+        if (menu) {
+            const items = Array.from(menu.querySelectorAll('.el-menu-item, .back-btn'));
+             if (items.length > 0) {
+                  let nextIndex = -1;
+                const activeItem = menu.querySelector('.el-menu-item.is-active, .back-btn:focus');
+                if (activeItem) {
+                    const currentIndex = items.indexOf(activeItem);
+                    nextIndex = (currentIndex + 1) % items.length;
+                } else {
+                     nextIndex = 0;
+                }
+             items[nextIndex].focus();
+            }
+        }
+    };
+    const handleArrowUp = (event) => {
+     const menu = event.target.querySelector('#menu-items');
+      if (menu) {
+            const items = Array.from(menu.querySelectorAll('.el-menu-item, .back-btn'));
+             if (items.length > 0) {
+                   let nextIndex = -1;
+                 const activeItem = menu.querySelector('.el-menu-item.is-active, .back-btn:focus');
+                if (activeItem) {
+                    const currentIndex = items.indexOf(activeItem);
+                    nextIndex = (currentIndex - 1 + items.length) % items.length;
+                }else {
+                    nextIndex = items.length - 1;
+                }
+                items[nextIndex].focus();
+            }
+        }
+    };
 </script>
 
 <style scoped>
@@ -217,6 +277,8 @@ const getMenuItemClass = (item) => {
   color: white;
   font-weight: 500;
   box-shadow: var(--shadow-md);
+    border-radius: 4px;
+    transform: scale(1.05);
 }
 
 /* 图标样式 */

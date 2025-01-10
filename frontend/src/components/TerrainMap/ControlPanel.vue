@@ -1,4 +1,13 @@
-<!-- frontend/src/components/ControlPanel.vue -->
+<!--
+ * @Author: joe 847304926@qq.com
+ * @Date: 2024-12-30 10:58:27
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-01-10 17:18:31
+ * @FilePath: \WindSimProj\frontend\src\components\TerrainMap\ControlPanel.vue
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by ${git_name_email}, All Rights Reserved. 
+-->
 <template>
   <el-drawer
     v-model="localVisible"
@@ -27,6 +36,7 @@
                     @click="$emit('reset-camera')"
                     icon="el-icon-refresh"
                     aria-label="重置视角"
+                      :disabled="bladeRotation === undefined || rotationSpeed === undefined"
                   >
                     重置视角
                   </el-button>
@@ -48,18 +58,20 @@
                 <el-row :gutter="12" class="animation-controls">
                   <el-col :span="12">
                     <el-switch
-                      v-model="localBladeRotation"
+                      v-model="bladeRotation"
                       active-text="叶片旋转"
                       inactive-text="叶片停止"
                       @change="$emit('update-blade-rotation', $event)"
                       aria-label="控制叶片旋转"
+                      role="switch"
+                      :aria-checked="bladeRotation"
                     />
                   </el-col>
                   <el-col :span="12">
                     <div class="speed-control">
                       <span class="speed-label">旋转速度:</span>
                       <el-slider
-                        v-model="localRotationSpeed"
+                        v-model="rotationSpeed"
                         :min="0.1"
                         :max="2"
                         :step="0.1"
@@ -85,7 +97,7 @@
  * 左侧抽屉面板，包含地形显示和风机动画的控制。
  */
 
-import { ref, watch, nextTick } from "vue";
+import { ref, watch, nextTick, computed } from "vue";
 
 const props = defineProps({
   visible: {
@@ -117,9 +129,6 @@ const emit = defineEmits([
 const localVisible = ref(props.visible);
 const activeSections = ref(["controlPanel"]);
 
-const localBladeRotation = ref(props.bladeRotation);
-const localRotationSpeed = ref(props.rotationSpeed);
-
 // 确保正确响应 visible 的变化
 watch(
   () => props.visible,
@@ -137,21 +146,16 @@ watch(
   }
 );
 
-watch(
-  () => props.bladeRotation,
-  (newVal) => {
-    localBladeRotation.value = newVal;
-  },
-  { immediate: true }
-);
 
-watch(
-  () => props.rotationSpeed,
-  (newVal) => {
-    localRotationSpeed.value = newVal;
-  },
-  { immediate: true }
-);
+const bladeRotation = computed({
+  get: () => props.bladeRotation,
+  set: (val) => emit('update-blade-rotation', val)
+});
+
+const rotationSpeed = computed({
+  get: () => props.rotationSpeed,
+  set: (val) => emit('update-rotation-speed', val)
+});
 
 // 关闭抽屉
 const handleClose = () => {

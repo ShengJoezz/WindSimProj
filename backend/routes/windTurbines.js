@@ -1,4 +1,14 @@
-// windTurbines.js
+/*
+ * @Author: joe 847304926@qq.com
+ * @Date: 2024-11-04 11:32:52
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-01-10 17:51:46
+ * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\backend\routes\windTurbines.js
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+ */
+
 const express = require('express')
 const multer = require('multer')
 const path = require('path')
@@ -17,17 +27,15 @@ const upload = multer({
 })
 
 // 上传风机数据
-router.post('/upload', upload.single('file'), (req, res) => {
+router.post('/upload', upload.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ success: false, message: '未上传文件' })
   }
-  const newPath = path.join(__dirname, '../uploads/', req.file.originalname)
-  fs.rename(req.file.path, newPath, (err) => {
-    if (err) {
-      return res.status(500).json({ success: false, message: '文件处理失败' })
-    }
-    // 解析文件内容并存储风机信息
-    const data = fs.readFileSync(newPath, 'utf-8')
+    const newPath = path.join(__dirname, '../uploads/', req.file.originalname)
+  try {
+        await fs.promises.rename(req.file.path, newPath);
+        // 解析文件内容并存储风机信息
+        const data = await fs.promises.readFile(newPath, 'utf-8');
     const lines = data.split('\n')
     const windTurbines = lines.map(line => {
       const [longitude, latitude, towerHeight, rotorDiameter, model] = line.split(',')
@@ -41,25 +49,37 @@ router.post('/upload', upload.single('file'), (req, res) => {
     }).filter(turbine => !isNaN(turbine.longitude)) // 过滤无效数据
 
     // 这里简单存储到一个 JSON 文件中，实际可根据需求存储到数据库或其他存储
-    const listPath = path.join(__dirname, '../uploads/windTurbines.json')
-    let existing = []
-    if (fs.existsSync(listPath)) {
-      existing = JSON.parse(fs.readFileSync(listPath, 'utf-8'))
-    }
-    existing.push(...windTurbines)
-    fs.writeFileSync(listPath, JSON.stringify(existing, null, 2))
-    res.json({ success: true, message: '上传并解析成功' })
-  })
+        const listPath = path.join(__dirname, '../uploads/windTurbines.json')
+       let existing = []
+       if (fs.existsSync(listPath)) {
+          existing = JSON.parse(await fs.promises.readFile(listPath, 'utf-8'));
+       }
+         existing.push(...windTurbines)
+     await fs.promises.writeFile(listPath, JSON.stringify(existing, null, 2));
+     res.json({ success: true, message: '上传并解析成功' })
+  } catch (err) {
+      console.error("文件处理失败", err);
+      return res.status(500).json({ success: false, message: '文件处理失败' })
+  }
+
 })
 
 // 获取风机数据列表
-router.get('/list', (req, res) => {
-  const listPath = path.join(__dirname, '../uploads/windTurbines.json')
-  if (!fs.existsSync(listPath)) {
-    return res.json({ windTurbines: [] })
-  }
-  const data = JSON.parse(fs.readFileSync(listPath, 'utf-8'))
-  res.json({ windTurbines: data })
+router.get('/list', async (req, res) => {
+    const listPath = path.join(__dirname, '../uploads/windTurbines.json');
+    try {
+          if (!fs.existsSync(listPath)) {
+             return res.json({ windTurbines: [] })
+          }
+          const data = JSON.parse(await fs.promises.readFile(listPath, 'utf-8'));
+        res.json({ windTurbines: data })
+     } catch (error) {
+       console.error("获取风机列表失败:", error);
+       res.status(500).json({
+           success: false,
+           message: '获取风机列表失败'
+       });
+     }
 })
 
 module.exports = router

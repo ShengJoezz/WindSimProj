@@ -1,4 +1,13 @@
-<!-- frontend/src/components/WindTurbineForm.vue -->
+<!--
+ * @Author: joe 847304926@qq.com
+ * @Date: 2025-01-10 17:39:11
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-01-10 17:39:16
+ * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\WindTurbineForm.vue
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+ -->
 <template>
   <el-form
     :model="turbineForm"
@@ -73,9 +82,11 @@
         type="primary"
         @click="submitForm"
         class="submit-button"
+          :disabled="isSubmitting"
         block
       >
-        添加风机
+        <span v-if="isSubmitting">提交中...</span>
+         <span v-else>添加风机</span>
       </el-button>
     </el-form-item>
   </el-form>
@@ -101,7 +112,7 @@ const turbineForm = ref({
   hubHeight: 120, // 默认值
   rotorDiameter: 116, // 默认值
 });
-
+const isSubmitting = ref(false);
 const turbineRules = {
   name: [
     { required: true, message: "请输入风机名称", trigger: "blur" },
@@ -152,20 +163,17 @@ const turbineRules = {
 const turbineFormRef = ref(null);
 
 const submitForm = () => {
-  turbineFormRef.value.validate(async (valid) => {
+    isSubmitting.value = true;
+  turbineFormRef.value.validate((valid) => {
     if (valid) {
       const newTurbine = { ...turbineForm.value, id: generateUUID() };
-      try {
-        await emit("add-turbine", newTurbine);
-        ElMessage.success("风机添加成功");
-        turbineFormRef.value.resetFields();
-      } catch (error) {
-        ElMessage.error("添加风机失败: " + error.message);
-      }
+      emit("add-turbine", newTurbine);
+      ElMessage.success("风机添加成功");
+      turbineFormRef.value.resetFields();
     } else {
       ElMessage.warning("请正确填写所有必填项");
-      return false;
     }
+      isSubmitting.value = false;
   });
 };
 </script>

@@ -1,4 +1,13 @@
-<!-- frontend/src/App.vue -->
+<!--
+ * @Author: joe 847304926@qq.com
+ * @Date: 2024-12-30 10:58:27
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-01-10 17:16:31
+ * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\App.vue
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+ -->
 <template>
   <div class="app-container" role="application">
     <Dashboard />
@@ -26,8 +35,8 @@ html, body {
 
 .app-container {
   display: flex;
-  height: 100vh;
-  width: 100vw;
+  height: 100%;
+  width: 100%;
   position: relative;
   background-color: var(--app-bg-color);
 }
@@ -42,12 +51,9 @@ html, body {
   color: #e2e8f0; /* 为深色主题添加浅色文字 */
 }
 
-.map-container {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 0;
+@media (max-width: 768px) {
+  .main-content {
+    padding: 10px;
+  }
 }
 </style>

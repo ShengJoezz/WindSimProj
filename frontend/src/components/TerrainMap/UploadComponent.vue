@@ -1,4 +1,15 @@
-<template>
+<!--
+ * @Author: joe 847304926@qq.com
+ * @Date: 2025-01-10 15:19:08
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-01-10 17:31:36
+ * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\UploadComponent.vue
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+ -->
+
+ <template>
   <div class="import-section">
     <el-divider><span class="divider-text">批量导入</span></el-divider>
     <el-upload
@@ -8,7 +19,7 @@
       :before-upload="handleFileUpload"
       :show-file-list="false"
       accept=".csv,.txt"
-      :on-change="handleUploadChange"
+      :on-progress="handleProgress"
     >
       <i class="el-icon-upload"></i>
       <div class="upload-text">
@@ -31,6 +42,7 @@ name,longitude,latitude,hubHeight,rotorDiameter
 风机2,-74.006,40.712,130,120
         </pre>
       </el-alert>
+      <el-progress v-if="uploading" :percentage="uploadProgress" />
     </el-upload>
   </div>
 </template>
@@ -46,16 +58,26 @@ import { ref } from "vue";
 import Papa from "papaparse";
 import { ElLoading, ElMessage } from "element-plus";
 import { generateUUID } from '../../utils/uuid';
+import path from 'path';
 
 const emit = defineEmits(["import-turbines"]);
 
 const showExample = ref(false);
+const uploading = ref(false);
+const uploadProgress = ref(0);
 
 const toggleExample = () => {
   showExample.value = !showExample.value;
 };
 
 const handleFileUpload = (file) => {
+  const supportedFormats = ['.csv', '.txt'];
+  const fileExt = path.extname(file.name).toLowerCase();
+  if (!supportedFormats.includes(fileExt)) {
+    ElMessage.error('仅支持 .csv 和 .txt 文件格式');
+    return false;
+  }
+
   const reader = new FileReader();
 
   reader.onload = (e) => {
@@ -65,11 +87,16 @@ const handleFileUpload = (file) => {
 
   reader.onerror = () => {
     ElMessage.error('文件读取失败');
+    uploading.value = false;
+    uploadProgress.value = 0;
   };
-
+  uploading.value = true;
+    uploadProgress.value = 0;
   reader.readAsText(file);
-
   return false; // Prevent automatic upload
+};
+const handleProgress = (event) => {
+  uploadProgress.value = Math.round((event.loaded / event.total) * 100);
 };
 
 const parseTurbineData = async (data, fileName) => {
@@ -129,6 +156,8 @@ const parseTurbineData = async (data, fileName) => {
     ElMessage.error("导入风机数据失败: " + error.message);
   } finally {
     loadingInstance.close();
+      uploading.value = false;
+      uploadProgress.value = 0;
   }
 };
 </script>

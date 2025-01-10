@@ -1,8 +1,20 @@
+/*
+ * @Author: joe 847304926@qq.com
+ * @Date: 2024-12-30 10:58:27
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-01-10 17:41:30
+ * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\store\caseStore.js
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+ */
+
 import { defineStore } from "pinia";
 import axios from "axios";
 import { ref } from "vue";
 import { ElMessage } from "element-plus";
 import { knownTasks } from "../utils/tasks";
+import { io } from 'socket.io-client';
 
 export const useCaseStore = defineStore("caseStore", () => {
     // State
@@ -43,6 +55,9 @@ export const useCaseStore = defineStore("caseStore", () => {
     const overallProgress = ref(0);
     const calculationOutputs = ref([]);
     const tasks = ref(knownTasks.map((task) => ({ ...task, status: "pending" })));
+    const hasFetchedCalculationStatus = ref(false);
+    const socket = ref(null);
+    let startTime = ref(null);
 
     // Actions
 
@@ -90,6 +105,7 @@ export const useCaseStore = defineStore("caseStore", () => {
         try {
             const response = await axios.get(`/api/cases/${caseId.value}/calculation-status`);
             calculationStatus.value = response.data.calculationStatus;
+            hasFetchedCalculationStatus.value = true;
             return true;
         } catch (error) {
             console.error("获取计算状态失败:", error);
@@ -189,6 +205,29 @@ export const useCaseStore = defineStore("caseStore", () => {
             throw error;
         }
     };
+    const addBulkWindTurbines = async (turbines) => {
+        try {
+          // Filter out duplicates based on ID
+            const newTurbines = turbines.filter(t => !windTurbines.value.some(existing => existing.id === t.id));
+          windTurbines.value.push(...newTurbines);
+            infoExists.value = false;
+
+            const response = await axios.post(
+                `/api/cases/${caseId.value}/wind-turbines`,
+                windTurbines.value
+            );
+
+            if (!response.data.success) {
+                throw new Error(response.data.message || "批量保存风机数据失败");
+            }
+
+            ElMessage.success(`成功导入 ${newTurbines.length} 个风机`);
+        } catch (error) {
+            console.error("Error importing bulk wind turbines:", error);
+            ElMessage.error("批量导入风机失败: " + error.message);
+            throw error;
+        }
+    };
 
     const removeWindTurbine = async (turbineId) => {
         let removedTurbine = null;
@@ -262,7 +301,7 @@ export const useCaseStore = defineStore("caseStore", () => {
     };
 
 
-    const saveCalculationProgress = async () => {
+      const saveCalculationProgress = async () => {
         if (!currentCaseId.value) {
             console.error('No case ID available');
             return;
@@ -288,6 +327,15 @@ export const useCaseStore = defineStore("caseStore", () => {
             console.error('\n 保存计算进度失败:', error);
         }
     };
+    
+      const resetCalculationProgress = () => {
+       
+          overallProgress.value = 0;
+           calculationOutputs.value = [];
+        tasks.value.forEach(task => {
+            task.status = 'pending';
+        });
+      };
 
 
     const loadCalculationProgress = async () => {
@@ -298,17 +346,110 @@ export const useCaseStore = defineStore("caseStore", () => {
             if (response.data.progress) {
                 return response.data.progress;
             }
-
-            const savedProgress = localStorage.getItem(`calculation_${caseId.value}`);
-            if (savedProgress) {
-                return JSON.parse(savedProgress);
-            }
         } catch (error) {
             console.error("加载计算进度失败:", error);
         }
         return null;
     };
+    const connectSocket = (caseId) => {
+      if (!socket.value) {
+        socket.value = io('http://localhost:5000', {
+          transports: ['websocket'],
+          reconnectionAttempts: 5,
+          timeout: 10000,
+        });
 
+        socket.value.emit("joinCase", caseId);
+         listenToSocketEvents();
+        socket.value.on('disconnect', () => {
+          console.log('Socket disconnected');
+        });
+      }
+    };
+
+    const disconnectSocket = () => {
+      if (socket.value) {
+        socket.value.disconnect();
+        socket.value = null;
+      }
+    };
+ const listenToSocketEvents = () => {
+    if (socket.value) {
+      socket.value.on('taskStarted', handleTaskStarted);
+      socket.value.on('calculationProgress', handleCalculationProgress);
+        socket.value.on('taskCompleted', handleTaskCompleted);
+         socket.value.on('calculationOutput', handleCalculationOutput);
+         socket.value.on('calculationCompleted',handleCalculationCompleted );
+        socket.value.on('calculationError', handleCalculationError);
+        socket.value.on('calculationFailed', handleCalculationFailed);
+    }
+  };
+
+  const handleTaskStarted = (taskId) => {
+    const task = tasks.value.find(t => t.id === taskId);
+    if (task) {
+      task.status = "running";
+        calculationOutputs.value.push({
+          type: 'task',
+          taskName: task.name,
+          message: `${task.name} 启动`
+        });
+    }
+  };
+  const handleCalculationOutput = (output) => {
+    calculationOutputs.value.push({ type: 'output', message: output });
+  };
+  const handleCalculationProgress = (data) => {
+    overallProgress.value = data.progress;
+     const task = tasks.value.find(t => t.id === data.taskId);
+      if (task) {
+           // Prevent duplicate messages for the same progress
+             const existingMessage = calculationOutputs.value.find(
+                 output => output.taskName === task.name && output.message.includes(`进度: ${data.progress}%`)
+             );
+             if (!existingMessage) {
+                 calculationOutputs.value.push({
+                     type: 'task',
+                     taskName: task.name,
+                     message: `进度: ${data.progress}%`
+                 });
+             }
+      }
+    saveCalculationProgress();
+  };
+    const handleTaskCompleted = (taskId) => {
+      const task = tasks.value.find(t => t.id === taskId);
+      if (task) {
+        task.status = 'completed';
+         calculationOutputs.value.push({
+            type: 'task',
+            taskName: task.name,
+            message: '完成'
+         });
+      }
+    };
+   const handleCalculationCompleted = (res) => {
+    overallProgress.value = 100;
+    setResults(res);
+      // 标记最后一个任务为完成
+     const finalTask = tasks.value.find(t => t.id === 'computation_end');
+      if (finalTask && finalTask.status !== 'completed') {
+          finalTask.status = 'completed';
+          calculationOutputs.value.push({ type: 'task', taskName: finalTask.name, message: '计算完成' });
+        }
+    ElMessage.success('计算完成');
+   
+  };
+  const handleCalculationError = (err) => {
+     calculationOutputs.value.push({ type: 'task', taskName: tasks.value.find(t => t.id === err.taskId)?.name || '未知任务', message: '发生错误' });
+    ElMessage.error(err.message || '计算过程中出错');
+  };
+   const handleCalculationFailed = (err) => {
+       calculationOutputs.value.push({ type: 'task', taskName: '计算失败', message: `[失败] ${err.message || '计算失败'}` });
+       ElMessage.error(err.message || '计算失败');
+   };
+    
+      
     return {
         caseId,
         caseName,
@@ -322,6 +463,9 @@ export const useCaseStore = defineStore("caseStore", () => {
         overallProgress,
         calculationOutputs,
         tasks,
+        hasFetchedCalculationStatus,
+        socket,
+        startTime,
         setResults,
         initializeCase,
         fetchCalculationStatus,
@@ -329,9 +473,14 @@ export const useCaseStore = defineStore("caseStore", () => {
         generateInfoJson,
         downloadInfoJson,
         addWindTurbine,
+        addBulkWindTurbines,
         removeWindTurbine,
         updateWindTurbine,
         saveCalculationProgress,
+          resetCalculationProgress,
         loadCalculationProgress,
+        connectSocket,
+        disconnectSocket,
+        listenToSocketEvents,
     };
 });

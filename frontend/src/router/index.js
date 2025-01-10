@@ -1,3 +1,13 @@
+/*
+ * @Author: joe 847304926@qq.com
+ * @Date: 2025-01-10 17:16:53
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-01-10 17:16:59
+ * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\router\index.js
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+ */
 import { createRouter, createWebHistory } from "vue-router";
 import Home from "../views/Home.vue";
 import NewCase from "../views/NewCase.vue";
@@ -14,12 +24,12 @@ const routes = [
     name: "CaseDetails",
     component: () => import("../views/CaseDetails.vue"),
     redirect: (to) => ({
-      name: "TerrainView", // 改为首先重定向到地形视图
+      name: "TerrainView",
       params: { caseId: to.params.caseId },
     }),
     children: [
       {
-        path: "terrain", // 添加地形视图路由
+        path: "terrain",
         name: "TerrainView",
         component: () => import("../components/TerrainMap/TerrainMap.vue"),
       },
@@ -51,12 +61,16 @@ router.beforeEach(async (to, from, next) => {
   const caseStore = useCaseStore();
 
   if (to.name === "CalculationOutput") {
-    await caseStore.fetchCalculationStatus();
+    if (!caseStore.hasFetchedCalculationStatus) {
+      await caseStore.fetchCalculationStatus();
+      caseStore.hasFetchedCalculationStatus = true;
+    }
 
-    if (caseStore.calculationStatus.value === "completed") {
-      next(); // Allow navigation to CalculationOutput if calculation is completed
-    } else if (caseStore.calculationStatus.value === "running") {
-      // If the user is already on the page, allow staying on it, but show warning if coming from a different route
+    const status = caseStore.calculationStatus.value;
+
+    if (status === "completed") {
+      next();
+    } else if (status === "running") {
       if (from.name === "CalculationOutput") {
         next();
       } else {
@@ -64,15 +78,14 @@ router.beforeEach(async (to, from, next) => {
         next(false);
       }
     } else {
-      // Allow if not started or failed, but make sure user is informed if it's not completed
-      if (caseStore.calculationStatus.value !== 'not_started') {
+      if (status !== 'not_started') {
         ElMessage.info("Calculation status is not 'completed'. Starting a new calculation might be possible.");
       }
       next();
     }
   } else if (from.name === "CalculationOutput" && caseStore.calculationStatus.value === "running") {
-      ElMessage.warning("Calculation is in progress. Please wait or reset.");
-      next(false);
+    ElMessage.warning("Calculation is in progress. Please wait or reset.");
+    next(false);
   } else {
     next();
   }

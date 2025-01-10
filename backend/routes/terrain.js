@@ -1,9 +1,21 @@
+/*
+ * @Author: joe 847304926@qq.com
+ * @Date: 2024-12-30 10:58:27
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-01-10 17:51:39
+ * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\backend\routes\terrain.js
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+ */
+
 const express = require("express");
 const path = require("path");
 const GeoTIFF = require("geotiff");
 const fs = require("fs").promises;
 const Joi = require("joi");
 const cache = require("memory-cache");
+const chokidar = require('chokidar');
 
 const router = express.Router();
 
@@ -133,4 +145,17 @@ router.get("/:caseId/statistics", async (req, res) => {
   }
 });
 
+const watcher = chokidar.watch(path.join(__dirname, '../uploads'), {
+    persistent: true,
+    ignoreInitial: true,
+});
+
+watcher.on('change', (filePath) => {
+    if (path.extname(filePath).toLowerCase() === '.tif' || path.extname(filePath).toLowerCase() === '.tiff') {
+        const caseId = path.basename(path.dirname(filePath));
+        cache.del(`metadata_${caseId}`);
+        cache.del(`statistics_${caseId}`);
+        console.log(`Cache invalidated for caseId: ${caseId}`);
+    }
+});
 module.exports = router;
