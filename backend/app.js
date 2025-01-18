@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-01-10 16:46:19
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-10 17:51:54
+ * @LastEditTime: 2025-01-12 18:47:43
  * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\backend\app.js
  * @Description: 
  * 
@@ -16,6 +16,7 @@ const http = require('http'); // 新增
 const { Server } = require('socket.io'); // 新增
 
 const casesRouter = require('./routes/cases');
+const windTurbinesRouter = require('./routes/windTurbinesRouter')
 const errorHandler = require('./middleware/errorHandler'); // 引入错误处理中间件
 
 const app = express();
@@ -34,6 +35,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // API 路由
 app.use('/api/cases', casesRouter);
+app.use('/api/cases/:caseId/wind-turbines', windTurbinesRouter);
 
 // 处理 404
 app.use((req, res, next) => {

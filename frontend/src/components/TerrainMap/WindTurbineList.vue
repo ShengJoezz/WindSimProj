@@ -2,13 +2,13 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-01-10 17:32:19
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-10 18:08:03
+ * @LastEditTime: 2025-01-12 20:11:15
  * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\WindTurbineList.vue
  * @Description: 
  * 
  * Copyright (c) 2025 by joe, All Rights Reserved.
  -->
-<template>
+ <template>
   <div v-if="windTurbines.length" class="turbine-list">
     <el-card
       v-for="turbine in windTurbines"
@@ -71,7 +71,6 @@ import { ref } from 'vue';
 import { ElMessageBox } from 'element-plus';
 import { throttle } from 'lodash';
 
-
 const props = defineProps({
   windTurbines: {
     type: Array,
@@ -83,7 +82,7 @@ const emit = defineEmits(["focus-turbine", "delete-turbine"]);
 
 const deletingTurbineId = ref(null);
 
-const confirmDeleteThrottled = lodash.throttle((turbine) => {
+const confirmDeleteThrottled = throttle((turbine) => {
   confirmDelete(turbine);
 }, 500); // Throttle to 500ms
 

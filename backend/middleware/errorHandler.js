@@ -1,43 +1,40 @@
 /*
  * @Author: joe 847304926@qq.com
- * @Date: 2025-01-10 17:51:59
+ * @Date: 2025-01-12 16:15:38
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-10 17:52:19
- * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\backend\middleware\errorHandler.js
+ * @LastEditTime: 2025-01-12 18:08:34
+ * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\backend\middleware\errorHandler.js
  * @Description: 
  * 
  * Copyright (c) 2025 by joe, All Rights Reserved.
  */
 // backend/middleware/errorHandler.js
-const logger = require('../utils/logger'); // 假设您有一个 logger 实用程序
-
 const errorHandler = (err, req, res, next) => {
-  logger.error(err.stack); // 记录完整的错误堆栈，以便进行内部调试
-  const isProduction = process.env.NODE_ENV === 'production';
+  console.error(err.stack);
 
-  if (err.code === 'ENOENT') {
-    return res.status(404).json({
-      success: false,
-      message: '找不到资源',
-      error: isProduction ? 'Not Found' : err.message, // 包含原始错误消息以获取上下文
-    });
-  }
-
-  if (err.name === 'ValidationError') {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({
+        success: false,
+        message: '文件大小超过限制'
+      });
+    }
     return res.status(400).json({
       success: false,
-      message: '验证错误',
-      error: isProduction ? 'Validation Error' : err.message,
+      message: '文件上传错误'
     });
   }
 
-  // 在此处根据错误类型添加更具体的错误处理
+  if (err.message === '不支持的文件类型') {
+    return res.status(400).json({
+      success: false,
+      message: err.message
+    });
+  }
 
-  // 意外错误的默认错误响应
   res.status(500).json({
     success: false,
-    message: '内部服务器错误',
-    error: isProduction ? 'Internal Server Error' :  err.message, // 包含用于调试的信息，但在生产环境中要小心
+    message: '服务器内部错误'
   });
 };
 

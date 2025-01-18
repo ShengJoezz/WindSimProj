@@ -2,13 +2,13 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-01-10 17:39:11
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-10 17:39:16
+ * @LastEditTime: 2025-01-12 20:11:08
  * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\WindTurbineForm.vue
  * @Description: 
  * 
  * Copyright (c) 2025 by joe, All Rights Reserved.
  -->
-<template>
+ <template>
   <el-form
     :model="turbineForm"
     :rules="turbineRules"
@@ -121,8 +121,7 @@ const turbineRules = {
   latitude: [
     { required: true, message: "请输入纬度", trigger: "blur" },
     { type: "number", message: "纬度必须为数字", trigger: "blur" },
-    {
-      validator: (rule, value, callback) => {
+    {      validator: (rule, value, callback) => {
         if (value === null || value === undefined) {
           callback(new Error("请输入纬度"));
         } else if (value < -90 || value > 90) {

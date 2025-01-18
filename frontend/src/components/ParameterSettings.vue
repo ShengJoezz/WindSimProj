@@ -2,13 +2,12 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2024-12-30 10:58:27
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-10 17:37:11
+ * @LastEditTime: 2025-01-12 21:52:31
  * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\components\ParameterSettings.vue
  * @Description: 
  * 
  * Copyright (c) 2025 by joe, All Rights Reserved.
  -->
-
  <template>
   <div class="parameter-settings">
   <h3>参数设置</h3>

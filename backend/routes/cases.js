@@ -1,19 +1,19 @@
 /*
  * @Author: joe 847304926@qq.com
- * @Date: 2024-12-30 10:58:27
+ * @Date: 2025-01-12 18:37:08
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-10 17:51:18
- * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\backend\routes\cases.js
+ * @LastEditTime: 2025-01-13 09:40:01
+ * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\backend\routes\cases.js
  * @Description: 
  * 
  * Copyright (c) 2025 by joe, All Rights Reserved.
  */
-
 const express = require("express");
 const router = express.Router();
 const Joi = require("joi");
 const path = require("path");
-const fs = require("fs");
+const fs = require('fs');           // 用于同步操作
+const fsPromises = require('fs').promises;  // 用于异步操作
 const multer = require("multer");
 const { spawn } = require("child_process");
 const checkCalculationStatus = require("../middleware/statusCheck");
@@ -78,7 +78,6 @@ const upload = multer({
 }).fields([
     { name: 'terrainFile', maxCount: 1 },
 ]);
-
 
 // 辅助函数，验证 case ID
 const validateCaseId = (req, res, next) => {
@@ -145,32 +144,208 @@ router.get("/", async (req, res) => {
       withFileTypes: true,
     });
     const cases = caseNames
-      .filter((dirent) => dirent.isDirectory())
-      .map((dirent) => dirent.name);
-    res.json({ cases });
-  } catch (error) {
-    console.error("获取工况列表失败:", error);
-    res.status(500).json({ success: false, message: "获取工况列表失败" });
-  }
+    .filter((dirent) => dirent.isDirectory())
+    .map((dirent) => dirent.name);
+  res.json({ cases });
+} catch (error) {
+  console.error("获取工况列表失败:", error);
+  res.status(500).json({ success: false, message: "获取工况列表失败" });
+}
 });
 
+/**
+* 5. 获取特定工况的地形文件
+* GET /api/cases/:caseId/terrain
+*/
+router.get("/:caseId/terrain", (req, res) => {
+const { caseId } = req.params;
+
+if (!caseId || caseId === "undefined" || caseId === "null") {
+  return res.status(400).json({
+    success: false,
+    message: "请先选择工况",
+  });
+}
+
+const casePath = path.join(__dirname, "../uploads", caseId);
+
+if (!fs.existsSync(casePath)) {
+  return res.status(404).json({
+    success: false,
+    message: "工况不存在",
+  });
+}
+
+const terrainFilePath = path.join(casePath, "terrain.tif");
+
+if (!fs.existsSync(terrainFilePath)) {
+  return res.status(404).json({
+    success: false,
+    message: "未找到地形数据",
+  });
+}
+
+res.sendFile(terrainFilePath, {
+  headers: { "Content-Type": "image/tiff" },
+}, (err) => {
+  if (err) {
+    console.error("发送GeoTIFF文件失败:", err);
+    res.status(500).json({
+      success: false,
+      message: "服务器错误",
+    });
+  }
+});
+});
 
 /**
- * 5. 获取特定工况的地形文件
- * GET /api/cases/:caseId/terrain
- */
-router.get("/:caseId/terrain", (req, res) => {
+* 6. 删除工况
+* DELETE /api/cases/:caseId
+*/
+router.delete("/:caseId", async (req, res) => {
   const { caseId } = req.params;
+  console.log("Attempting to delete case:", caseId);
 
-  if (!caseId || caseId === "undefined" || caseId === "null") {
+  if (!caseId) {
     return res.status(400).json({
       success: false,
-      message: "请先选择工况",
+      message: "工况ID不能为空"
     });
   }
 
   const casePath = path.join(__dirname, "../uploads", caseId);
+  console.log("Case path:", casePath);
 
+  try {
+    // 检查工况是否存在
+    if (!fs.existsSync(casePath)) {
+      return res.status(404).json({
+        success: false,
+        message: "工况不存在"
+      });
+    }
+
+    // 删除工况目录
+    await fs.promises.rm(casePath, { recursive: true, force: true });
+    console.log("Successfully deleted case directory");
+
+    res.json({
+      success: true,
+      message: "工况删除成功"
+    });
+
+  } catch (error) {
+    console.error("Error deleting case:", error);
+    res.status(500).json({
+      success: false,
+      message: "删除工况失败",
+      error: error.message
+    });
+  }
+});
+
+/**
+* 7. 获取特定工况的参数
+* GET /api/cases/:caseId/parameters
+*/
+router.get("/:caseId/parameters", async (req, res) => {
+const { caseId } = req.params;
+const casePath = path.join(__dirname, "../uploads", caseId);
+const parametersPath = path.join(casePath, "parameters.json");
+const infoJsonPath = path.join(casePath, "info.json");
+
+try {
+  let parameters = {};
+
+  if (fs.existsSync(parametersPath)) {
+    const parametersData = await fs.promises.readFile(
+      parametersPath,
+      "utf-8"
+    );
+    parameters = JSON.parse(parametersData);
+  }
+
+  if (fs.existsSync(infoJsonPath)) {
+    const infoData = await fs.promises.readFile(infoJsonPath, "utf-8");
+    const info = JSON.parse(infoData);
+    parameters.center = info.center;
+    parameters.key = info.key;
+  }
+
+  if (Object.keys(parameters).length > 0) {
+    res.json({
+      success: true,
+      parameters: {
+        caseName: parameters.key || caseId,
+        ...parameters,
+      },
+    });
+  } else {
+    res.json({
+      success: true,
+      parameters: {
+        caseName: caseId,
+        calculationDomain: {
+          width: 10000,
+          height: 800,
+        },
+        conditions: {
+          windDirection: 0,
+          inletWindSpeed: 10,
+        },
+        grid: {
+          encryptionHeight: 210,
+          encryptionLayers: 21,
+          gridGrowthRate: 1.2,
+          maxExtensionLength: 360,
+          encryptionRadialLength: 50,
+          downstreamRadialLength: 100,
+          encryptionRadius: 200,
+          encryptionTransitionRadius: 400,
+          terrainRadius: 4000,
+          terrainTransitionRadius: 5000,
+          downstreamLength: 2000,
+          downstreamWidth: 600,
+           scale: 0.001,
+        },
+        simulation: {
+          cores: 1,
+          steps: 100,
+            deltaT: 1
+        },
+        postProcessing: {
+          resultLayers: 10,
+          layerSpacing: 20,
+          layerDataWidth: 1000,
+          layerDataHeight: 1000,
+        },
+        center: {
+          lon: null,
+          lat: null,
+        },
+      },
+    });
+  }
+} catch (error) {
+  console.error("获取参数失败:", error);
+  res.status(500).json({
+    success: false,
+    message: "获取参数失败",
+  });
+}
+});
+
+/**
+* 8. 保存特定工况的参数
+* POST /api/cases/:caseId/parameters
+*/
+router.post("/:caseId/parameters", async (req, res) => {
+const { caseId } = req.params;
+const parameters = req.body;
+const casePath = path.join(__dirname, "../uploads", caseId);
+const parametersPath = path.join(casePath, "parameters.json");
+
+try {
   if (!fs.existsSync(casePath)) {
     return res.status(404).json({
       success: false,
@@ -178,723 +353,917 @@ router.get("/:caseId/terrain", (req, res) => {
     });
   }
 
-  const terrainFilePath = path.join(casePath, "terrain.tif");
+  await fs.promises.writeFile(
+    parametersPath,
+    JSON.stringify(parameters, null, 2)
+  );
 
-  if (!fs.existsSync(terrainFilePath)) {
-    return res.status(404).json({
-      success: false,
-      message: "未找到地形数据",
-    });
-  }
-
-  res.sendFile(terrainFilePath, {
-    headers: { "Content-Type": "image/tiff" },
-  }, (err) => {
-    if (err) {
-      console.error("发送GeoTIFF文件失败:", err);
-      res.status(500).json({
-        success: false,
-        message: "服务器错误",
-      });
-    }
+  res.json({
+    success: true,
+    message: "参数保存成功",
   });
-});
-
-/**
- * 6. 删除工况
- * DELETE /api/cases/:caseId
- */
-router.delete("/:caseId", async (req, res) => {
-    const { caseId } = req.params;
-    console.log("Attempting to delete case:", caseId);
-  
-    if (!caseId) {
-      return res.status(400).json({
-        success: false,
-        message: "工况ID不能为空"
-      });
-    }
-  
-    const casePath = path.join(__dirname, "../uploads", caseId);
-    console.log("Case path:", casePath);
-  
-    try {
-      // 检查工况是否存在
-      if (!fs.existsSync(casePath)) {
-        return res.status(404).json({
-          success: false,
-          message: "工况不存在"
-        });
-      }
-  
-      // 删除工况目录
-      await fs.promises.rm(casePath, { recursive: true, force: true });
-      console.log("Successfully deleted case directory");
-  
-      res.json({
-        success: true,
-        message: "工况删除成功"
-      });
-  
-    } catch (error) {
-      console.error("Error deleting case:", error);
-      res.status(500).json({
-        success: false,
-        message: "删除工况失败",
-        error: error.message
-      });
-    }
+} catch (error) {
+  console.error("保存参数失败:", error);
+  res.status(500).json({
+    success: false,
+    message: "保存参数失败",
   });
-
-/**
- * 7. 获取特定工况的参数
- * GET /api/cases/:caseId/parameters
- */
-router.get("/:caseId/parameters", async (req, res) => {
-  const { caseId } = req.params;
-  const casePath = path.join(__dirname, "../uploads", caseId);
-  const parametersPath = path.join(casePath, "parameters.json");
-  const infoJsonPath = path.join(casePath, "info.json");
-
-  try {
-    let parameters = {};
-
-    if (fs.existsSync(parametersPath)) {
-      const parametersData = await fs.promises.readFile(
-        parametersPath,
-        "utf-8"
-      );
-      parameters = JSON.parse(parametersData);
-    }
-
-    if (fs.existsSync(infoJsonPath)) {
-      const infoData = await fs.promises.readFile(infoJsonPath, "utf-8");
-      const info = JSON.parse(infoData);
-      parameters.center = info.center;
-      parameters.key = info.key;
-    }
-
-    if (Object.keys(parameters).length > 0) {
-      res.json({
-        success: true,
-        parameters: {
-          caseName: parameters.key || caseId,
-          ...parameters,
-        },
-      });
-    } else {
-      res.json({
-        success: true,
-        parameters: {
-          caseName: caseId,
-          calculationDomain: {
-            width: 10000,
-            height: 800,
-          },
-          conditions: {
-            windDirection: 0,
-            inletWindSpeed: 10,
-          },
-          grid: {
-            encryptionHeight: 210,
-            encryptionLayers: 21,
-            gridGrowthRate: 1.2,
-            maxExtensionLength: 360,
-            encryptionRadialLength: 50,
-            downstreamRadialLength: 100,
-            encryptionRadius: 200,
-            encryptionTransitionRadius: 400,
-            terrainRadius: 4000,
-            terrainTransitionRadius: 5000,
-            downstreamLength: 2000,
-            downstreamWidth: 600,
-             scale: 0.001,
-          },
-          simulation: {
-            cores: 1,
-            steps: 100,
-              deltaT: 1
-          },
-          postProcessing: {
-            resultLayers: 10,
-            layerSpacing: 20,
-            layerDataWidth: 1000,
-            layerDataHeight: 1000,
-          },
-          center: {
-            lon: null,
-            lat: null,
-          },
-        },
-      });
-    }
-  } catch (error) {
-    console.error("获取参数失败:", error);
-    res.status(500).json({
-      success: false,
-      message: "获取参数失败",
-    });
-  }
+}
 });
 
 /**
- * 8. 保存特定工况的参数
- * POST /api/cases/:caseId/parameters
- */
-router.post("/:caseId/parameters", async (req, res) => {
-  const { caseId } = req.params;
-  const parameters = req.body;
-  const casePath = path.join(__dirname, "../uploads", caseId);
-  const parametersPath = path.join(casePath, "parameters.json");
-
-  try {
-    if (!fs.existsSync(casePath)) {
-      return res.status(404).json({
-        success: false,
-        message: "工况不存在",
-      });
-    }
-
-    await fs.promises.writeFile(
-      parametersPath,
-      JSON.stringify(parameters, null, 2)
-    );
-
-    res.json({
-      success: true,
-      message: "参数保存成功",
-    });
-  } catch (error) {
-    console.error("保存参数失败:", error);
-    res.status(500).json({
-      success: false,
-      message: "保存参数失败",
-    });
-  }
-});
-
-/**
- * 9. 获取特定工况的仿真结果
- * GET /api/cases/:caseId/results
- */
+* 9. 获取特定工况的仿真结果
+* GET /api/cases/:caseId/results
+*/
 router.get("/:caseId/results", async (req, res) => {
-  const { caseId } = req.params;
-  const casePath = path.join(__dirname, "../uploads", caseId);
-  const resultsPath = path.join(casePath, "results.json");
+const { caseId } = req.params;
+const casePath = path.join(__dirname, "../uploads", caseId);
+const resultsPath = path.join(casePath, "results.json");
 
-  try {
-    if (!fs.existsSync(resultsPath)) {
-      return res.json({
-        success: true,
-        results: null,
-        message: "暂无计算结果",
-      });
-    }
-
-    const resultsData = await fs.promises.readFile(resultsPath, "utf-8");
-    const results = JSON.parse(resultsData);
-    res.json({
+try {
+  if (!fs.existsSync(resultsPath)) {
+    return res.json({
       success: true,
-      results: results,
-    });
-  } catch (error) {
-    console.error("获取结果失败:", error);
-    res.status(500).json({
-      success: false,
-      message: "获取结果失败",
+      results: null,
+      message: "暂无计算结果",
     });
   }
+
+  const resultsData = await fs.promises.readFile(resultsPath, "utf-8");
+  const results = JSON.parse(resultsData);
+  res.json({
+    success: true,
+    results: results,
+  });
+} catch (error) {
+  console.error("获取结果失败:", error);
+  res.status(500).json({
+    success: false,
+    message: "获取结果失败",
+  });
+}
 });
 
 /**
- * 10. 启动特定工况的计算
- * POST /api/cases/:caseId/calculate
- */
+* 10. 启动特定工况的计算
+* POST /api/cases/:caseId/calculate
+*/
 router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
-  const { caseId } = req.params;
-  const scriptPath = path.join(__dirname, "../base/run.sh");
-  const casePath = path.join(__dirname, "../uploads", caseId);
+const { caseId } = req.params;
+const scriptPath = path.join(__dirname, "../base/run.sh");
+const casePath = path.join(__dirname, "../uploads", caseId);
 
-    if (!fs.existsSync(scriptPath)) {
-        return res.status(404).json({ success: false, message: "run.sh 脚本未找到" });
-    }
-
-    if (!fs.existsSync(casePath)) {
-        return res.status(404).json({ success: false, message: "工况不存在" });
-    }
-
-  if (req.calculationStatus === "completed") {
-    return res.status(400).json({
-      success: false,
-      message: "该工况已完成计算，无法重新计算",
-    });
+  if (!fs.existsSync(scriptPath)) {
+      return res.status(404).json({ success: false, message: "run.sh 脚本未找到" });
   }
 
-  const io = req.app.get("socketio");
+  if (!fs.existsSync(casePath)) {
+      return res.status(404).json({ success: false, message: "工况不存在" });
+  }
 
-    const taskStatuses = {};
-    knownTasks.forEach((task) => {
-        taskStatuses[task.id] = "pending";
-    });
+if (req.calculationStatus === "completed") {
+  return res.status(400).json({
+    success: false,
+    message: "该工况已完成计算，无法重新计算",
+  });
+}
 
+const io = req.app.get("socketio");
 
-    try {
-        // 更新计算状态为 'running'
-        const infoJsonPath = path.join(casePath, "info.json");
-        if (fs.existsSync(infoJsonPath)) {
-            const info = JSON.parse(
-                await fs.promises.readFile(infoJsonPath, "utf-8")
-            );
-            info.calculationStatus = "running";
-            await fs.promises.writeFile(
-                infoJsonPath,
-                JSON.stringify(info, null, 2),
-                "utf-8"
-            );
-            console.log("Updated info.json to mark calculation as running");
+  const taskStatuses = {};
+  knownTasks.forEach((task) => {
+      taskStatuses[task.id] = "pending";
+  });
+
+  try {
+      // 更新计算状态为 'running'
+      const infoJsonPath = path.join(casePath, "info.json");
+      if (fs.existsSync(infoJsonPath)) {
+          const info = JSON.parse(
+              await fs.promises.readFile(infoJsonPath, "utf-8")
+          );
+          info.calculationStatus = "running";
+          await fs.promises.writeFile(
+              infoJsonPath,
+              JSON.stringify(info, null, 2),
+              "utf-8"
+          );
+          console.log("Updated info.json to mark calculation as running");
+      } else {
+          console.warn("info.json not found. Cannot update calculation status.");
+      }
+
+  // 运行子进程
+  const child = spawn("bash", [scriptPath], { cwd: casePath, shell: false });
+
+  // 创建本次运行的日志文件
+  const logFilePath = path.join(casePath, `calculation_log_${Date.now()}.txt`);
+  const logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
+
+  console.log(`Executing run.sh for case: ${caseId}`);
+
+  child.stdout.on("data", (data) => {
+      const output = data.toString();
+      logStream.write(output);
+      io.to(caseId).emit("calculationOutput", output);
+      const trimmedOutput = output.trim();
+      console.log(`run.sh stdout: ${trimmedOutput}`);
+
+          const taskStartMatch = trimmedOutput.match(/TaskStart:\s+(\w+)/);
+          const progressMatch = trimmedOutput.match(
+              /Progress:\s+(\d+)%\s+Task:\s+(\w+)/
+          );
+
+      if (taskStartMatch) {
+        const taskId = taskStartMatch[1];
+        if (knownTasks.some((task) => task.id === taskId)) {
+          taskStatuses[taskId] = "running";
+          io.to(caseId).emit("taskStarted", taskId);
+            console.log(`Task started: ${taskId}`);
         } else {
-            console.warn("info.json not found. Cannot update calculation status.");
+          console.warn(`Unknown task started: ${taskId}`);
         }
-
-
-    // 运行子进程
-    const child = spawn("bash", [scriptPath], { cwd: casePath, shell: false });
-
-    // 创建本次运行的日志文件
-    const logFilePath = path.join(casePath, `calculation_log_${Date.now()}.txt`);
-    const logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
-
-    console.log(`Executing run.sh for case: ${caseId}`);
-
-    child.stdout.on("data", (data) => {
-        const output = data.toString();
-        logStream.write(output);
-        io.to(caseId).emit("calculationOutput", output);
-        const trimmedOutput = output.trim();
-        console.log(`run.sh stdout: ${trimmedOutput}`);
-
-
-            const taskStartMatch = trimmedOutput.match(/TaskStart:\s+(\w+)/);
-            const progressMatch = trimmedOutput.match(
-                /Progress:\s+(\d+)%\s+Task:\s+(\w+)/
-            );
-
-
-        if (taskStartMatch) {
-          const taskId = taskStartMatch[1];
-          if (knownTasks.some((task) => task.id === taskId)) {
-            taskStatuses[taskId] = "running";
-            io.to(caseId).emit("taskStarted", taskId);
-              console.log(`Task started: ${taskId}`);
-          } else {
-            console.warn(`Unknown task started: ${taskId}`);
-          }
-        }
-          
-        if (progressMatch) {
-          const percent = parseInt(progressMatch[1], 10);
-            const taskId = progressMatch[2];
-            if (
-              !isNaN(percent) &&
-              knownTasks.some((task) => task.id === taskId)
-            ) {
-              if (percent === 100) {
-                taskStatuses[taskId] = "completed";
-                console.log(`Task completed: ${taskId}`);
-              }
-              io.to(caseId).emit("calculationProgress", {
-                progress: percent,
-                taskId: taskId,
-              });
-                console.log(`Progress: ${percent}% for task: ${taskId}`);
-            } else {
-                console.warn(`Unknown task progress: ${trimmedOutput}`);
+      }
+        
+      if (progressMatch) {
+        const percent = parseInt(progressMatch[1], 10);
+          const taskId = progressMatch[2];
+          if (
+            !isNaN(percent) &&
+            knownTasks.some((task) => task.id === taskId)
+          ) {
+            if (percent === 100) {
+              taskStatuses[taskId] = "completed";
+              console.log(`Task completed: ${taskId}`);
             }
-        }
-          io.to(caseId).emit("taskUpdate", taskStatuses);
-      });
-
-    child.stderr.on("data", (data) => {
-      const errorOutput = data.toString();
-        logStream.write(`ERROR: ${errorOutput}`);
-        console.error(`run.sh stderr: ${errorOutput}`);
-      io.to(caseId).emit("calculationError", {
-        message: "脚本错误",
-        details: errorOutput,
-      });
+            io.to(caseId).emit("calculationProgress", {
+              progress: percent,
+              taskId: taskId,
+            });
+              console.log(`Progress: ${percent}% for task: ${taskId}`);
+          } else {
+              console.warn(`Unknown task progress: ${trimmedOutput}`);
+          }
+      }
+        io.to(caseId).emit("taskUpdate", taskStatuses);
     });
 
-    child.on("close", async (code) => {
-        logStream.end();
-        if (code === 0) {
-            console.log("run.sh completed successfully");
+  child.stderr.on("data", (data) => {
+    const errorOutput = data.toString();
+      logStream.write(`ERROR: ${errorOutput}`);
+      console.error(`run.sh stderr: ${errorOutput}`);
+    io.to(caseId).emit("calculationError", {
+      message: "脚本错误",
+      details: errorOutput,
+    });
+  });
 
+  child.on("close", async (code) => {
+      logStream.end();
+      if (code === 0) {
+          console.log("run.sh completed successfully");
 
-            // 使用 info.json 更新计算状态
-            const infoJsonPath = path.join(casePath, "info.json");
-            if (fs.existsSync(infoJsonPath)) {
-                try {
-                  const info = JSON.parse(
-                    await fs.promises.readFile(infoJsonPath, "utf-8")
-                  );
-                  info.calculationStatus = "completed";
-                  await fs.promises.writeFile(
-                    infoJsonPath,
-                    JSON.stringify(info, null, 2),
-                    "utf-8"
-                  );
-                    console.log("Updated info.json to mark calculation as completed");
-                } catch (error) {
-                  console.error("Failed to update info.json:", error);
-                    io.to(caseId).emit("calculationError", {
-                        message: "Failed to update calculation status",
-                        details: error.message,
-                  });
-                    return res.status(500).json({
-                        success: false,
-                        message: "Failed to update calculation status",
-                  });
-                }
-              } else {
-                console.warn("info.json not found. Cannot update calculation status.");
+          // 使用 info.json 更新计算状态
+          const infoJsonPath = path.join(casePath, "info.json");
+          if (fs.existsSync(infoJsonPath)) {
+              try {
+                const info = JSON.parse(
+                  await fs.promises.readFile(infoJsonPath, "utf-8")
+                );
+                info.calculationStatus = "completed";
+                await fs.promises.writeFile(
+                  infoJsonPath,
+                  JSON.stringify(info, null, 2),
+                  "utf-8"
+                );
+                  console.log("Updated info.json to mark calculation as completed");
+              } catch (error) {
+                console.error("Failed to update info.json:", error);
                   io.to(caseId).emit("calculationError", {
-                        message: "info.json not found",
-                    });
-                 return res.status(500).json({
-                     success: false,
-                     message: "info.json not found",
-                 });
+                      message: "Failed to update calculation status",
+                      details: error.message,
+                });
+                  return res.status(500).json({
+                      success: false,
+                      message: "Failed to update calculation status",
+                });
               }
+            } else {
+              console.warn("info.json not found. Cannot update calculation status.");
+                io.to(caseId).emit("calculationError", {
+                      message: "info.json not found",
+                  });
+               return res.status(500).json({
+                   success: false,
+                   message: "info.json not found",
+               });
+            }
 
-
-        io.to(caseId).emit("calculationCompleted", {
-            message: "Calculation completed, results are ready",
-        });
-      res.json({ success: true, message: "Calculation completed" });
-    } else {
-      console.error(`run.sh exited with code ${code}`);
-        io.to(caseId).emit("calculationFailed", {
-          message: `Calculation failed with code ${code}`,
-        });
-      res.status(500).json({
-        success: false,
+      io.to(caseId).emit("calculationCompleted", {
+          message: "Calculation completed, results are ready",
+      });
+    res.json({ success: true, message: "Calculation completed" });
+  } else {
+    console.error(`run.sh exited with code ${code}`);
+      io.to(caseId).emit("calculationFailed", {
         message: `Calculation failed with code ${code}`,
       });
-    }
+    res.status(500).json({
+      success: false,
+      message: `Calculation failed with code ${code}`,
     });
+  }
+  });
 
-    child.on("error", (error) => {
-        logStream.end();
-        console.error(`Error executing run.sh: ${error.message}`);
-      io.to(caseId).emit("calculationError", {
-        message: "Error executing run.sh",
-        details: error.message,
-      });
-      res
-        .status(500)
-        .json({ success: false, message: "Error executing run.sh" });
-    });
-  } catch (error) {
-    console.error("计算设置过程中出错:", error);
+  child.on("error", (error) => {
+      logStream.end();
+      console.error(`Error executing run.sh: ${error.message}`);
     io.to(caseId).emit("calculationError", {
-      message: "计算设置过程中出错",
+      message: "Error executing run.sh",
       details: error.message,
     });
     res
       .status(500)
-      .json({ success: false, message: "计算设置过程中出错" });
-  }
-});
-
-/**
- * 11. 检查特定工况的 info.json 是否存在
- * GET /api/cases/:caseId/info-exists
- */
-router.get('/:caseId/info-exists', (req, res) => {
-    const { caseId } = req.params;
-    const infoJsonPath = path.join(__dirname, '../uploads', caseId, 'info.json');
-    console.log(`Received /info-exists request for caseId: ${caseId}`);
-    console.log(`Checking info.json path: ${infoJsonPath}`);
-  
-    try {
-      const exists = fs.existsSync(infoJsonPath);
-      console.log(`info.json exists: ${exists}`);
-      res.json({ exists });
-    } catch (error) {
-      console.error(`Error checking info.json: ${error}`);
-      res.status(500).json({ error: '服务器错误' });
-    }
-});
-
-/**
- * 12. 下载特定工况的 info.json
- * GET /api/cases/:caseId/info-download
- */
-router.get('/:caseId/info-download', (req, res) => {
-  const { caseId } = req.params;
-  const infoJsonPath = path.join(__dirname, '../uploads', caseId, 'info.json');
-  if (!fs.existsSync(infoJsonPath)) {
-    return res.status(404).json({ success: false, message: 'info.json 不存在' });
-  }
-
-  res.sendFile(infoJsonPath, {
-    headers: { 'Content-Type': 'application/json' },
-  }, (err) => {
-    if (err) {
-      console.error('发送 info.json 失败:', err);
-      res.status(500).json({ success: false, message: '服务器错误' });
-    }
+      .json({ success: false, message: "Error executing run.sh" });
   });
+} catch (error) {
+  console.error("计算设置过程中出错:", error);
+  io.to(caseId).emit("calculationError", {
+    message: "计算设置过程中出错",
+    details: error.message,
+  });
+  res
+    .status(500)
+    .json({ success: false, message: "计算设置过程中出错" });
+}
 });
 
 /**
- * 辅助函数：计算 x 和 y 坐标
- * @param {Number} lon - 经度
- * @param {Number} lat - 纬度
- * @param {Number} centerLon - 中心经度
- * @param {Number} centerLat - 中心纬度
- * @returns {Object} - 包含 x 和 y 的对象
- */
-const calculateXY = (lon, lat, centerLon, centerLat) => {
-  console.log('calculateXY - Input:', { lon, lat, centerLon, centerLat });
-  const EARTH_RADIUS = 6371000; // 地球半径，单位：米
-  const RAD_PER_DEG = Math.PI / 180;
-  const METER_PER_DEG_LAT = EARTH_RADIUS * RAD_PER_DEG; // 每度纬度对应的米数
-  const LONG_LAT_RATIO = Math.cos(centerLat * RAD_PER_DEG); // 经度与纬度的比例因子
-  const tempAngle = 0 * RAD_PER_DEG; // 旋转角度，单位：弧度（0 表示不旋转）
-
-  // 计算相对中心的 x 和 y
-  const tempX = (lon - centerLon) * METER_PER_DEG_LAT * LONG_LAT_RATIO;
-  const tempY = (lat - centerLat) * METER_PER_DEG_LAT;
-
-  // 应用旋转
-  const projx = tempX * Math.cos(tempAngle) - tempY * Math.sin(tempAngle);
-  const projy = tempY * Math.cos(tempAngle) + tempX * Math.sin(tempAngle);
-
-  console.log('calculateXY - Output:', { x: projx, y: projy });
-  return { x: projx, y: projy };
-};
-
-
-/**
- * 13. 生成并保存特定工况的 info.json
- * POST /api/cases/:caseId/info
- */
-router.post('/:caseId/info', async (req, res) => {
-    console.log('Request Body (Before Validation):', JSON.stringify(req.body, null, 2));
-    try {
-        // 数据验证
-        const turbineSchema = Joi.object({
-            id: Joi.string().required(),
-            longitude: Joi.number().required(),
-            latitude: Joi.number().required(),
-            hubHeight: Joi.number().required(),
-            rotorDiameter: Joi.number().required(),
-            type: Joi.string().optional(),
-            name: Joi.string().optional(),
-        });
-        const schema = Joi.object({
-            parameters: Joi.object().required(),
-            windTurbines: Joi.array().items(turbineSchema).min(1).required(),
-        });
-
-        const { error, value } = schema.validate(req.body, { abortEarly: false });
-        if (error) {
-            console.error('Validation Error:', error.details);
-            const errorMessages = error.details.map(detail => detail.message);
-            return res.status(400).json({ success: false, message: errorMessages });
-        }
-
-        const { parameters, windTurbines } = value;
-
-        // Extract longitudes and latitudes
-        const longitudes = windTurbines.map(turbine => turbine.longitude);
-        const latitudes = windTurbines.map(turbine => turbine.latitude);
-
-        console.log('Wind Turbines Longitudes:', longitudes);
-        console.log('Wind Turbines Latitudes:', latitudes);
-
-        // 计算中心坐标
-        const minLon = Math.min(...longitudes);
-        const maxLon = Math.max(...longitudes);
-        const centerLon = (minLon + maxLon) / 2;
-
-        const minLat = Math.min(...latitudes);
-        const maxLat = Math.max(...latitudes);
-        const centerLat = (minLat + maxLat) / 2;
-
-        console.log('Center Coordinates:', { centerLon, centerLat });
-
-        // 构建 info.json 结构
-      const infoJson = {
-        key: req.params.caseId,
-        calculationStatus: 'not_completed', // 初始化计算状态
-        domain: {
-            lt: parameters.calculationDomain.width,
-            h: parameters.calculationDomain.height,
-        },
-        wind: {
-            angle: parameters.conditions.windDirection,
-            speed: parameters.conditions.inletWindSpeed,
-        },
-        mesh: {
-            h1: parameters.grid.encryptionHeight,
-            ceng: parameters.grid.encryptionLayers,
-            q1: parameters.grid.gridGrowthRate,
-            lc1: parameters.grid.maxExtensionLength,
-            lc2: parameters.grid.encryptionRadialLength,
-            lc3: parameters.grid.downstreamRadialLength,
-            r1: parameters.grid.encryptionRadius,
-            r2: parameters.grid.encryptionTransitionRadius,
-            tr1: parameters.grid.terrainRadius,
-            tr2: parameters.grid.terrainTransitionRadius,
-            wakeL: parameters.grid.downstreamLength,
-            wakeB: parameters.grid.downstreamWidth,
-              scale: parameters.grid.scale,
-        },
-        simulation: {
-            core: parameters.simulation.cores,
-            step_count: parameters.simulation.steps,
-        },
-        post: {
-            numh: parameters.postProcessing.resultLayers,
-            dh: parameters.postProcessing.layerSpacing,
-            width: parameters.postProcessing.layerDataWidth,
-            height: parameters.postProcessing.layerDataHeight,
-        },
-        turbines: windTurbines.map(turbine => {
-            const { x, y } = calculateXY(turbine.longitude, turbine.latitude, centerLon, centerLat);
-             console.log('Turbine Data:', turbine);
-            return {
-              id: turbine.id,
-                lon: turbine.longitude,
-                lat: turbine.latitude,
-                hub: turbine.hubHeight,
-                d: turbine.rotorDiameter,
-                x: x,
-                y: y,
-              type: turbine.type || 'GWH191-6.7',
-            };
-        }),
-        center: {
-          lon: centerLon,
-          lat: centerLat,
-      },
-    };
-
-
-        console.log('Generated infoJson:', JSON.stringify(infoJson, null, 2));
-
-        const casePath = path.join(__dirname, '../uploads', req.params.caseId);
-        fs.mkdirSync(casePath, { recursive: true });
-        const infoJsonPath = path.join(casePath, 'info.json');
-        fs.writeFileSync(infoJsonPath, JSON.stringify(infoJson, null, 2), 'utf-8');
-         console.log(`info.json 已保存到 ${infoJsonPath}`);
-      res.json({ success: true, message: 'info.json 生成成功' });
-    } catch (error) {
-        console.error('生成和保存 info.json 失败:', error);
-      return res.status(500).json({ success: false, message: '生成和保存 info.json 失败' });
-    }
-});
-
-
-/**
- * 14. 获取特定工况的计算状态
- * GET /api/cases/:caseId/calculation-status
- */
-router.get('/:caseId/calculation-status', (req, res) => {
+* 11. 检查特定工况的 info.json 是否存在
+* GET /api/cases/:caseId/info-exists
+*/
+router.get('/:caseId/info-exists', (req, res) => {
   const { caseId } = req.params;
   const infoJsonPath = path.join(__dirname, '../uploads', caseId, 'info.json');
-
-  console.log('Checking calculation status for case:', caseId);
-  console.log('Info.json path:', infoJsonPath);
-
-
-  if (!fs.existsSync(infoJsonPath)) {
-    console.log('Info.json does not exist, returning not_started status');
-     return res.json({ calculationStatus: 'not_started' });
-  }
+  console.log(`Received /info-exists request for caseId: ${caseId}`);
+  console.log(`Checking info.json path: ${infoJsonPath}`);
 
   try {
-    const data = JSON.parse(fs.readFileSync(infoJsonPath, 'utf-8'));
-    const status = data.calculationStatus || 'not_started';
-    console.log('Calculation status:', status);
-    res.json({ calculationStatus: status });
-  } catch (    error) {
-    console.error('Error reading info.json:', error);
-    // 返回一个默认状态而不是错误
-    res.json({ calculationStatus: 'not_started' });
+    const exists = fs.existsSync(infoJsonPath);
+    console.log(`info.json exists: ${exists}`);
+    res.json({ exists });
+  } catch (error) {
+    console.error(`Error checking info.json: ${error}`);
+    res.status(500).json({ error: '服务器错误' });
   }
 });
 
+/**
+* 12. 下载特定工况的 info.json
+* GET /api/cases/:caseId/info-download
+*/
+router.get('/:caseId/info-download', (req, res) => {
+const { caseId } = req.params;
+const infoJsonPath = path.join(__dirname, '../uploads', caseId, 'info.json');
+if (!fs.existsSync(infoJsonPath)) {
+  return res.status(404).json({ success: false, message: 'info.json 不存在' });
+}
+
+res.sendFile(infoJsonPath, {
+  headers: { 'Content-Type': 'application/json' },
+}, (err) => {
+  if (err) {
+    console.error('发送 info.json 失败:', err);
+    res.status(500).json({ success: false, message: '服务器错误' });
+  }
+});
+});
+
+/**
+* 辅助函数：计算 x 和 y 坐标
+* @param {Number} lon - 经度
+* @param {Number} lat - 纬度
+* @param {Number} centerLon - 中心经度
+* @param {Number} centerLat - 中心纬度
+* @returns {Object} - 包含 x 和 y 的对象
+*/
+const calculateXY = (lon, lat, centerLon, centerLat) => {
+console.log('calculateXY - Input:', { lon, lat, centerLon, centerLat });
+const EARTH_RADIUS = 6371000; // 地球半径，单位：米
+const RAD_PER_DEG = Math.PI / 180;
+const METER_PER_DEG_LAT = EARTH_RADIUS * RAD_PER_DEG; // 每度纬度对应的米数
+const LONG_LAT_RATIO = Math.cos(centerLat * RAD_PER_DEG); // 经度与纬度的比例因子
+const tempAngle = 0 * RAD_PER_DEG; // 旋转角度，单位：弧度（0 表示不旋转）
+
+// 计算相对中心的 x 和 y
+const tempX = (lon - centerLon) * METER_PER_DEG_LAT * LONG_LAT_RATIO;
+const tempY = (lat - centerLat) * METER_PER_DEG_LAT;
+
+// 应用旋转
+const projx = tempX * Math.cos(tempAngle) - tempY * Math.sin(tempAngle);
+const projy = tempY * Math.cos(tempAngle) + tempX * Math.sin(tempAngle);
+
+console.log('calculateXY - Output:', { x: projx, y: projy });
+return { x: projx, y: projy };
+};
+
+/**
+* 13. 生成并保存特定工况的 info.json
+* POST /api/cases/:caseId/info
+*/
+router.post('/:caseId/info', async (req, res) => {
+  console.log('Request Body (Before Validation):', JSON.stringify(req.body, null, 2));
+  try {
+      // 数据验证
+      const turbineSchema = Joi.object({
+        id: Joi.string().required(),
+        longitude: Joi.number().required(),
+        latitude: Joi.number().required(),
+        hubHeight: Joi.number().required(),
+        rotorDiameter: Joi.number().required(),
+        model: Joi.string().optional(), // 添加 model 字段，并设置为可选
+        type: Joi.string().optional(),
+        name: Joi.string().optional(),
+    });
+      const schema = Joi.object({
+          parameters: Joi.object().required(),
+          windTurbines: Joi.array().items(turbineSchema).min(1).required(),
+      });
+
+      const { error, value } = schema.validate(req.body, { abortEarly: false });
+      if (error) {
+          console.error('Validation Error:', error.details);
+          const errorMessages = error.details.map(detail => detail.message);
+          return res.status(400).json({ success: false, message: errorMessages });
+      }
+
+      const { parameters, windTurbines } = value;
+
+      // Extract longitudes and latitudes
+      const longitudes = windTurbines.map(turbine => turbine.longitude);
+      const latitudes = windTurbines.map(turbine => turbine.latitude);
+
+      console.log('Wind Turbines Longitudes:', longitudes);
+      console.log('Wind Turbines Latitudes:', latitudes);
+
+      // 计算中心坐标
+      const minLon = Math.min(...longitudes);
+      const maxLon = Math.max(...longitudes);
+      const centerLon = (minLon + maxLon) / 2;
+
+      const minLat = Math.min(...latitudes);
+      const maxLat = Math.max(...latitudes);
+      const centerLat = (minLat + maxLat) / 2;
+
+      console.log('Center Coordinates:', { centerLon, centerLat });
+
+      // 构建 info.json 结构
+    const infoJson = {
+      key: req.params.caseId,
+      calculationStatus: 'not_completed', // 初始化计算状态
+      domain: {
+          lt: parameters.calculationDomain.width,
+          h: parameters.calculationDomain.height,
+      },
+      wind: {
+          angle: parameters.conditions.windDirection,
+          speed: parameters.conditions.inletWindSpeed,
+      },
+      mesh: {
+          h1: parameters.grid.encryptionHeight,
+          ceng: parameters.grid.encryptionLayers,
+          q1: parameters.grid.gridGrowthRate,
+          lc1: parameters.grid.maxExtensionLength,
+          lc2: parameters.grid.encryptionRadialLength,
+          lc3: parameters.grid.downstreamRadialLength,
+          r1: parameters.grid.encryptionRadius,
+          r2: parameters.grid.encryptionTransitionRadius,
+          tr1: parameters.grid.terrainRadius,
+          tr2: parameters.grid.terrainTransitionRadius,
+          wakeL: parameters.grid.downstreamLength,
+          wakeB: parameters.grid.downstreamWidth,
+            scale: parameters.grid.scale,
+      },
+      simulation: {
+          core: parameters.simulation.cores,
+          step_count: parameters.simulation.steps,
+      },
+      post: {
+          numh: parameters.postProcessing.resultLayers,
+          dh: parameters.postProcessing.layerSpacing,
+          width: parameters.postProcessing.layerDataWidth,
+          height: parameters.postProcessing.layerDataHeight,
+      },
+      turbines: windTurbines.map(turbine => {
+          const { x, y } = calculateXY(turbine.longitude, turbine.latitude, centerLon, centerLat);
+           console.log('Turbine Data:', turbine);
+          return {
+            id: turbine.id,
+              lon: turbine.longitude,
+              lat: turbine.latitude,
+              hub: turbine.hubHeight,
+              d: turbine.rotorDiameter,
+              x: x,
+              y: y,
+            type: turbine.type || 'GWH191-6.7',
+          };
+      }),
+      center: {
+        lon: centerLon,
+        lat: centerLat,
+    },
+  };
+
+      console.log('Generated infoJson:', JSON.stringify(infoJson, null, 2));
+
+      const casePath = path.join(__dirname, '../uploads', req.params.caseId);
+      fs.mkdirSync(casePath, { recursive: true });
+      const infoJsonPath = path.join(casePath, 'info.json');
+      fs.writeFileSync(infoJsonPath, JSON.stringify(infoJson, null, 2), 'utf-8');
+       console.log(`info.json 已保存到 ${infoJsonPath}`);
+    res.json({ success: true, message: 'info.json 生成成功' });
+  } catch (error) {
+      console.error('生成和保存 info.json 失败:', error);
+    return res.status(500).json({ success: false, message: '生成和保存 info.json 失败' });
+  }
+});
+
+/**
+* 14. 获取特定工况的计算状态
+* GET /api/cases/:caseId/calculation-status
+*/
+router.get('/:caseId/calculation-status', (req, res) => {
+const { caseId } = req.params;
+const infoJsonPath = path.join(__dirname, '../uploads', caseId, 'info.json');
+
+console.log('Checking calculation status for case:', caseId);
+console.log('Info.json path:', infoJsonPath);
+
+if (!fs.existsSync(infoJsonPath)) {
+  console.log('Info.json does not exist, returning not_started status');
+   return res.json({ calculationStatus: 'not_started' });
+}
+
+try {
+  const data = JSON.parse(fs.readFileSync(infoJsonPath, 'utf-8'));
+  const status = data.calculationStatus || 'not_started';
+  console.log('Calculation status:', status);
+  res.json({ calculationStatus: status });
+} catch (    error) {
+  console.error('Error reading info.json:', error);
+  // 返回一个默认状态而不是错误
+  res.json({ calculationStatus: 'not_started' });
+}
+});
 
 // 存储计算进度
 router.post('/:caseId/calculation-progress', async (req, res) => {
-    const { caseId } = req.params;
-    const progressPath = path.join(__dirname, `../uploads/${caseId}/calculation_progress.json`);
+  const { caseId } = req.params;
+  const progressPath = path.join(__dirname, `../uploads/${caseId}/calculation_progress.json`);
 
-    try {
-        await fs.promises.writeFile(progressPath, JSON.stringify(req.body));
-        res.json({ success: true });
-    } catch (error) {
-        console.error('保存计算进度失败:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
+  try {
+      await fs.promises.writeFile(progressPath, JSON.stringify(req.body));
+      res.json({ success: true });
+  } catch (error) {
+      console.error('保存计算进度失败:', error);
+      res.status(500).json({ success: false, error: error.message });
+  }
 });
-
 
 // 获取计算进度
 router.get('/:caseId/calculation-progress', async (req, res) => {
-    const { caseId } = req.params;
-    const progressPath = path.join(__dirname, `../uploads/${caseId}/calculation_progress.json`);
+  const { caseId } = req.params;
+  const progressPath = path.join(__dirname, `../uploads/${caseId}/calculation_progress.json`);
 
-    try {
-        if (fs.existsSync(progressPath)) {
-            const progress = JSON.parse(await fs.promises.readFile(progressPath));
-            res.json({ progress });
-        } else {
-            res.json({ progress: null });
-        }
-    } catch (error) {
-        console.error('获取计算进度失败:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
+  try {
+      if (fs.existsSync(progressPath)) {
+          const progress = JSON.parse(await fs.promises.readFile(progressPath));
+          res.json({ progress });
+      } else {
+          res.json({ progress: null });
+      }
+  } catch (error) {
+      console.error('获取计算进度失败:', error);
+      res.status(500).json({ success: false, error: error.message });
+  }
 });
 // 删除计算进度
 router.delete('/:caseId/calculation-progress', async (req, res) => {
-    const { caseId } = req.params;
-    const progressPath = path.join(__dirname, `../uploads/${caseId}/calculation_progress.json`);
+  const { caseId } = req.params;
+  const progressPath = path.join(__dirname, `../uploads/${caseId}/calculation_progress.json`);
 
-    try {
-        if (fs.existsSync(progressPath)) {
-            await fs.promises.unlink(progressPath);
-            res.json({ success: true, message: '计算进度删除成功' });
-        } else {
-            res.json({ success: true, message: '计算进度文件不存在' });
-        }
-    } catch (error) {
-        console.error('删除计算进度失败:', error);
-        res.status(500).json({ success: false, message: '删除计算进度失败', error: error.message });
-    }
+  try {
+      if (fs.existsSync(progressPath)) {
+          await fs.promises.unlink(progressPath);
+          res.json({ success: true, message: '计算进度删除成功' });
+      } else {
+          res.json({ success: true, message: '计算进度文件不存在' });
+      }
+  } catch (error) {
+      console.error('删除计算进度失败:', error);
+      res.status(500).json({ success: false, message: '删除计算进度失败', error: error.message });
+  }
 });
 // 获取 OpenFOAM 输出
 router.get('/:caseId/openfoam-output', async (req, res) => {
-    const { caseId } = req.params;
-    const outputPath = path.join(__dirname, `../uploads/${caseId}/openfoam_output.log`);
-    try {
-        if(fs.existsSync(outputPath)) {
-            const output = await fs.promises.readFile(outputPath, 'utf-8');
-            res.json({ output });
-          } else {
-              res.json({output: ''});
-          }
-  
-      } catch (error) {
-          console.error("获取 OpenFOAM 输出失败:", error);
-          res.status(500).json({ success: false, error: error.message});
+  const { caseId } = req.params;
+  const outputPath = path.join(__dirname, `../uploads/${caseId}/openfoam_output.log`);
+  try {
+      if(fs.existsSync(outputPath)) {
+          const output = await fs.promises.readFile(outputPath, 'utf-8');
+          res.json({ output });
+        } else {
+            res.json({output: ''});
+        }
+
+    } catch (error) {
+        console.error("获取 OpenFOAM 输出失败:", error);
+        res.status(500).json({ success: false, error: error.message});
       }
   });
   
+// 保存风机状态
+router.post('/:caseId/state', async (req, res) => {
+  const { caseId } = req.params;
+  const statePath = path.join(__dirname, `../uploads/${caseId}/turbine_state.json`);
+
+  try {
+      await fs.promises.writeFile(statePath, JSON.stringify(req.body, null, 2));
+      res.json({ success: true, message: '风机状态保存成功' });
+  } catch (error) {
+      console.error('保存风机状态失败:', error);
+      res.status(500).json({ success: false, message: '保存风机状态失败', error: error.message });
+  }
+});
+
+// 获取风机状态
+router.get('/:caseId/state', async (req, res) => {
+    const { caseId } = req.params;
+    const statePath = path.join(__dirname, `../uploads/${caseId}/turbine_state.json`);
+    try {
+      if (fs.existsSync(statePath)) {
+        const stateData = await fs.promises.readFile(statePath, 'utf-8');
+          const state = JSON.parse(stateData);
+          res.json({ success: true, windTurbines: state.windTurbines });
+      } else {
+          res.json({ success: true, windTurbines: [] });
+      }
+    } catch (error) {
+        console.error('获取风机状态失败:', error);
+        res.status(500).json({ success: false, message: '获取风机状态失败', error: error.message });
+    }
+});
   
+// 修改获取VTK文件列表的路由
+router.get('/:caseId/vtk-files', async (req, res) => {
+  const { caseId } = req.params;
+  const vtkPath = path.join(__dirname, '..', 'uploads', caseId, 'run', 'VTK');
+
+  try {
+    // 检查目录是否存在
+    if (!fs.existsSync(vtkPath)) {
+      console.log(`VTK directory not found: ${vtkPath}`);
+      return res.status(404).json({
+        success: false,
+        error: 'VTK directory not found',
+        path: vtkPath
+      });
+    }
+
+    // 使用同步方法读取目录
+    const files = fs.readdirSync(vtkPath);
+    const vtkFiles = files.filter(f => 
+      f.endsWith('.vtk') || 
+      f.endsWith('.vtu') || 
+      f.endsWith('.vtm')
+    );
+
+    console.log(`Found VTK files in ${vtkPath}:`, vtkFiles);
+    res.json({
+      success: true,
+      files: vtkFiles
+    });
+
+  } catch (error) {
+    console.error('Error reading VTK directory:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error reading VTK directory',
+      message: error.message
+    });
+  }
+});
+
+// 添加一个用于调试的路由来检查目录结构
+router.get('/:caseId/check-paths', (req, res) => {
+  const { caseId } = req.params;
+  const basePath = path.join(__dirname, '..');
+  const uploadsPath = path.join(basePath, 'uploads');
+  const casePath = path.join(uploadsPath, caseId);
+  const runPath = path.join(casePath, 'run');
+  const vtkPath = path.join(runPath, 'VTK');
+
+  const paths = {
+    base: {
+      path: basePath,
+      exists: fs.existsSync(basePath)
+    },
+    uploads: {
+      path: uploadsPath,
+      exists: fs.existsSync(uploadsPath)
+    },
+    case: {
+      path: casePath,
+      exists: fs.existsSync(casePath)
+    },
+    run: {
+      path: runPath,
+      exists: fs.existsSync(runPath)
+    },
+    vtk: {
+      path: vtkPath,
+      exists: fs.existsSync(vtkPath)
+    }
+  };
+
+  res.json({
+    success: true,
+    paths
+  });
+});
+
+// 在后端启动时确保目录结构存在
+const ensureVTKDirectories = (caseId) => {
+  const dirs = [
+    path.join(__dirname, '..', 'uploads'),
+    path.join(__dirname, '..', 'uploads', caseId),
+    path.join(__dirname, '..', 'uploads', caseId, 'run'),
+    path.join(__dirname, '..', 'uploads', caseId, 'run', 'VTK')
+  ];
+
+  dirs.forEach(dir => {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+      console.log(`Created directory: ${dir}`);
+    }
+  });
+};
+
+// 在现有的路由处理器之前添加这个中间件
+router.use('/:caseId', (req, res, next) => {
+  ensureVTKDirectories(req.params.caseId);
+  next();
+});
+
+// 修改获取指定VTK文件的路由
+router.get('/:caseId/vtk/:filename', async (req, res) => {
+  const { caseId, filename } = req.params;
+  const filePath = path.join(__dirname, '../uploads', caseId, 'run', 'VTK', filename);
+
+  try {
+    // 检查文件是否存在
+    if (!fs.existsSync(filePath)) {
+      console.log(`File not found: ${filePath}`);
+      return res.status(404).json({ 
+        error: 'File not found',
+        path: filePath 
+      });
+    }
+
+    // 设置正确的Content-Type
+    const ext = path.extname(filename).toLowerCase();
+    const contentType = ext === '.json' ? 'application/json' : 'application/octet-stream';
+    res.setHeader('Content-Type', contentType);
+
+    // 使用流发送文件
+    const fileStream = fs.createReadStream(filePath);
+    fileStream.pipe(res);
+
+    fileStream.on('error', (error) => {
+      console.error(`Error streaming file: ${error}`);
+      if (!res.headersSent) {
+        res.status(500).json({ 
+          error: 'Error reading file',
+          details: error.message 
+        });
+      }
+    });
+
+  } catch (error) {
+    console.error('Error handling VTK file request:', error);
+    res.status(500).json({ 
+      error: 'Error handling file request',
+      details: error.message 
+    });
+  }
+});
+router.post('/:caseId/process-vtk', async (req, res) => {
+  const { caseId } = req.params;
+  const vtkPath = path.join(__dirname, '../uploads', caseId, 'run', 'VTK');
+  const processedPath = path.join(vtkPath, 'processed');
+
+  try {
+    // 1. 检查源目录是否存在
+    if (!fs.existsSync(vtkPath)) {
+      console.log(`VTK directory not found: ${vtkPath}`);
+      return res.status(404).json({
+        success: false,
+        error: 'VTK directory not found',
+        path: vtkPath
+      });
+    }
+
+    // 2. 查找目录中的所有VTK文件
+    const files = fs.readdirSync(vtkPath);
+    const vtkFiles = files.filter(f => 
+      f.toLowerCase().endsWith('.vtk') || 
+      f.toLowerCase().endsWith('.vtm') || 
+      f.toLowerCase().endsWith('.vtu')
+    );
+
+    if (vtkFiles.length === 0) {
+      console.log(`No VTK files found in: ${vtkPath}`);
+      return res.status(404).json({
+        success: false,
+        error: 'No VTK files found',
+        path: vtkPath
+      });
+    }
+
+    console.log('Found VTK files:', vtkFiles);
+
+    // 3. 处理第一个找到的VTK文件
+    const sourceFile = path.join(vtkPath, vtkFiles[0]);
+    console.log(`Processing VTK file: ${sourceFile}`);
+
+    // 4. 确保处理目录存在
+    await fsPromises.mkdir(processedPath, { recursive: true });
+
+    // 5. 执行Python处理脚本
+    const pythonScript = path.join(__dirname, '../utils/process_vtk.py');
+    const pythonPath = process.env.PYTHON_PATH || 'python3';
+
+    console.log('Executing Python script:', {
+      pythonPath,
+      script: pythonScript,
+      sourceFile,
+      processedPath
+    });
+
+    const pythonProcess = spawn(pythonPath, [
+      pythonScript,
+      sourceFile,
+      processedPath
+    ]);
+
+    let stdoutData = '';
+    let stderrData = '';
+
+    pythonProcess.stdout.on('data', (data) => {
+      stdoutData += data.toString();
+      console.log('Python stdout:', data.toString());
+    });
+
+    pythonProcess.stderr.on('data', (data) => {
+      stderrData += data.toString();
+      console.error('Python stderr:', data.toString());
+    });
+
+    await new Promise((resolve, reject) => {
+      pythonProcess.on('close', (code) => {
+        console.log(`Python process exited with code ${code}`);
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`Processing failed with code ${code}: ${stderrData}`));
+        }
+      });
+    });
+
+    // 6. 检查处理结果
+    const metadataPath = path.join(processedPath, 'metadata.json');
+    if (!fs.existsSync(metadataPath)) {
+      throw new Error('Metadata file not generated');
+    }
+
+    const metadata = JSON.parse(await fsPromises.readFile(metadataPath, 'utf-8'));
+    console.log('Processing completed successfully:', metadata);
+
+    res.json({
+      success: true,
+      message: 'VTK files processed successfully',
+      metadata,
+      sourceFile: path.basename(sourceFile)
+    });
+
+  } catch (error) {
+    console.error('Error processing VTK files:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to process VTK files',
+      details: error.message,
+      stack: error.stack
+    });
+  }
+});
+
+// 添加一个用于列出VTK文件的路由
+router.get('/:caseId/list-vtk-files', async (req, res) => {
+  const { caseId } = req.params;
+  const vtkPath = path.join(__dirname, '../uploads', caseId, 'run', 'VTK');
+
+  try {
+    if (!fs.existsSync(vtkPath)) {
+      return res.status(404).json({
+        success: false,
+        error: 'VTK directory not found',
+        path: vtkPath
+      });
+    }
+
+    const files = fs.readdirSync(vtkPath);
+    const vtkFiles = files.filter(f => 
+      f.toLowerCase().endsWith('.vtk') || 
+      f.toLowerCase().endsWith('.vtm') || 
+      f.toLowerCase().endsWith('.vtu')
+    );
+
+    res.json({
+      success: true,
+      files: vtkFiles,
+      directory: vtkPath
+    });
+
+  } catch (error) {
+    console.error('Error listing VTK files:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to list VTK files',
+      details: error.message
+    });
+  }
+});
+
+// 获取处理后的VTK文件列表
+router.get('/:caseId/processed-vtk-files', async (req, res) => {
+  const { caseId } = req.params;
+  const processedPath = path.join(__dirname, '../uploads', caseId, 'run', 'VTK', 'processed');
+
+  try {
+    if (!fs.existsSync(processedPath)) {
+      return res.status(404).json({
+        success: false,
+        error: 'Processed VTK directory not found'
+      });
+    }
+
+    const metadataPath = path.join(processedPath, 'metadata.json');
+    if (!fs.existsSync(metadataPath)) {
+      return res.status(404).json({
+        success: false,
+        error: 'Metadata file not found'
+      });
+    }
+
+    const metadata = JSON.parse(await fsPromises.readFile(metadataPath, 'utf-8'));
+    res.json({
+      success: true,
+      metadata
+    });
+
+  } catch (error) {
+    console.error('Error reading processed VTK files:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to read processed VTK files',
+      details: error.message
+    });
+  }
+});
+
+// 获取具体的处理后的VTK文件
+router.get('/:caseId/processed-vtk/:filename', async (req, res) => {
+  const { caseId, filename } = req.params;
+  const filePath = path.join(__dirname, '../uploads', caseId, 'run', 'VTK', 'processed', filename);
+
+  try {
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({
+        success: false,
+        error: 'File not found'
+      });
+    }
+
+    res.sendFile(filePath);
+  } catch (error) {
+    console.error('Error sending processed VTK file:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to send VTK file',
+      details: error.message
+    });
+  }
+});
+
     router.use("/:caseId/wind-turbines", windTurbinesRouter);
   module.exports = router;

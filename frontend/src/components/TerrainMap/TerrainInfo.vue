@@ -1,68 +1,51 @@
 <!--
  * @Author: joe 847304926@qq.com
- * @Date: 2025-01-10 15:19:05
+ * @Date: 2025-01-12 20:27:56
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-10 17:18:49
- * @FilePath: \WindSimProj\frontend\src\components\TerrainMap\TerrainInfo.vue
+ * @LastEditTime: 2025-01-12 20:47:17
+ * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\TerrainInfo.vue
  * @Description: 
  * 
- * Copyright (c) 2025 by joe, All Rights Reserved. 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
 -->
+<!-- TerrainInfo.vue -->
 <template>
-  <div class="terrain-info" role="region" aria-label="Terrain Information">
+  <div class="terrain-info">
     <el-card class="info-card">
-      <template #header>
-        <div class="card-header">
-          <span class="info-title">地形信息</span>
-        </div>
-      </template>
       <div class="info-content">
-        <!-- 地形高程 -->
-        <div class="legend-section">
-          <div class="section-title">地形高程</div>
-          <div class="color-scale">
+        <!-- Elevation Section -->
+        <section class="elevation-section">
+          <h3 class="section-heading">地形高程</h3>
+          <div class="elevation-gradient">
             <div class="gradient-bar"></div>
-            <div class="scale-labels" role="list">
-              <span
-                v-for="label in elevationLabels"
-                :key="label"
-                class="scale-label"
-                role="listitem"
-              >
+            <div class="elevation-labels">
+              <span v-for="label in elevationLabels" 
+                    :key="label" 
+                    class="elevation-value">
                 {{ label }}m
               </span>
             </div>
           </div>
-        </div>
+        </section>
 
-        <!-- 地理范围 -->
-        <div class="bounds-section">
-          <div class="section-title">地理范围</div>
-          <table class="bounds-table">
-            <tbody>
-              <tr class="bounds-table-row">
-                <td class="bounds-label">
-                  <i class="el-icon-top-left" /> 经度范围
-                </td>
-                <td class="bounds-value">
-                  <span class="value-longitude">{{ geographicBounds.minLon ?? 'N/A' }}°</span>
-                  <span class="tilde">~</span>
-                  <span class="value-longitude">{{ geographicBounds.maxLon ?? 'N/A' }}°</span>
-                </td>
-              </tr>
-              <tr class="bounds-table-row">
-                <td class="bounds-label">
-                  <i class="el-icon-bottom-right" /> 纬度范围
-                </td>
-                <td class="bounds-value">
-                  <span class="value-latitude">{{ geographicBounds.minLat ?? 'N/A' }}°</span>
-                  <span class="tilde">~</span>
-                  <span class="value-latitude">{{ geographicBounds.maxLat ?? 'N/A' }}°</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <!-- Geographic Bounds Section -->
+        <section class="bounds-section">
+          <h3 class="section-heading">地理范围</h3>
+          <div class="bounds-grid">
+            <div class="bound-item">
+              <span class="bound-label">经度范围</span>
+              <span class="bound-value">
+                {{ geographicBounds.minLon }}° ~ {{ geographicBounds.maxLon }}°
+              </span>
+            </div>
+            <div class="bound-item">
+              <span class="bound-label">纬度范围</span>
+              <span class="bound-value">
+                {{ geographicBounds.minLat }}° ~ {{ geographicBounds.maxLat }}°
+              </span>
+            </div>
+          </div>
+        </section>
       </div>
     </el-card>
   </div>
@@ -91,107 +74,96 @@ const elevationLabels = computed(() => {
 <style scoped>
 .terrain-info {
   position: absolute;
-  bottom: 20px;
-  right: 20px;
-  width: 280px;
-  z-index: 10;
-  
-  @media (max-width: 600px) {
-    width: 90%;
-    right: 5%;
-  }
+  bottom: 24px;
+  right: 24px;
+  width: 320px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 .info-card {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #ebeef5;
-}
-
-.info-title {
-  font-size: 16px;
-  font-weight: 600;
-  font-family: "Helvetica Neue", Arial, sans-serif; /* Changed font */
-  color: #303133;
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
 }
 
 .info-content {
-  padding: 10px;
+  padding: 20px;
 }
 
-/* Section Styles */
-.section-title {
-  font-size: 13px; /* Reduced font size */
+.section-heading {
+  font-size: 14px;
   font-weight: 600;
-  font-family: "Helvetica Neue", Arial, sans-serif; /* Changed font */
-  color: #303133;
-  margin-bottom: 8px; /* Reduced margin */
+  color: #1a1a1a;
+  margin-bottom: 12px;
+  letter-spacing: -0.01em;
 }
 
-.color-scale {
-  margin-bottom: 8px; /* Reduced margin */
+.elevation-section {
+  margin-bottom: 24px;
+}
+
+.elevation-gradient {
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 12px;
 }
 
 .gradient-bar {
-  height: 18px;
+  height: 16px;
   border-radius: 4px;
   background: linear-gradient(
     to right,
     #193c17 0%,
-    #527d54 30%,
-    #c4a484 60%,
-    #f5f5f5 100%
+    #2B573A 20%,
+    #527D54 40%,
+    #C4A484 60%,
+    #8B4513 80%,
+    #F5F5F5 100%
   );
-  margin-bottom: 5px;
+  margin-bottom: 8px;
 }
 
-.scale-labels {
+.elevation-labels {
   display: flex;
   justify-content: space-between;
-  font-size: 11px;
-  color: #606266;
+  font-size: 12px;
+  color: #666666;
+  font-family: 'SF Mono', Menlo, Monaco, monospace;
 }
 
-/* Bounds Section */
-.bounds-section {
-  margin-top: 2px; /* Further reduced margin */
+.bounds-grid {
+  display: grid;
+  gap: 12px;
 }
 
-.bounds-table {
-  width: 100%;
-  border-collapse: collapse;
+.bound-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
 }
 
-.bounds-table-row {
-  border-bottom: 1px dashed #ebeef5;
-}
-
-.bounds-label {
-  font-size: 12px; /* Reduced font size */
-  color: #606266;
-  padding: 8px 0;
-  width: 30%;
-  font-family: "Helvetica Neue", Arial, sans-serif; /* Changed font */
-}
-
-.bounds-value {
+.bound-label {
   font-size: 13px;
-  color: #303133;
-  font-family: monospace;
-  padding: 8px 0;
+  color: #666666;
 }
 
-.tilde {
-  font-family: monospace;
-  padding: 0 2px;
+.bound-value {
+  font-family: 'SF Mono', Menlo, Monaco, monospace;
+  font-size: 13px;
+  color: #1a1a1a;
+}
+
+@media (max-width: 768px) {
+  .terrain-info {
+    width: calc(100% - 48px);
+    bottom: 16px;
+    right: 24px;
+    left: 24px;
+  }
 }
 </style>

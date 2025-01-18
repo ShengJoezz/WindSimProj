@@ -2,13 +2,13 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-01-10 17:32:31
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-10 17:47:00
+ * @LastEditTime: 2025-01-12 21:52:31
  * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\WindTurbineManagement.vue
  * @Description: 
  * 
  * Copyright (c) 2025 by joe, All Rights Reserved.
  -->
-<template>
+ <template>
   <el-drawer
     v-model="localVisible"
     direction="rtl"
@@ -61,7 +61,6 @@ import WindTurbineForm from "./WindTurbineForm.vue";
 import WindTurbineList from "./WindTurbineList.vue";
 import UploadComponent from "./UploadComponent.vue";
 import { useCaseStore } from "../../store/caseStore";
-
 
 const props = defineProps({
   visible: {

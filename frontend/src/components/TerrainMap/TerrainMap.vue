@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-01-10 16:12:45
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-10 18:06:59
+ * @LastEditTime: 2025-01-12 21:52:31
  * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\TerrainMap.vue
  * @Description: 
  * 
@@ -12,7 +12,20 @@
  <template>
   <div class="map-wrapper">
     <!-- Terrain Rendering Area -->
-    <div class="terrain-renderer" ref="terrainContainer"></div>
+    <div 
+      class="terrain-renderer" 
+      ref="terrainContainer"
+      :style="{
+        border: '1px solid red', // Debug border
+        height: '100%',
+        width: '100%'
+      }"
+    >
+      <!-- Add debug info -->
+      <div v-if="!hasRendererInitialized" class="debug-overlay">
+        Waiting for renderer initialization...
+      </div>
+    </div>
 
     <div v-if="!hasGeoTIFF" class="terrain-loading">
       <el-loading text="加载地形中..." />
@@ -70,8 +83,8 @@
  * 主组件，负责初始化 Three.js 场景，并集成所有子组件。
  */
 
-import { ref, onMounted, onBeforeUnmount, watch, computed } from "vue";
-import { useRoute } from "vue-router";
+import { ref, onMounted, onBeforeUnmount, watch, computed, nextTick } from "vue";
+import { useRoute, onBeforeRouteLeave } from 'vue-router';
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import { ElLoading, ElMessage, ElMessageBox } from "element-plus";
@@ -103,6 +116,7 @@ const sidebars = ref({
 });
 const hoveredTurbine = ref(null);
 const tooltipPos = ref({ x: 0, y: 0 });
+const hasRendererInitialized = ref(false);
 
 // Three.js 变量
 let scene, camera, renderer, controls;
@@ -271,67 +285,75 @@ const confirmDeleteTurbine = (turbine) => {
 
 // 添加风机到 Three.js 场景
 const addWindTurbineToScene = (turbine) => {
-  if (turbineMeshes.value.has(turbine.id)) {
-    console.warn(`Wind turbine with ID ${turbine.id} already exists in the scene.`);
-    return;
-  }
-  const { latitude, longitude } = turbine;
-  const { x, z } = mapLatLonToXZ(latitude, longitude);
-  const terrainHeight = getTerrainHeight(x, z);
-
-  if (terrainHeight === null) {
-    ElMessage.error("无法获取地形高度，风机无法放置。");
-    return;
-  }
-
-  const hubHeight = turbine.hubHeight;
-  const rotorDiameter = turbine.rotorDiameter;
-  const bladeLength = rotorDiameter / 2;
-  const name = turbine.name;
+  if (turbineMeshes.value.has(turbine.id)) return;
 
   const turbineGroup = new THREE.Group();
-  turbineGroup.userData.turbineId = turbine.id; // 添加这一行来存储风机的 ID
+  turbineGroup.userData.turbineId = turbine.id;
 
-  // 桅杆
-  const towerGeometry = new THREE.CylinderGeometry(2, 4, hubHeight, 32);
-  const towerMaterial = new THREE.MeshPhongMaterial({ color: 0xffffff });
+  // Enhanced tower geometry
+  const towerGeometry = new THREE.CylinderGeometry(
+    2.5, 3.5, turbine.hubHeight,
+    16, 4, true
+  );
+  const towerMaterial = new THREE.MeshPhongMaterial({
+    color: 0xfafafa,
+    roughness: 0.3,
+    metalness: 0.7,
+    flatShading: false
+  });
   const tower = new THREE.Mesh(towerGeometry, towerMaterial);
-  tower.position.y = hubHeight / 2 + 1;
-  tower.castShadow = true;
-  tower.receiveShadow = true;
+  tower.position.y = turbine.hubHeight / 2;
+  turbineGroup.add(tower);
 
-  // 机舱
-  const nacelleGeometry = new THREE.BoxGeometry(8, 8, 15);
-  const nacelleMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
+  // Enhanced nacelle
+  const nacelleGeometry = new THREE.BoxGeometry(8, 4, 5);
+  const nacelleMaterial = new THREE.MeshPhongMaterial({
+    color: 0xe0e0e0,
+    roughness: 0.2,
+    metalness: 0.8
+  });
   const nacelle = new THREE.Mesh(nacelleGeometry, nacelleMaterial);
-  nacelle.position.y = hubHeight + 4;
-  nacelle.castShadow = true;
-  nacelle.receiveShadow = true;
+  nacelle.position.y = turbine.hubHeight;
+  turbineGroup.add(nacelle);
 
-  // 叶片
-  const bladeGeometry = new THREE.BoxGeometry(1, bladeLength, 2);
-  const bladeMaterial = new THREE.MeshPhongMaterial({ color: 0xffffff });
+  // Enhanced blades
+  const bladeShape = new THREE.Shape();
+  bladeShape.moveTo(0, 0);
+  bladeShape.bezierCurveTo(2, 0, 4, turbine.rotorDiameter/4, 2, turbine.rotorDiameter/2);
+  bladeShape.bezierCurveTo(1, turbine.rotorDiameter/2, -1, turbine.rotorDiameter/4, 0, 0);
+
+  const extrudeSettings = {
+    steps: 1,
+    depth: 0.5,
+    bevelEnabled: true,
+    bevelThickness: 0.2,
+    bevelSize: 0.1,
+    bevelSegments: 3
+  };
+
+  const bladeGeometry = new THREE.ExtrudeGeometry(bladeShape, extrudeSettings);
+  const bladeMaterial = new THREE.MeshPhongMaterial({
+    color: 0xffffff,
+    roughness: 0.3,
+    metalness: 0.4
+  });
+
   for (let i = 0; i < 3; i++) {
     const blade = new THREE.Mesh(bladeGeometry, bladeMaterial);
-    blade.position.set(0, hubHeight + 5, 0);
-    blade.rotation.z = (i * 2 * Math.PI) / 3;
-    blade.castShadow = true;
-    blade.receiveShadow = true;
-
-    blade.rotateY(Math.PI / 10);
-
+    blade.position.set(0, turbine.hubHeight, 0);
+    blade.rotation.z = (i * Math.PI * 2) / 3;
     turbineGroup.add(blade);
   }
 
-  turbineGroup.add(tower);
-  turbineGroup.add(nacelle);
-
-  turbineGroup.position.set(x, terrainHeight, z);
-  scene.add(turbineGroup);
-
-  turbineMeshes.value.set(turbine.id, turbineGroup);
+  const { x, z } = mapLatLonToXZ(turbine.latitude, turbine.longitude);
+  const terrainHeight = getTerrainHeight(x, z);
+  
+  if (terrainHeight !== null) {
+    turbineGroup.position.set(x, terrainHeight, z);
+    scene.add(turbineGroup);
+    turbineMeshes.value.set(turbine.id, turbineGroup);
+  }
 };
-
 // 从场景中删除风机
 const deleteWindTurbineFromScene = (turbineId) => {
   const turbineGroup = turbineMeshes.value.get(turbineId);
@@ -383,20 +405,36 @@ const mapLatLonToXZ = (latitude, longitude) => {
 
 // 获取指定 XZ 坐标的地形高度
 const getTerrainHeight = (x, z) => {
-  const localRaycaster = new THREE.Raycaster();
+  if (!terrainMesh) return null;
 
-  const rayOrigin = new THREE.Vector3(x, 10000, z);
-  const rayDirection = new THREE.Vector3(0, -1, 0);
-
-  localRaycaster.set(rayOrigin, rayDirection.normalize());
-
-  const intersects = localRaycaster.intersectObject(terrainMesh);
+  const raycaster = new THREE.Raycaster();
+  const origin = new THREE.Vector3(x, 1000, z);
+  const direction = new THREE.Vector3(0, -1, 0);
+  
+  raycaster.set(origin, direction);
+  const intersects = raycaster.intersectObject(terrainMesh);
+  
   if (intersects.length > 0) {
     return intersects[0].point.y;
-  } else {
-    console.warn("未能找到地形高度，风机无法准确放置。");
-    return null;
   }
+  
+  // Fallback: try nearest point if no direct intersection
+  const vertices = terrainMesh.geometry.attributes.position.array;
+  let closestHeight = null;
+  let minDistance = Infinity;
+  
+  for (let i = 0; i < vertices.length; i += 3) {
+    const vx = vertices[i];
+    const vz = vertices[i + 2];
+    const distance = Math.sqrt((x - vx) ** 2 + (z - vz) ** 2);
+    
+    if (distance < minDistance) {
+      minDistance = distance;
+      closestHeight = vertices[i + 1];
+    }
+  }
+  
+  return closestHeight;
 };
 
 // 加载 GeoTIFF 数据
@@ -576,68 +614,71 @@ const hexToRgb = (hex) => {
 
 // 鼠标移动事件处理，用于显示工具提示
 const onMouseMove = (event) => {
-    if (!renderer || !renderer.domElement) return;
+  if (!renderer || !camera) return;
 
-    const rect = renderer.domElement.getBoundingClientRect();
-    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-    // 更新工具提示位置
-    tooltipPos.value.x = event.clientX + 20;
-    tooltipPos.value.y = event.clientY + 20;
+  raycaster.setFromCamera(mouse, camera);
+  
+  const turbineObjects = Array.from(turbineMeshes.value.values());
+  const intersects = raycaster.intersectObjects(turbineObjects, true);
 
-    // 光线投射
-    raycaster.setFromCamera(mouse, camera);
-    const meshes = Array.from(turbineMeshes.value.values()).flatMap((group) =>
-      group.children.filter((child) => child.isMesh)
-    );
-    const intersects = raycaster.intersectObjects(meshes, true);
+  if (intersects.length > 0) {
+    const intersectedObj = intersects[0].object;
+    const turbineGroup = intersectedObj.parent;
+    const turbineId = turbineGroup.userData.turbineId;
+    const turbine = caseStore.windTurbines.find(t => t.id === turbineId);
 
-    if (intersects.length > 0) {
-      let parentGroup = intersects[0].object.parent;
-
-      // 遍历直到找到根 Group
-      while (parentGroup && !parentGroup.userData.turbineId) {
-        parentGroup = parentGroup.parent;
-      }
-
-      if (parentGroup && parentGroup.userData.turbineId) {
-        hoveredTurbine.value = caseStore.windTurbines.find(
-          (t) => t.id === parentGroup.userData.turbineId
-        );
-        return;
-      }
+    if (turbine) {
+      hoveredTurbine.value = turbine;
+      tooltipPos.value = {
+        x: event.clientX + 10,
+        y: event.clientY + 10
+      };
     }
-
+  } else {
     hoveredTurbine.value = null;
-  };
+  }
+};
+
 // 创建 throttled 版本
 const onMouseMoveThrottled = lodash.throttle(onMouseMove, 100);
 
-
 // 初始化 Three.js 场景
 const initThreeJS = () => {
-  if (!terrainContainer.value) return;
+  console.log('Initializing Three.js scene...');
+  if (!terrainContainer.value) {
+    console.error('Terrain container not found');
+    return;
+  }
 
   const width = terrainContainer.value.clientWidth;
   const height = terrainContainer.value.clientHeight;
+  console.log('Container dimensions:', { width, height });
 
-  // 创建场景
+  // Create scene with visible background
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0xf0f0f0);
 
-  // 创建摄像机
+  // Add axes helper for debugging
+    addAxesHelper()
+
+  // Initialize camera with debug info
   camera = new THREE.PerspectiveCamera(45, width / height, 1, 10000);
   camera.position.set(0, 1000, 1000);
   camera.lookAt(0, 0, 0);
+  console.log('Camera initialized:', camera.position);
 
-  // 创建渲染器
+  // Initialize renderer with debug info
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(width, height);
-  renderer.setPixelRatio(window.devicePixelRatio);
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  console.log('Renderer initialized');
+
   terrainContainer.value.appendChild(renderer.domElement);
+  console.log('Renderer added to container');
+  hasRendererInitialized.value = true;
 
   // 创建控件
   controls = new OrbitControls(camera, renderer.domElement);
@@ -677,33 +718,58 @@ const initThreeJS = () => {
    // 监听鼠标移动事件
   renderer.domElement.addEventListener("mousemove", onMouseMoveThrottled, false);
 
-
   // 监听窗口大小变化
   window.addEventListener("resize", onWindowResize, false);
 };
 
+// 添加坐标轴辅助
+const addAxesHelper = () => {
+    const axesHelper = new THREE.AxesHelper(500);
+      const materials = axesHelper.material;
+  
+  if (Array.isArray(materials)) {
+    materials.forEach(material => {
+      material.linewidth = 2;
+      material.opacity = 0.7;
+      material.transparent = true;
+    });
+  }
+  
+  scene.add(axesHelper);
+};
+
 // 动画循环
+let frameCount = 0;
 const animate = () => {
+  frameCount++;
+  if (frameCount % 60 === 0) { // Log every 60 frames
+    console.log('Animation frame:', frameCount);
+    console.log('Active turbines:', turbineMeshes.value.size);
+  }
+
   animationFrameId = requestAnimationFrame(animate);
   TWEEN.update();
   controls.update();
 
-  // 叶片旋转
-  if (bladeRotation.value) {
-    caseStore.windTurbines.forEach((turbine) => {
-      const turbineGroup = turbineMeshes.value.get(turbine.id);
-      if (turbineGroup) {
-        for (let i = 0; i < 3; i++) {
-          const blade = turbineGroup.children[i];
-          if (blade) {
-            blade.rotation.z += 0.01 * rotationSpeed.value;
-          }
-        }
-      }
-    });
-  }
+  // Debug turbine positions
+  turbineMeshes.value.forEach((turbine, id) => {
+    if (frameCount % 60 === 0) {
+      console.log(`Turbine ${id} position:`, turbine.position);
+    }
+  });
 
   renderer.render(scene, camera);
+   // 叶片旋转
+  if (bladeRotation.value) {
+    turbineMeshes.value.forEach((turbineGroup) => {
+         for (let i = 1; i <= 3; i++) {
+            const blade = turbineGroup.children[i];
+           if (blade) {
+              blade.rotation.z += 0.01 * rotationSpeed.value;
+            }
+        }
+      });
+  }
 };
 
 // 处理批量导入风机
@@ -763,30 +829,51 @@ const disposeThreeResources = () => {
 };
 
 // 生命周期钩子
-onMounted(async () => {
+
+const loadAndDisplayTurbines = async () => {
   try {
-    const { caseId, caseName } = route.params;
-    const queryCaseName = route.query.caseName;
+    // Load turbines from store/backend
+    await caseStore.fetchWindTurbines();
+    
+    // Clear existing turbines
+    turbineMeshes.value.forEach(mesh => {
+      scene.remove(mesh);
+      mesh.traverse(child => {
+        if (child.isMesh) {
+          child.geometry.dispose();
+          child.material.dispose();
+        }
+      });
+    });
+    turbineMeshes.value.clear();
 
-    // 初始化 Case
-    await caseStore.initializeCase(caseId, queryCaseName);
-      caseStore.connectSocket(caseId);
-    // 初始化 Three.js
-    initThreeJS();
-    animate();
-
-    if (caseStore.caseId) {
-      await loadGeoTIFF(caseStore.caseId);
-    }
-
-    // 添加已存在的风机到场景
-    caseStore.windTurbines.forEach((turbine) => {
+    // Add loaded turbines to scene
+    caseStore.windTurbines.forEach(turbine => {
       addWindTurbineToScene(turbine);
     });
   } catch (error) {
-    console.error("Initialization error:", error);
-    ElMessage.error("初始化失败，请稍后重试。");
+    console.error('Failed to load and display turbines:', error);
+    ElMessage.error('加载风机失败');
   }
+};
+onMounted(async () => {
+    try {
+        const { caseId, caseName } = route.params;
+         console.log('Route params:', { caseId, caseName });
+        await caseStore.initializeCase(caseId, caseName);
+      
+       initThreeJS();
+       animate();
+
+        if (caseStore.caseId) {
+            await loadGeoTIFF(caseStore.caseId);
+            await loadAndDisplayTurbines();
+          }
+         caseStore.connectSocket(caseId);
+
+    } catch (error) {
+        console.error('Initialization error:', error);
+    }
 });
 
 onBeforeUnmount(() => {
@@ -797,9 +884,70 @@ onBeforeUnmount(() => {
     renderer.domElement.removeEventListener("mousemove", onMouseMoveThrottled, false);
   }
   window.removeEventListener("resize", onWindowResize, false);
-  caseStore.disconnectSocket();
+    caseStore.disconnectSocket();
   disposeThreeResources();
 });
+// Add route leave handler
+onBeforeRouteLeave((to, from, next) => {
+  // Save current state if needed
+  caseStore.saveCurrentState();
+  next();
+});
+
+// Add watch for route changes
+watch(
+  () => route.params.caseId,
+  async (newId, oldId) => {
+    if (newId && newId !== oldId) {
+       await loadAndDisplayTurbines();
+    }
+  }
+);
+
+
+// Add visual feedback when hovering over turbines
+watch(() => hoveredTurbine.value, (newTurbine, oldTurbine) => {
+  if (oldTurbine) {
+    const oldMesh = turbineMeshes.value.get(oldTurbine.id);
+    if (oldMesh) {
+      oldMesh.traverse(child => {
+        if (child.isMesh) {
+          child.material.emissive.setHex(0x000000);
+        }
+      });
+    }
+  }
+  
+  if (newTurbine) {
+    const newMesh = turbineMeshes.value.get(newTurbine.id);
+    if (newMesh) {
+      newMesh.traverse(child => {
+        if (child.isMesh) {
+          child.material.emissive.setHex(0x555555);
+        }
+      });
+    }
+  }
+});
+
+
+watch(
+  () => caseStore.windTurbines,
+  (newTurbines) => {
+    console.log('Wind turbines updated:', newTurbines);
+    // Clear existing turbines
+    turbineMeshes.value.forEach((turbine) => {
+      scene.remove(turbine);
+    });
+    turbineMeshes.value.clear();
+    
+    // Add all turbines
+    newTurbines.forEach((turbine) => {
+      addWindTurbineToScene(turbine);
+    });
+  },
+  { deep: true }
+);
 </script>
 
 <style scoped>
@@ -825,4 +973,13 @@ onBeforeUnmount(() => {
 /* 工具栏样式在 TopToolbar.vue 中定义 */
 
 /* 地形信息和工具提示样式在各自的组件中定义 */
+.debug-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(255, 0, 0, 0.2);
+  padding: 10px;
+  z-index: 1000;
+}
 </style>
