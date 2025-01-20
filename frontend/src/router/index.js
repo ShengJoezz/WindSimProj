@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-01-10 17:16:53
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-10 17:16:59
+ * @LastEditTime: 2025-01-19 21:44:42
  * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\router\index.js
  * @Description: 
  * 
@@ -14,8 +14,14 @@ import NewCase from "../views/NewCase.vue";
 import Cases from "../views/Cases.vue";
 import { ElMessage } from 'element-plus';
 import { useCaseStore } from "../store/caseStore";
+import VTKTest from '@/components/VTKTest.vue';
 
 const routes = [
+  {
+    path: '/vtk-test',
+    name: 'VTKTest',
+    component: VTKTest
+  },
   { path: "/", name: "Home", component: Home },
   { path: "/new", name: "NewCase", component: NewCase },
   { path: "/cases", name: "Cases", component: Cases },

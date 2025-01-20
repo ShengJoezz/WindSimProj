@@ -1,50 +1,61 @@
 <!--
  * @Author: joe 847304926@qq.com
- * @Date: 2025-01-13 10:00:48
+ * @Date: 2025-01-19 21:49:23
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-18 18:49:02
+ * @LastEditTime: 2025-01-19 21:51:13
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\VTKViewer.vue
- * @Description:
- *
+ * @Description: 
+ * 
  * Copyright (c) 2025 by joe, All Rights Reserved.
 -->
+
+
 <template>
-  <div class="vtk-container relative">
-    <div ref="vtkContainer" class="w-full h-full"></div>
-
-    <!-- 错误提示 Toast -->
-    <div v-if="error"
-         class="absolute top-4 left-1/2 transform -translate-x-1/2 bg-red-100 text-red-700 p-4 rounded-lg shadow-lg z-50 flex items-center space-x-2">
-      <span class="material-icons">error</span>
-      <p>{{ error }}</p>
-      <button @click="error = ''" class="ml-2 text-red-500 hover:text-red-700">
-        <span class="material-icons">close</span>
-      </button>
-    </div>
-
-    <!-- 控制面板 -->
-    <div class="absolute top-4 right-4 bg-white/90 backdrop-blur-sm p-4 rounded-lg shadow-lg space-y-3 w-64">
+  <div class="vtk-container">
+    <div ref="vtkContainer" class="vtk-viewer"></div>
+    
+    <!-- 控制面板 - 修改样式确保可见 -->
+    <div class="control-panel">
       <!-- 状态信息 -->
-      <div class="flex items-center justify-between">
-        <span class="text-sm font-medium text-gray-700">
-          正在显示: {{ vtkFileName }}
+      <div class="panel-section">
+        <span class="status-text">
+          当前显示: {{ vtkFileName }}
+          <span v-if="loading" class="loading-indicator">加载中...</span>
         </span>
-        <div v-if="loading" class="animate-spin rounded-full h-4 w-4 border-2 border-blue-500 border-t-transparent"></div>
+      </div>
+
+      <!-- 文件选择 -->
+      <div class="panel-section">
+        <h3 class="section-title">选择显示内容</h3>
+        <div class="button-group">
+          <button
+            @click="switchFile('mesh')"
+            :class="['control-button', currentFile === 'mesh' ? 'active' : '']"
+          >
+            网格
+          </button>
+          <button
+            @click="switchFile('bot')"
+            :class="['control-button', currentFile === 'bot' ? 'active' : '']"
+          >
+            底面
+          </button>
+        </div>
       </div>
 
       <!-- 视图控制 -->
-      <div class="space-y-2">
-        <label class="block text-sm font-medium text-gray-700">视图控制</label>
-        <div class="grid grid-cols-2 gap-2">
+      <div class="panel-section">
+        <h3 class="section-title">视图控制</h3>
+        <div class="button-group">
           <button
-            @click="resetCamera"
-            class="px-3 py-1.5 text-sm text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition-colors"
+            @click="resetView"
+            class="control-button"
           >
             重置视图
           </button>
           <button
-            @click="toggleOrientationAxes"
-            class="px-3 py-1.5 text-sm text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition-colors"
+            @click="toggleAxes"
+            :class="['control-button', showAxes ? 'active' : '']"
           >
             坐标轴
           </button>
@@ -52,25 +63,28 @@
       </div>
 
       <!-- 显示选项 -->
-      <div class="space-y-2">
-        <label class="block text-sm font-medium text-gray-700">显示选项</label>
-        <div class="grid grid-cols-2 gap-2">
+      <div class="panel-section">
+        <h3 class="section-title">显示选项</h3>
+        <div class="button-group">
           <button
             @click="toggleWireframe"
-            class="px-3 py-1.5 text-sm text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition-colors"
-            :class="{ 'bg-blue-200': showWireframe }"
+            :class="['control-button', showWireframe ? 'active' : '']"
           >
-            {{ showWireframe ? '隐藏网格' : '显示网格' }}
+            线框
           </button>
           <button
             @click="toggleSurface"
-            class="px-3 py-1.5 text-sm text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition-colors"
-            :class="{ 'bg-blue-200': showSurface }"
+            :class="['control-button', showSurface ? 'active' : '']"
           >
-            {{ showSurface ? '隐藏表面' : '显示表面' }}
+            表面
           </button>
         </div>
       </div>
+    </div>
+
+    <!-- 错误提示 -->
+    <div v-if="error" class="error-message">
+      {{ error }}
     </div>
   </div>
 </template>
@@ -78,190 +92,320 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
 import '@kitware/vtk.js/Rendering/Profiles/Geometry';
-import vtkFullScreenRenderWindow from '@kitware/vtk.js/Rendering/Misc/FullScreenRenderWindow';
 import vtkXMLPolyDataReader from '@kitware/vtk.js/IO/XML/XMLPolyDataReader';
 import vtkMapper from '@kitware/vtk.js/Rendering/Core/Mapper';
 import vtkActor from '@kitware/vtk.js/Rendering/Core/Actor';
+import vtkFullScreenRenderWindow from '@kitware/vtk.js/Rendering/Misc/FullScreenRenderWindow';
+import vtkInteractorStyleTrackballCamera from '@kitware/vtk.js/Interaction/Style/InteractorStyleTrackballCamera';
 import vtkAxesActor from '@kitware/vtk.js/Rendering/Core/AxesActor';
+
+const props = defineProps({
+  caseId: {
+    type: String,
+    required: true
+  }
+});
 
 const vtkContainer = ref(null);
 const error = ref('');
 const loading = ref(false);
-const showOrientationAxes = ref(true);
 const vtkFileName = ref('');
-const showWireframe = ref(true);  // 默认显示网格
-const showSurface = ref(true);    // 默认显示表面
+const currentFile = ref('mesh');
+const showAxes = ref(true);
+const showWireframe = ref(true);
+const showSurface = ref(true);
 
-// State refs
 let fullScreenRenderer = null;
 let renderer = null;
 let renderWindow = null;
-let currentMapper = null;
 let currentActor = null;
-let orientationAxes = null;
+let axes = null;
+let isInitialized = false;
 
-// Props
-const props = defineProps({
-  vtkFileUrl: {
-    type: String,
-    required: true,
-  },
-});
+// 初始化渲染器
+const initRenderer = () => {
+  if (isInitialized || !vtkContainer.value) return;
 
-// Methods
-const resetCamera = () => {
-  if (renderer) {
+  try {
+    fullScreenRenderer = vtkFullScreenRenderWindow.newInstance({
+      container: vtkContainer.value,
+      background: [0.2, 0.2, 0.2],
+    });
+
+    renderWindow = fullScreenRenderer.getRenderWindow();
+    renderer = fullScreenRenderer.getRenderer();
+
+    const interactor = renderWindow.getInteractor();
+    interactor.setInteractorStyle(vtkInteractorStyleTrackballCamera.newInstance());
+
+    axes = vtkAxesActor.newInstance();
+    renderer.addActor(axes);
+    axes.setVisibility(showAxes.value);
+
     renderer.resetCamera();
-    renderWindow?.render();
+    renderWindow.render();
+
+    isInitialized = true;
+    console.log('Renderer initialized successfully');
+  } catch (err) {
+    console.error('Error initializing renderer:', err);
+    error.value = '渲染器初始化失败';
   }
 };
 
-const toggleOrientationAxes = () => {
-  showOrientationAxes.value = !showOrientationAxes.value;
-  if (orientationAxes) {
-    orientationAxes.setVisibility(showOrientationAxes.value);
-    renderWindow?.render();
-  }
-};
-
-// 切换网格显示
-const toggleWireframe = () => {
-  showWireframe.value = !showWireframe.value;
-  if (currentActor) {
-    currentActor.getProperty().setEdgeVisibility(showWireframe.value);
-    if (showWireframe.value) {
-      currentActor.getProperty().setEdgeColor(0, 0, 0); // 黑色网格线
-      currentActor.getProperty().setLineWidth(1); // 网格线宽度
-    }
-    renderWindow?.render();
-  }
-};
-
-// 切换表面显示
-const toggleSurface = () => {
-  showSurface.value = !showSurface.value;
-  if (currentActor) {
-    currentActor.getProperty().setOpacity(showSurface.value ? 1 : 0);
-    renderWindow?.render();
-  }
-};
-
-const initializeRenderer = () => {
-  fullScreenRenderer = vtkFullScreenRenderWindow.newInstance({
-    container: vtkContainer.value,
-    background: [0.1, 0.1, 0.1],
-  });
-
-  renderer = fullScreenRenderer.getRenderer();
-  renderWindow = fullScreenRenderer.getRenderWindow();
-
-  // 添加坐标轴
-  orientationAxes = vtkAxesActor.newInstance();
-  renderer.addActor(orientationAxes);
-};
-
-const loadVtkFile = async () => {
-  if (!props.vtkFileUrl) {
-    error.value = '未提供 VTK 文件 URL';
+// 加载VTK文件
+const loadVTKFile = async (fileType = 'mesh') => {
+  if (!isInitialized) {
+    console.warn('Renderer not initialized');
     return;
   }
 
   loading.value = true;
   error.value = '';
-  vtkFileName.value = props.vtkFileUrl.split('/').pop();
 
   try {
-    const response = await fetch(props.vtkFileUrl);
+    const fileName = `${fileType}.vtp`;
+    const response = await fetch(`/api/cases/${props.caseId}/VTK/processed/${fileName}`);
+    
     if (!response.ok) {
-      throw new Error(`HTTP 错误! 状态码: ${response.status}`);
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
 
     const arrayBuffer = await response.arrayBuffer();
+    console.log(`Received array buffer size for ${fileName}:`, arrayBuffer.byteLength);
 
     const reader = vtkXMLPolyDataReader.newInstance();
     reader.parseAsArrayBuffer(arrayBuffer);
+    const polyData = reader.getOutputData(0);
 
+    console.log('PolyData info:', {
+      fileName,
+      numberOfPoints: polyData.getNumberOfPoints(),
+      numberOfCells: polyData.getNumberOfCells(),
+      bounds: polyData.getBounds()
+    });
+
+    // 移除现有的actor
     if (currentActor) {
       renderer.removeActor(currentActor);
     }
 
-    currentMapper = vtkMapper.newInstance();
-    currentMapper.setInputData(reader.getOutputData());
+    // 创建新的mapper和actor
+    const mapper = vtkMapper.newInstance();
+    mapper.setInputData(polyData);
 
     currentActor = vtkActor.newInstance();
-    currentActor.setMapper(currentMapper);
+    currentActor.setMapper(mapper);
 
-    // 设置默认显示属性
+    // 设置actor属性
     const property = currentActor.getProperty();
-    property.setEdgeVisibility(showWireframe.value);
-    if (showWireframe.value) {
-      property.setEdgeColor(0, 0, 0);  // 黑色网格线
-      property.setLineWidth(1);         // 网格线宽度
+    
+    // 根据文件类型设置不同的颜色
+    if (fileType === 'mesh') {
+      property.setColor(0.5, 0.5, 1.0); // 蓝色网格
+    } else {
+      property.setColor(0.8, 0.8, 0.8); // 灰色底面
     }
-    property.setOpacity(showSurface.value ? 1 : 0);  // 表面透明度
-    property.setColor(0.8, 0.8, 0.8); // 浅灰色表面
-    property.setLighting(true);       // 启用光照
+    
+    property.setEdgeVisibility(showWireframe.value);
+    property.setEdgeColor(0.0, 0.0, 0.0);
+    property.setLineWidth(1);
+    property.setOpacity(showSurface.value ? 1.0 : 0.5);
+    property.setLighting(true);
 
+    // 添加actor到渲染器
     renderer.addActor(currentActor);
 
-    if (!orientationAxes) {
-      orientationAxes = vtkAxesActor.newInstance();
-      renderer.addActor(orientationAxes);
-    }
-    orientationAxes.setVisibility(showOrientationAxes.value);
-
+    // 重置相机并渲染
     renderer.resetCamera();
-    renderWindow?.render();
+    renderWindow.render();
 
-    console.log('VTK file loaded successfully');
-  } catch (e) {
-    console.error('加载 VTK 文件出错:', e);
-    error.value = `加载 VTK 文件出错: ${e.message}`;
+    vtkFileName.value = fileName;
+    currentFile.value = fileType;
+
+  } catch (err) {
+    console.error('Error loading VTK file:', err);
+    error.value = '加载VTK文件失败: ' + err.message;
   } finally {
     loading.value = false;
   }
 };
 
-// 监听 vtkFileUrl 的变化
-watch(() => props.vtkFileUrl, (newUrl) => {
-  if (newUrl) {
-    loadVtkFile();
+// 切换文件
+const switchFile = (fileType) => {
+  loadVTKFile(fileType);
+};
+
+// 重置视图
+const resetView = () => {
+  if (renderer) {
+    renderer.resetCamera();
+    renderWindow.render();
+  }
+};
+
+// 切换坐标轴显示
+const toggleAxes = () => {
+  if (axes) {
+    showAxes.value = !showAxes.value;
+    axes.setVisibility(showAxes.value);
+    renderWindow.render();
+  }
+};
+
+// 切换线框显示
+const toggleWireframe = () => {
+  if (currentActor) {
+    showWireframe.value = !showWireframe.value;
+    currentActor.getProperty().setEdgeVisibility(showWireframe.value);
+    renderWindow.render();
+  }
+};
+
+// 切换表面显示
+const toggleSurface = () => {
+  if (currentActor) {
+    showSurface.value = !showSurface.value;
+    currentActor.getProperty().setOpacity(showSurface.value ? 1.0 : 0.5);
+    renderWindow.render();
+  }
+};
+
+// 监听caseId变化
+watch(() => props.caseId, async (newId) => {
+  if (newId && !isInitialized) {
+    initRenderer();
+  }
+  if (newId) {
+    await loadVTKFile(currentFile.value);
   }
 }, { immediate: true });
 
-// 监听显示状态变化
-watch([showWireframe, showSurface], () => {
-  if (currentActor && renderWindow) {
-    renderWindow.render();
-  }
-});
-
+// 生命周期钩子
 onMounted(() => {
-  initializeRenderer();
+  initRenderer();
+  if (props.caseId) {
+    loadVTKFile(currentFile.value);
+  }
 });
 
 onBeforeUnmount(() => {
   if (fullScreenRenderer) {
+    if (currentActor) {
+      renderer.removeActor(currentActor);
+    }
     fullScreenRenderer.delete();
+    isInitialized = false;
   }
 });
 </script>
 
+
 <style scoped>
 .vtk-container {
   width: 100%;
-  height: 100vh;
-  background: rgb(17, 17, 17);
+  height: calc(100vh - 64px);
+  position: relative;
+  background: #1a1a1a;
+  overflow: hidden;
 }
 
-/* 添加过渡效果 */
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.3s ease;
+.vtk-viewer {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
 }
 
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
+/* 控制面板样式 */
+.control-panel {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(10px);
+  border-radius: 8px;
+  padding: 16px;
+  width: 240px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+}
+
+.panel-section {
+  margin-bottom: 16px;
+}
+
+.panel-section:last-child {
+  margin-bottom: 0;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 8px;
+}
+
+.button-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.control-button {
+  padding: 8px 12px;
+  background-color: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  color: #374151;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.control-button:hover {
+  background-color: #e5e7eb;
+}
+
+.control-button.active {
+  background-color: #60a5fa;
+  color: white;
+  border-color: #3b82f6;
+}
+
+.status-text {
+  font-size: 14px;
+  color: #374151;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.loading-indicator {
+  font-size: 12px;
+  color: #3b82f6;
+  animation: pulse 1.5s infinite;
+}
+
+.error-message {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: #fee2e2;
+  color: #dc2626;
+  padding: 12px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 </style>
+
+<!-- Script部分保持不变 -->

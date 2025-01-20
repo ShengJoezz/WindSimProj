@@ -1,19 +1,21 @@
 <!--
  * @Author: joe 847304926@qq.com
- * @Date: 2025-01-13 10:00:54
+ * @Date: 2025-01-18 20:59:25
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-13 10:03:05
+ * @LastEditTime: 2025-01-19 21:47:16
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\ResultsDisplay.vue
- * @Description: 
+ * @Description:
  * 
  * Copyright (c) 2025 by joe, All Rights Reserved.
 -->
-<!-- ResultsDisplay.vue -->
+
 <template>
   <div class="case-viewer">
+    <!-- Pass caseId instead of vtk-file-url -->
     <VTKViewer 
       v-if="caseStore.currentCaseId" 
-      :vtk-file-url="`/api/cases/${caseStore.currentCaseId}/processed-vtk/block_0.vtp`"
+      :caseId="caseStore.currentCaseId"
+      :key="caseStore.currentCaseId"
     />
   </div>
 </template>
@@ -21,6 +23,23 @@
 <script setup>
 import VTKViewer from '@/components/VTKViewer.vue';
 import { useCaseStore } from '@/store/caseStore';
+import { watch } from 'vue';
 
 const caseStore = useCaseStore();
+
+// Debugging: Ensure currentCaseId is correctly set
+console.log('Current Case ID in ResultsDisplay:', caseStore.currentCaseId);
+
+// Optional: Watch for changes in currentCaseId
+watch(() => caseStore.currentCaseId, (newId) => {
+  console.log('currentCaseId updated to:', newId);
+});
 </script>
+<style scoped>
+.case-viewer {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  min-height: 500px; /* 设置最小高度 */
+}
+</style>

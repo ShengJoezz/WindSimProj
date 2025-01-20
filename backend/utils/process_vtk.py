@@ -1,3 +1,12 @@
+# @Author: joe 847304926@qq.com
+# @Date: 2025-01-19 16:02:00
+# @LastEditors: joe 847304926@qq.com
+# @LastEditTime: 2025-01-19 20:17:18
+# @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\backend\utils\process_vtk.py
+# @Description: 
+# 
+# Copyright (c) 2025 by joe, All Rights Reserved.
+
 #!/usr/bin/env python3
 
 import pyvista as pv
@@ -25,44 +34,57 @@ def convert_multiblock_to_polydata(input_path, output_dir):
         metadata = {"blocks": []}
         
         if isinstance(data, pv.MultiBlock):
-            print("Processing MultiBlock with", len(data), "blocks")
+            # 处理整体网格
+            mesh_block = None
+            bottom_surface = None
+            
             for i in range(len(data)):
                 if data[i] is not None:
-                    print("Processing block", i)
                     block = data[i]
                     if not isinstance(block, pv.PolyData):
-                        print("Converting block", i, "to PolyData")
                         block = block.extract_geometry()
                     
-                    output_filename = f"block_{i}.vtp"
-                    output_path = os.path.join(output_dir, output_filename)
-                    print("Saving block to:", output_path)
-                    block.save(output_path)
-                    
-                    # Get array names safely
-                    scalar_fields = []
-                    try:
-                        scalar_fields = list(block.array_names)
-                    except AttributeError:
-                        print(f"Warning: Could not get array names for block {i}")
-                    
-                    block_metadata = {
-                        "index": i,
-                        "filename": output_filename,
-                        "n_points": block.n_points,
-                        "n_cells": block.n_cells,
-                        "bounds": list(block.bounds),
-                        "scalar_fields": scalar_fields
-                    }
-                    metadata["blocks"].append(block_metadata)
-                    output_files.append(output_path)
+                    # 识别底面
+                    if i == 0:  # 假设第一个block是底面
+                        bottom_surface = block
+                        output_filename = "bot.vtp"
+                    else:
+                        # 其他block合并为整体网格
+                        if mesh_block is None:
+                            mesh_block = block
+                        else:
+                            mesh_block = mesh_block.merge(block)
+            
+            # 保存底面
+            if bottom_surface is not None:
+                output_path = os.path.join(output_dir, "bot.vtp")
+                bottom_surface.save(output_path)
+                metadata["blocks"].append({
+                    "filename": "bot.vtp",
+                    "type": "bottom",
+                    "n_points": bottom_surface.n_points,
+                    "n_cells": bottom_surface.n_cells,
+                    "bounds": list(bottom_surface.bounds)
+                })
+            
+            # 保存整体网格
+            if mesh_block is not None:
+                output_path = os.path.join(output_dir, "mesh.vtp")
+                mesh_block.save(output_path)
+                metadata["blocks"].append({
+                    "filename": "mesh.vtp",
+                    "type": "mesh", 
+                    "n_points": mesh_block.n_points,
+                    "n_cells": mesh_block.n_cells,
+                    "bounds": list(mesh_block.bounds)
+                })
         else:
             print("Processing single dataset")
             if not isinstance(data, pv.PolyData):
                 print("Converting to PolyData")
                 data = data.extract_geometry()
             
-            output_filename = "single_block.vtp"
+            output_filename = "mesh.vtp"
             output_path = os.path.join(output_dir, output_filename)
             print("Saving to:", output_path)
             data.save(output_path)
