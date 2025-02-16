@@ -2,10 +2,10 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-01-12 18:32:29
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-12 20:10:10
+ * @LastEditTime: 2025-02-15 15:19:17
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\UploadComponent.vue
- * @Description: 
- * 
+ * @Description:
+ *
  * Copyright (c) 2025 by joe, All Rights Reserved.
 -->
 <template>
@@ -125,11 +125,14 @@ const handleFileChange = (file) => {
 
   reader.onload = async (event) => {
     try {
-      // Split the content by newlines and filter out empty lines
       const content = event.target.result;
+      // 自动检测，用逗号分隔则使用逗号，否则使用制表符
+      const delimiter = content.indexOf(',') !== -1 ? ',' : '\t';
+
       const lines = content.split('\n').filter(line => line.trim());
-      
-      const { isValid, errors } = validateTurbineData(lines);
+
+      // 修改解析时也采用 delimiter 分隔
+      const { isValid, errors } = validateTurbineData(lines.map(line => line.split(delimiter)));
 
       if (!isValid) {
         parseErrors.value = errors;
@@ -138,21 +141,21 @@ const handleFileChange = (file) => {
       }
 
       const turbines = lines.map(line => {
-        const [name, longitude, latitude, hubHeight, rotorDiameter, model] = line.split('\t');
+        const [name, longitude, latitude, hubHeight, rotorDiameter, model] = line.split(delimiter);
         return {
           name: name.trim(),
           longitude: parseFloat(longitude),
           latitude: parseFloat(latitude),
           hubHeight: parseFloat(hubHeight),
           rotorDiameter: parseFloat(rotorDiameter),
-          model: model ? model.trim() : null,
+          model: model ? model.trim() : '',
         };
       });
 
       emit('import-turbines', turbines);
       uploadStatus.value = 'success';
       uploadProgress.value = 100;
-
+      ElMessage.success('上传并解析成功'); // 添加成功消息
     } catch (error) {
       console.error('File parsing error:', error);
       parseErrors.value = ['文件解析失败'];

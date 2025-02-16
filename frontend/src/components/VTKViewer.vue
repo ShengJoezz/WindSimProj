@@ -1,19 +1,18 @@
 <!--
  * @Author: joe 847304926@qq.com
- * @Date: 2025-01-19 21:49:23
+ * @Date: 2025-01-18 20:59:25
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-19 21:51:13
- * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\VTKViewer.vue
- * @Description: 
- * 
+ * @LastEditTime: 2025-02-15 21:55:17
+ * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\ResultsDisplay.vue
+ * @Description:
+ *
  * Copyright (c) 2025 by joe, All Rights Reserved.
 -->
-
 
 <template>
   <div class="vtk-container">
     <div ref="vtkContainer" class="vtk-viewer"></div>
-    
+
     <!-- 控制面板 - 修改样式确保可见 -->
     <div class="control-panel">
       <!-- 状态信息 -->
@@ -167,6 +166,7 @@ const loadVTKFile = async (fileType = 'mesh') => {
     const fileName = `${fileType}.vtp`;
     const response = await fetch(`/api/cases/${props.caseId}/VTK/processed/${fileName}`);
     
+
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -199,14 +199,14 @@ const loadVTKFile = async (fileType = 'mesh') => {
 
     // 设置actor属性
     const property = currentActor.getProperty();
-    
+
     // 根据文件类型设置不同的颜色
     if (fileType === 'mesh') {
       property.setColor(0.5, 0.5, 1.0); // 蓝色网格
     } else {
       property.setColor(0.8, 0.8, 0.8); // 灰色底面
     }
-    
+
     property.setEdgeVisibility(showWireframe.value);
     property.setEdgeColor(0.0, 0.0, 0.0);
     property.setLineWidth(1);
@@ -407,5 +407,3 @@ onBeforeUnmount(() => {
   50% { opacity: 0.5; }
 }
 </style>
-
-<!-- Script部分保持不变 -->

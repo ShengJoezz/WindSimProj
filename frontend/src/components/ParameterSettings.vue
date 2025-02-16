@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2024-12-30 10:58:27
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-12 21:52:31
+ * @LastEditTime: 2025-02-15 18:03:30
  * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\components\ParameterSettings.vue
  * @Description: 
  * 
@@ -371,7 +371,7 @@
     import { Loading } from '@element-plus/icons-vue';
   import { useRoute } from "vue-router";
   import { useCaseStore } from "../store/caseStore";
-  import { knownTasks } from '../utils/tasks';
+  import { knownTasks } from '../utils/tasks.js';
   
   const route = useRoute();
   const caseStore = useCaseStore();

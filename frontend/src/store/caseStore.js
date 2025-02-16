@@ -1,18 +1,18 @@
 /*
  * @Author: joe 847304926@qq.com
- * @Date: 2025-01-12 18:33:46
+ * @Date: 2024-12-30 10:58:27
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-12 20:19:46
- * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\backend\routes\cases.js
- * @Description: 
- * 
+ * @LastEditTime: 2025-02-15 19:08:18
+ * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\store\caseStore.js
+ * @Description: Pinia 状态管理，包含工况初始化、参数管理、计算状态和持久化同步
+ *
  * Copyright (c) 2025 by joe, All Rights Reserved.
  */
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import axios from 'axios';
 import { ElMessage } from 'element-plus';
-import { knownTasks } from '../utils/tasks';
+import { knownTasks } from '../utils/tasks.js';
 import { io } from 'socket.io-client';
 
 export const useCaseStore = defineStore('caseStore', () => {
@@ -53,56 +53,54 @@ export const useCaseStore = defineStore('caseStore', () => {
   const currentTask = ref(null);
   const overallProgress = ref(0);
   const calculationOutputs = ref([]);
-  const tasks = ref(knownTasks.map((task) => ({ ...task, status: 'pending' })));
+  // 持久化存储任务状态时，建议使用对象（键是 task id）
+  const tasks = ref({});
+  // 初始化时以 knownTasks 建立默认任务对象
+  knownTasks.forEach(task => {
+    tasks.value[task.id] = 'pending';
+  });
   const hasFetchedCalculationStatus = ref(false);
   const socket = ref(null);
   const startTime = ref(null);
-
-  // Actions
+  const isSubmittingParameters = ref(false);
 
   const initializeCase = async (id, name) => {
-    if (!id) {
-      ElMessage.error('缺少工况ID');
-      return;
-    }
-    currentCaseId.value = id;
-    localStorage.setItem('currentCaseId', id);
-    caseId.value = id;
-    caseName.value = name || id;
-
-    try {
-      // 加载参数
-      const response = await axios.get(`/api/cases/${caseId.value}/parameters`);
-      if (response.data && response.data.parameters) {
-        parameters.value = {
-          ...parameters.value, // 默认值
-          ...response.data.parameters, // 加载的值
-        };
-      } else {
-        ElMessage.warning('未找到工况参数，使用默认值');
+    return new Promise(async (resolve, reject) => { // Make initializeCase return a Promise
+      if (!id) {
+        ElMessage.error('缺少工况ID');
+        reject('缺少工况ID'); // Reject promise on error
+        return;
       }
-        
-       //加载保存的风机状态
-      await loadSavedState();
-      // 检查 info.json 是否存在
-      const infoResponse = await axios.get(
-        `/api/cases/${caseId.value}/info-exists`
-      );
-      infoExists.value = infoResponse.data.exists;
-
-      // 初始化时加载计算状态
-      await fetchCalculationStatus();
-    } catch (error) {
-      console.error('Failed to initialize case:', error);
-      ElMessage.error('初始化失败');
-    }
+      currentCaseId.value = id;
+      localStorage.setItem('currentCaseId', id);
+      caseId.value = id;
+      caseName.value = name || id;
+      try {
+        const response = await axios.get(`/api/cases/${caseId.value}/parameters`);
+        if (response.data && response.data.parameters) {
+          parameters.value = {
+            ...parameters.value,
+            ...response.data.parameters,
+          };
+        } else {
+          ElMessage.warning('未找到工况参数，使用默认值');
+        }
+        await loadSavedState(); // Await loadSavedState
+        const infoResponse = await axios.get(`/api/cases/${caseId.value}/info-exists`);
+        infoExists.value = infoResponse.data.exists;
+        await fetchCalculationStatus(); // Await fetchCalculationStatus
+        resolve(); // Resolve promise after all async operations
+      } catch (error) {
+        console.error('Failed to initialize case:', error);
+        ElMessage.error('初始化失败');
+        reject(error); // Reject promise on error
+      }
+    });
   };
 
   const fetchCalculationStatus = async () => {
     try {
-      const response = await axios.get(
-        `/api/cases/${caseId.value}/calculation-status`
-      );
+      const response = await axios.get(`/api/cases/${caseId.value}/calculation-status`);
       calculationStatus.value = response.data.calculationStatus;
       hasFetchedCalculationStatus.value = true;
       return true;
@@ -115,10 +113,8 @@ export const useCaseStore = defineStore('caseStore', () => {
 
   const submitParameters = async () => {
     try {
-      const response = await axios.post(
-        `/api/cases/${caseId.value}/parameters`,
-        parameters.value
-      );
+      isSubmittingParameters.value = true;
+      const response = await axios.post(`/api/cases/${caseId.value}/parameters`, parameters.value);
       if (response.data.success) {
         ElMessage.success('参数保存成功');
         infoExists.value = false;
@@ -129,22 +125,15 @@ export const useCaseStore = defineStore('caseStore', () => {
       console.error('Error submitting parameters:', error);
       ElMessage.error(error.message || '参数提交失败');
       throw error;
+    } finally {
+      isSubmittingParameters.value = false;
     }
   };
 
   const generateInfoJson = async () => {
-    console.log('generateInfoJson called in caseStore!');
     try {
-      const payload = {
-        parameters: parameters.value,
-        windTurbines: windTurbines.value,
-      };
-      const response = await axios.post(
-        `/api/cases/${caseId.value}/info`,
-        payload
-      );
-      console.log('Case ID:', caseId.value);
-
+      const payload = { parameters: parameters.value, windTurbines: windTurbines.value };
+      const response = await axios.post(`/api/cases/${caseId.value}/info`, payload);
       if (response.data.success) {
         ElMessage.success('info.json 生成成功');
         infoExists.value = true;
@@ -160,11 +149,7 @@ export const useCaseStore = defineStore('caseStore', () => {
 
   const downloadInfoJson = async () => {
     try {
-      const response = await axios.get(
-        `/api/cases/${caseId.value}/info-download`,
-        { responseType: 'blob' }
-      );
-
+      const response = await axios.get(`/api/cases/${caseId.value}/info-download`, { responseType: 'blob' });
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
@@ -172,8 +157,7 @@ export const useCaseStore = defineStore('caseStore', () => {
       document.body.appendChild(link);
       link.click();
       link.remove();
-      window.URL.revokeObjectURL(url); // 释放内存
-
+      window.URL.revokeObjectURL(url);
       ElMessage.success('info.json 已下载');
     } catch (error) {
       console.error('Error downloading info.json:', error);
@@ -183,14 +167,9 @@ export const useCaseStore = defineStore('caseStore', () => {
 
   const addWindTurbine = async (turbine) => {
     try {
-      // 假设后端分配 ID
-      const response = await axios.post(
-        `/api/cases/${caseId.value}/wind-turbines`,
-        turbine
-      );
-  
+      const response = await axios.post(`/api/cases/${caseId.value}/wind-turbines`, turbine);
       if (response.data.success) {
-        windTurbines.value.push(response.data.turbine); // 添加返回的带有 ID 的风机
+        windTurbines.value.push(response.data.turbine);
         infoExists.value = false;
         ElMessage.success('风力涡轮机添加成功');
       } else {
@@ -202,23 +181,13 @@ export const useCaseStore = defineStore('caseStore', () => {
       throw error;
     }
   };
-  
+
   const addBulkWindTurbines = async (turbines) => {
     try {
-      if (!currentCaseId.value) {
-        throw new Error('No case ID available');
-      }
-
-      const response = await axios.post(
-        `/api/cases/${currentCaseId.value}/wind-turbines/bulk`,
-        turbines,
-        {
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
+      if (!currentCaseId.value) throw new Error('No case ID available');
+      const response = await axios.post(`/api/cases/${currentCaseId.value}/wind-turbines/bulk`, turbines, {
+        headers: { 'Content-Type': 'application/json' }
+      });
       if (response.data.success) {
         windTurbines.value.push(...response.data.turbines);
         infoExists.value = false;
@@ -237,7 +206,6 @@ export const useCaseStore = defineStore('caseStore', () => {
   const fetchWindTurbines = async () => {
     try {
       const response = await axios.get(`/api/cases/${caseId.value}/wind-turbines`);
-      
       if (response.data.success) {
         windTurbines.value = response.data.turbines;
       } else {
@@ -253,7 +221,6 @@ export const useCaseStore = defineStore('caseStore', () => {
   const deleteWindTurbine = async (turbineId) => {
     try {
       const response = await axios.delete(`/api/cases/${caseId.value}/wind-turbines/${turbineId}`);
-      
       if (response.data.success) {
         windTurbines.value = windTurbines.value.filter(t => t.id !== turbineId);
         ElMessage.success('风力涡轮机删除成功');
@@ -272,28 +239,16 @@ export const useCaseStore = defineStore('caseStore', () => {
     let index = -1;
     try {
       index = windTurbines.value.findIndex((t) => t.id === turbineId);
-      if (index === -1) {
-        throw new Error('风机未找到');
-      }
-
+      if (index === -1) throw new Error('风机未找到');
       removedTurbine = windTurbines.value[index];
       windTurbines.value.splice(index, 1);
       infoExists.value = false;
-
-      const response = await axios.post(
-        `/api/cases/${caseId.value}/wind-turbines`,
-        windTurbines.value
-      );
-
-      if (!response.data.success) {
-        throw new Error(response.data.message || '更新风机数据失败');
-      }
-
+      const response = await axios.post(`/api/cases/${caseId.value}/wind-turbines`, windTurbines.value);
+      if (!response.data.success) throw new Error(response.data.message || '更新风机数据失败');
       ElMessage.success('风力涡轮机删除成功');
     } catch (error) {
       console.error('Error removing wind turbine:', error);
       ElMessage.error('删除风机失败: ' + error.message);
-
       if (removedTurbine && index !== -1) {
         windTurbines.value.splice(index, 0, removedTurbine);
       }
@@ -304,7 +259,6 @@ export const useCaseStore = defineStore('caseStore', () => {
   const updateWindTurbine = async (updatedTurbine) => {
     try {
       const response = await axios.put(`/api/cases/${caseId.value}/wind-turbines/${updatedTurbine.id}`, updatedTurbine);
-      
       if (response.data.success) {
         const index = windTurbines.value.findIndex(t => t.id === updatedTurbine.id);
         if (index !== -1) {
@@ -326,48 +280,59 @@ export const useCaseStore = defineStore('caseStore', () => {
     calculationStatus.value = 'completed';
   };
 
+  // 保存持久化计算进度（同步 isCalculating、progress、tasks、outputs 字段）
   const saveCalculationProgress = async () => {
     if (!currentCaseId.value) {
       console.error('No case ID available');
       return;
     }
-
     try {
       const progressData = {
-        isCalculating: true,
+        isCalculating: overallProgress.value < 100,
         progress: overallProgress.value,
-        tasks: tasks.value,
+        tasks: tasks.value, // 以对象存储
         outputs: calculationOutputs.value,
+        timestamp: Date.now(),
+        completed: overallProgress.value === 100
       };
-
-      const response = await axios.post(
-        `/api/cases/${currentCaseId.value}/calculation-progress`,
-        progressData
-      );
-
+      const response = await axios.post(`/api/cases/${currentCaseId.value}/calculation-progress`, progressData);
       if (!response.data.success) {
         throw new Error(response.data.message || '保存失败');
       }
     } catch (error) {
-      console.error('\n 保存计算进度失败:', error);
+      console.error('\n保存计算进度失败:', error);
     }
   };
 
   const resetCalculationProgress = () => {
     overallProgress.value = 0;
     calculationOutputs.value = [];
-    tasks.value.forEach((task) => {
-      task.status = 'pending';
+    // 重置任务状态
+    const newTasks = {};
+    knownTasks.forEach(task => {
+      newTasks[task.id] = 'pending';
     });
+    tasks.value = newTasks;
   };
 
+  // 加载持久化计算进度，并根据 knownTasks 顺序组装任务数组
   const loadCalculationProgress = async () => {
     try {
-      const response = await axios.get(
-        `/api/cases/${caseId.value}/calculation-progress`
-      );
-      if (response.data.progress) {
-        return response.data.progress;
+      const response = await axios.get(`/api/cases/${caseId.value}/calculation-progress`);
+      if (response.data && response.data.progress) {
+        const prog = response.data.progress;
+        overallProgress.value = prog.progress || 0;
+        // prog.tasks 为对象格式，按照 knownTasks 顺序构造任务数组
+        const persistentTasks = {};
+        knownTasks.forEach(task => {
+          persistentTasks[task.id] = prog.tasks && prog.tasks[task.id] ? prog.tasks[task.id] : 'pending';
+        });
+        tasks.value = persistentTasks;
+        calculationOutputs.value = prog.outputs || [];
+        if (Boolean(prog.completed)) { // 修改处：更安全的布尔类型检查
+          calculationStatus.value = 'completed';
+        }
+        return prog;
       }
     } catch (error) {
       console.error('加载计算进度失败:', error);
@@ -380,21 +345,13 @@ export const useCaseStore = defineStore('caseStore', () => {
       const response = await axios.post(`/api/cases/${caseId.value}/calculate`);
       if (response.data.success) {
         calculationStatus.value = 'running';
-        calculationOutputs.value.push({
-          type: 'info',
-          message: 'Calculation started.',
-        });
+        calculationOutputs.value.push({ type: 'info', message: 'Calculation started.' });
       } else {
-        throw new Error(
-          response.data.message || 'Failed to start calculation.'
-        );
+        throw new Error(response.data.message || 'Failed to start calculation.');
       }
     } catch (error) {
       calculationStatus.value = 'error';
-      calculationOutputs.value.push({
-        type: 'error',
-        message: `Failed to start calculation: ${error.message}`,
-      });
+      calculationOutputs.value.push({ type: 'error', message: `Failed to start calculation: ${error.message}` });
     }
   };
 
@@ -405,47 +362,60 @@ export const useCaseStore = defineStore('caseStore', () => {
         reconnectionAttempts: 5,
         timeout: 10000,
       });
-
       caseId.value = id;
       socket.value.emit('joinCase', id);
-
       socket.value.on('calculationStarted', () => {
         calculationStatus.value = 'running';
-        calculationOutputs.value.push({
-          type: 'info',
-          message: 'Calculation started.',
-        });
+        calculationOutputs.value.push({ type: 'info', message: 'Calculation started.' });
       });
-
       socket.value.on('calculationProgress', (data) => {
-        calculationOutputs.value.push({
-          type: 'progress',
-          message: `Calculation progress: ${data.progress}%`,
-        });
+        overallProgress.value = data.progress;
+        if (data.taskId) {
+          tasks.value[data.taskId] = 'running';
+        }
+        calculationOutputs.value.push({ type: 'progress', message: `Calculation progress: ${data.progress}%` });
       });
-
       socket.value.on('calculationCompleted', () => {
         calculationStatus.value = 'completed';
-        calculationOutputs.value.push({
-          type: 'success',
-          message: 'Calculation completed successfully!',
-        });
+        overallProgress.value = 100;
+        calculationOutputs.value.push({ type: 'success', message: 'Calculation completed successfully!' });
       });
-
       socket.value.on('calculationError', (error) => {
         calculationStatus.value = 'error';
-        calculationOutputs.value.push({
-          type: 'error',
-          message: `Calculation error: ${error.message}`,
+        calculationOutputs.value.push({ type: 'error', message: `Calculation error: ${error.message}` });
+      });
+      socket.value.on('taskStarted', (taskId) => {
+        tasks.value[taskId] = 'running';
+      });
+      socket.value.on('taskUpdate', (taskStatuses) => {
+        Object.keys(tasks.value).forEach(taskId => {
+          if (taskStatuses[taskId]) {
+            tasks.value[taskId] = taskStatuses[taskId];
+          }
         });
       });
-      listenToSocketEvents();
+      socket.value.on('calculationOutput', (output) => {
+        calculationOutputs.value.push({ type: 'output', message: output });
+      });
     }
   };
 
   const disconnectSocket = () => {
     if (socket.value) {
+      socket.value.off('connect_error');
+      socket.value.off('connect_timeout');
+      socket.value.off('reconnect_error');
+      socket.value.off('reconnect_failed');
+      socket.value.off("calculationStarted");
+      socket.value.off("calculationProgress");
+      socket.value.off("calculationCompleted");
+      socket.value.off("calculationError");
+      socket.value.off("taskStarted");
+      socket.value.off("taskUpdate");
+      socket.value.off("calculationOutput");
+      socket.value.emit('leaveCase', caseId.value);
       socket.value.disconnect();
+      console.log("Socket disconnected and event listeners removed.");
       socket.value = null;
       calculationStatus.value = 'not_started';
       calculationOutputs.value = [];
@@ -457,92 +427,16 @@ export const useCaseStore = defineStore('caseStore', () => {
       console.error('Socket is not connected.');
       return;
     }
-    socket.value.on('connect_error', (error) => {
-      console.error('Socket connection error:', error);
-    });
-  
-    socket.value.on('connect_timeout', (timeout) => {
-      console.error('Socket connection timeout:', timeout);
-    });
-  
-    socket.value.on('reconnect_error', (error) => {
-      console.error('Socket reconnection error:', error);
-    });
-  
-    socket.value.on('reconnect_failed', () => {
-      console.error('Socket reconnection failed');
-    });
-    socket.value.on("calculationStarted", () => {
-        overallProgress.value = 0;
-        calculationStatus.value = "running";
-        calculationOutputs.value.push({
-          type: "info",
-          message: "Calculation started.",
-        });
-      });
-
-    socket.value.on("calculationProgress", (data) => {
-        overallProgress.value = data.progress;
-
-        if (data.taskId) {
-          const taskIndex = tasks.value.findIndex(
-            (task) => task.id === data.taskId
-          );
-          if (taskIndex !== -1) {
-            tasks.value[taskIndex].status = "running";
-          }
-        }
-    
-        calculationOutputs.value.push({
-          type: "progress",
-          message: `Calculation progress: ${data.progress}%`,
-        });
-      });
-
-      socket.value.on("calculationCompleted", () => {
-        calculationStatus.value = "completed";
-        overallProgress.value = 100;
-        calculationOutputs.value.push({
-          type: "success",
-          message: "Calculation completed successfully!",
-        });
-      });
-
-      socket.value.on("calculationError", (error) => {
-        calculationStatus.value = "error";
-        calculationOutputs.value.push({
-          type: "error",
-          message: `Calculation error: ${error.message}`,
-        });
-      });
-        socket.value.on("taskStarted", (taskId) => {
-            const taskIndex = tasks.value.findIndex(
-            (task) => task.id === taskId
-            );
-            if (taskIndex !== -1) {
-            tasks.value[taskIndex].status = "running";
-            }
-        });
-        socket.value.on("taskUpdate", (taskStatuses) => {
-            tasks.value.forEach((task) => {
-              if (taskStatuses[task.id]) {
-                task.status = taskStatuses[task.id];
-              }
-            });
-        });
-        socket.value.on("calculationOutput", (output) => {
-            calculationOutputs.value.push({ type: "output", message: output });
-        });
-          
+    socket.value.on('connect_error', error => console.error('Socket connection error:', error));
+    socket.value.on('connect_timeout', timeout => console.error('Socket connection timeout:', timeout));
+    socket.value.on('reconnect_error', error => console.error('Socket reconnection error:', error));
+    socket.value.on('reconnect_failed', () => console.error('Socket reconnection failed'));
   };
 
   const saveCurrentState = async () => {
     if (!currentCaseId.value) return;
-    
     try {
-      await axios.post(`/api/cases/${currentCaseId.value}/state`, {
-        windTurbines: windTurbines.value
-      });
+      await axios.post(`/api/cases/${currentCaseId.value}/state`, { windTurbines: windTurbines.value });
     } catch (error) {
       console.error('Failed to save state:', error);
     }
@@ -550,7 +444,6 @@ export const useCaseStore = defineStore('caseStore', () => {
 
   const loadSavedState = async () => {
     if (!currentCaseId.value) return;
-    
     try {
       const response = await axios.get(`/api/cases/${currentCaseId.value}/state`);
       if (response.data.windTurbines) {
@@ -577,6 +470,7 @@ export const useCaseStore = defineStore('caseStore', () => {
     hasFetchedCalculationStatus,
     socket,
     startTime,
+    isSubmittingParameters,
     setResults,
     initializeCase,
     fetchCalculationStatus,

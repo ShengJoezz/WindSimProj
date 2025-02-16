@@ -1,20 +1,21 @@
 # @Author: joe 847304926@qq.com
-# @Date: 2025-01-19 16:02:00
+# @Date: 2025-01-19 20:17:24
 # @LastEditors: joe 847304926@qq.com
-# @LastEditTime: 2025-01-19 20:17:18
+# @LastEditTime: 2025-02-16 16:17:18
 # @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\backend\utils\process_vtk.py
 # @Description: 
 # 
 # Copyright (c) 2025 by joe, All Rights Reserved.
 
 #!/usr/bin/env python3
-
 import pyvista as pv
 import json
 import os
 import sys
 from pathlib import Path
 import traceback
+import numpy as np
+np.bool = np.bool_
 
 def convert_multiblock_to_polydata(input_path, output_dir):
     try:
@@ -32,9 +33,11 @@ def convert_multiblock_to_polydata(input_path, output_dir):
         
         output_files = []
         metadata = {"blocks": []}
-        
+        # candidate 用于后续计算流线，即我们选取网格数据作为流场的候选
+        candidate = None
+
         if isinstance(data, pv.MultiBlock):
-            # 处理整体网格
+            # 处理整体网格，假设第一个 block 为底面，其余 block 合并为网格
             mesh_block = None
             bottom_surface = None
             
@@ -44,36 +47,33 @@ def convert_multiblock_to_polydata(input_path, output_dir):
                     if not isinstance(block, pv.PolyData):
                         block = block.extract_geometry()
                     
-                    # 识别底面
-                    if i == 0:  # 假设第一个block是底面
+                    # 假设第一个 block 是底面
+                    if i == 0:
                         bottom_surface = block
                         output_filename = "bot.vtp"
+                        output_path = os.path.join(output_dir, output_filename)
+                        bottom_surface.save(output_path)
+                        metadata["blocks"].append({
+                            "filename": output_filename,
+                            "type": "bottom",
+                            "n_points": bottom_surface.n_points,
+                            "n_cells": bottom_surface.n_cells,
+                            "bounds": list(bottom_surface.bounds)
+                        })
                     else:
-                        # 其他block合并为整体网格
+                        # 合并后续 block 作为网格
                         if mesh_block is None:
                             mesh_block = block
                         else:
                             mesh_block = mesh_block.merge(block)
-            
-            # 保存底面
-            if bottom_surface is not None:
-                output_path = os.path.join(output_dir, "bot.vtp")
-                bottom_surface.save(output_path)
-                metadata["blocks"].append({
-                    "filename": "bot.vtp",
-                    "type": "bottom",
-                    "n_points": bottom_surface.n_points,
-                    "n_cells": bottom_surface.n_cells,
-                    "bounds": list(bottom_surface.bounds)
-                })
-            
-            # 保存整体网格
+            candidate = mesh_block
             if mesh_block is not None:
-                output_path = os.path.join(output_dir, "mesh.vtp")
+                output_filename = "mesh.vtp"
+                output_path = os.path.join(output_dir, output_filename)
                 mesh_block.save(output_path)
                 metadata["blocks"].append({
-                    "filename": "mesh.vtp",
-                    "type": "mesh", 
+                    "filename": output_filename,
+                    "type": "mesh",
                     "n_points": mesh_block.n_points,
                     "n_cells": mesh_block.n_cells,
                     "bounds": list(mesh_block.bounds)
@@ -89,21 +89,15 @@ def convert_multiblock_to_polydata(input_path, output_dir):
             print("Saving to:", output_path)
             data.save(output_path)
             
-            scalar_fields = []
-            try:
-                scalar_fields = list(data.array_names)
-            except AttributeError:
-                print("Warning: Could not get array names for single dataset")
-            
             metadata["blocks"].append({
                 "index": 0,
                 "filename": output_filename,
                 "n_points": data.n_points,
                 "n_cells": data.n_cells,
                 "bounds": list(data.bounds),
-                "scalar_fields": scalar_fields
+                "scalar_fields": list(data.array_names) if hasattr(data, "array_names") else []
             })
-            output_files.append(output_path)
+            candidate = data
         
         metadata_path = os.path.join(output_dir, "metadata.json")
         print("Saving metadata to:", metadata_path)

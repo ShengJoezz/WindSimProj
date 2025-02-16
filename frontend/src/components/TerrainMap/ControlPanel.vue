@@ -2,13 +2,13 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2024-12-30 10:58:27
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-18 18:47:32
- * @FilePath: \WindSimProj\frontend\src\components\TerrainMap\ControlPanel.vue
- * @Description: 
- * 
- * Copyright (c) 2025 by ${git_name_email}, All Rights Reserved. 
--->
-<template>
+ * @LastEditTime: 2025-02-15 15:17:44
+ * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\components\Dashboard.vue
+ * @Description:
+ *
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+ -->
+ <template>
   <el-drawer
     v-model="localVisible"
     direction="ltr"
@@ -36,7 +36,6 @@
                     @click="$emit('reset-camera')"
                     icon="el-icon-refresh"
                     aria-label="重置视角"
-                      :disabled="bladeRotation === undefined || rotationSpeed === undefined"
                   >
                     重置视角
                   </el-button>

@@ -2,10 +2,10 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2024-11-04 11:32:52
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-10 17:51:46
+ * @LastEditTime: 2025-02-15 15:24:12
  * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\backend\routes\windTurbines.js
- * @Description: 
- * 
+ * @Description:
+ *
  * Copyright (c) 2025 by joe, All Rights Reserved.
  */
 
@@ -16,7 +16,7 @@ const fs = require('fs')
 const router = express.Router()
 
 const upload = multer({
-  dest: path.join(__dirname, '../uploads/'),
+  dest: path.join(__dirname, '../uploads/temp'),
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname)
     if (ext !== '.csv' && ext !== '.txt') {
@@ -38,13 +38,15 @@ router.post('/upload', upload.single('file'), async (req, res) => {
         const data = await fs.promises.readFile(newPath, 'utf-8');
     const lines = data.split('\n')
     const windTurbines = lines.map(line => {
-      const [longitude, latitude, towerHeight, rotorDiameter, model] = line.split(',')
+      // 修改解析代码，使用 name, longitude, latitude, hubHeight, rotorDiameter, model 字段顺序
+      const [name, longitude, latitude, hubHeight, rotorDiameter, model] = line.split(',');
       return {
+        name: name.trim(), // 添加 name 字段
         longitude: parseFloat(longitude),
         latitude: parseFloat(latitude),
-        towerHeight: parseFloat(towerHeight),
+        hubHeight: parseFloat(hubHeight), // 使用 hubHeight 替代 towerHeight
         rotorDiameter: parseFloat(rotorDiameter),
-        model: model.trim()
+        model: model ? model.trim() : '' // 添加 model 字段并处理可选情况
       }
     }).filter(turbine => !isNaN(turbine.longitude)) // 过滤无效数据
 

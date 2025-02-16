@@ -1,14 +1,17 @@
 /*
  * @Author: joe 847304926@qq.com
- * @Date: 2025-01-12 16:15:38
+ * @Date: 2025-01-12 18:08:34
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-12 18:08:34
+ * @LastEditTime: 2025-02-15 15:33:49
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\backend\middleware\errorHandler.js
  * @Description: 
  * 
  * Copyright (c) 2025 by joe, All Rights Reserved.
  */
+
 // backend/middleware/errorHandler.js
+const multer = require('multer'); // <--- 添加这行导入 multer
+
 const errorHandler = (err, req, res, next) => {
   console.error(err.stack);
 

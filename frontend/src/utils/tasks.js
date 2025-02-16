@@ -2,10 +2,10 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2024-12-30 10:58:27
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-10 17:41:54
+ * @LastEditTime: 2025-02-15 18:04:57
  * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\utils\tasks.js
- * @Description: 
- * 
+ * @Description: 定义前端计算各阶段任务
+ *
  * Copyright (c) 2025 by joe, All Rights Reserved.
  */
 export const knownTasks = [
@@ -23,5 +23,5 @@ export const knownTasks = [
     { id: 'run_admfoam', name: '运行计算' },
     { id: 'post_process', name: '后处理' },
     { id: 'execute_post_script', name: '执行后处理脚本' },
-     { id: 'computation_end', name: '计算完成' },
-];
+    { id: 'computation_end', name: '计算完成' },
+  ];

@@ -2,29 +2,22 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-01-10 16:12:45
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-12 21:52:31
+ * @LastEditTime: 2025-02-15 15:21:08
  * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\TerrainMap.vue
- * @Description: 
- * 
+ * @Description:
+ *
  * Copyright (c) 2025 by joe, All Rights Reserved.
  -->
 
  <template>
   <div class="map-wrapper">
     <!-- Terrain Rendering Area -->
-    <div 
-      class="terrain-renderer" 
+    <div
+      class="terrain-renderer"
       ref="terrainContainer"
-      :style="{
-        border: '1px solid red', // Debug border
-        height: '100%',
-        width: '100%'
-      }"
+      style="height: 100%; width: 100%"
     >
-      <!-- Add debug info -->
-      <div v-if="!hasRendererInitialized" class="debug-overlay">
-        Waiting for renderer initialization...
-      </div>
+      <!-- 移除 debug overlay -->
     </div>
 
     <div v-if="!hasGeoTIFF" class="terrain-loading">
@@ -347,7 +340,7 @@ const addWindTurbineToScene = (turbine) => {
 
   const { x, z } = mapLatLonToXZ(turbine.latitude, turbine.longitude);
   const terrainHeight = getTerrainHeight(x, z);
-  
+
   if (terrainHeight !== null) {
     turbineGroup.position.set(x, terrainHeight, z);
     scene.add(turbineGroup);
@@ -410,30 +403,30 @@ const getTerrainHeight = (x, z) => {
   const raycaster = new THREE.Raycaster();
   const origin = new THREE.Vector3(x, 1000, z);
   const direction = new THREE.Vector3(0, -1, 0);
-  
+
   raycaster.set(origin, direction);
   const intersects = raycaster.intersectObject(terrainMesh);
-  
+
   if (intersects.length > 0) {
     return intersects[0].point.y;
   }
-  
+
   // Fallback: try nearest point if no direct intersection
   const vertices = terrainMesh.geometry.attributes.position.array;
   let closestHeight = null;
   let minDistance = Infinity;
-  
+
   for (let i = 0; i < vertices.length; i += 3) {
     const vx = vertices[i];
     const vz = vertices[i + 2];
     const distance = Math.sqrt((x - vx) ** 2 + (z - vz) ** 2);
-    
+
     if (distance < minDistance) {
       minDistance = distance;
       closestHeight = vertices[i + 1];
     }
   }
-  
+
   return closestHeight;
 };
 
@@ -621,7 +614,7 @@ const onMouseMove = (event) => {
   mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
   raycaster.setFromCamera(mouse, camera);
-  
+
   const turbineObjects = Array.from(turbineMeshes.value.values());
   const intersects = raycaster.intersectObjects(turbineObjects, true);
 
@@ -662,8 +655,8 @@ const initThreeJS = () => {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0xf0f0f0);
 
-  // Add axes helper for debugging
-    addAxesHelper()
+  // 移除坐标轴辅助
+  // addAxesHelper()
 
   // Initialize camera with debug info
   camera = new THREE.PerspectiveCamera(45, width / height, 1, 10000);
@@ -722,42 +715,30 @@ const initThreeJS = () => {
   window.addEventListener("resize", onWindowResize, false);
 };
 
-// 添加坐标轴辅助
-const addAxesHelper = () => {
-    const axesHelper = new THREE.AxesHelper(500);
-      const materials = axesHelper.material;
-  
-  if (Array.isArray(materials)) {
-    materials.forEach(material => {
-      material.linewidth = 2;
-      material.opacity = 0.7;
-      material.transparent = true;
-    });
-  }
-  
-  scene.add(axesHelper);
-};
+// 添加坐标轴辅助 (删除 - 不需要了)
+// const addAxesHelper = () => {
+//     const axesHelper = new THREE.AxesHelper(500);
+//       const materials = axesHelper.material;
+
+//  if (Array.isArray(materials)) {
+//     materials.forEach(material => {
+//       material.linewidth = 2;
+//       material.opacity = 0.7;
+//       material.transparent = true;
+//     });
+//   }
+
+//  scene.add(axesHelper);
+// };
 
 // 动画循环
 let frameCount = 0;
 const animate = () => {
   frameCount++;
-  if (frameCount % 60 === 0) { // Log every 60 frames
-    console.log('Animation frame:', frameCount);
-    console.log('Active turbines:', turbineMeshes.value.size);
-  }
 
   animationFrameId = requestAnimationFrame(animate);
   TWEEN.update();
   controls.update();
-
-  // Debug turbine positions
-  turbineMeshes.value.forEach((turbine, id) => {
-    if (frameCount % 60 === 0) {
-      console.log(`Turbine ${id} position:`, turbine.position);
-    }
-  });
-
   renderer.render(scene, camera);
    // 叶片旋转
   if (bladeRotation.value) {
@@ -834,7 +815,7 @@ const loadAndDisplayTurbines = async () => {
   try {
     // Load turbines from store/backend
     await caseStore.fetchWindTurbines();
-    
+
     // Clear existing turbines
     turbineMeshes.value.forEach(mesh => {
       scene.remove(mesh);
@@ -861,7 +842,7 @@ onMounted(async () => {
         const { caseId, caseName } = route.params;
          console.log('Route params:', { caseId, caseName });
         await caseStore.initializeCase(caseId, caseName);
-      
+
        initThreeJS();
        animate();
 
@@ -917,7 +898,7 @@ watch(() => hoveredTurbine.value, (newTurbine, oldTurbine) => {
       });
     }
   }
-  
+
   if (newTurbine) {
     const newMesh = turbineMeshes.value.get(newTurbine.id);
     if (newMesh) {
@@ -940,7 +921,7 @@ watch(
       scene.remove(turbine);
     });
     turbineMeshes.value.clear();
-    
+
     // Add all turbines
     newTurbines.forEach((turbine) => {
       addWindTurbineToScene(turbine);
