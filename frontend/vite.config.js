@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-01-12 21:45:48
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-12 22:27:29
+ * @LastEditTime: 2025-02-16 21:57:09
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\vite.config.js
  * @Description:
  *
@@ -57,6 +57,10 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      '/uploads': {
+target: 'http://localhost:5000',
+changeOrigin: true,
+},
       '/api': {
         target: 'http://localhost:5000',
         changeOrigin: true,

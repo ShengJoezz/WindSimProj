@@ -395,8 +395,6 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
               io.to(caseId).emit("calculationOutput", msg.message); // Handle 'info' action as before
             }
           } catch (e) {
-            console.error("JSON parse error:", e, "line:", line);
-            // Fallback: Treat as plain text output and emit as 'calculationOutput'
             io.to(caseId).emit("calculationOutput", line); // Emit the line as plain text
           }
         } else {
@@ -802,6 +800,36 @@ router.post('/:caseId/process-vtk', async (req, res) => {
   } catch (error) {
     console.error('Error processing VTK file:', error);
     res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 新增接口：获取特定工况的速度场 vtp 文件列表
+ * 目录位置：uploads/{caseId}/run/postProcessing/Data
+ * 仅返回文件名中包含 'U_field' 且后缀为 .vtp 的文件
+ */
+router.get('/:caseId/list-velocity-files', async (req, res) => {
+  const { caseId } = req.params;
+  const dataPath = path.join(__dirname, '../uploads', caseId, 'run', 'postProcessing', 'Data');
+  try {
+    if (!fs.existsSync(dataPath)) {
+      return res.status(404).json({
+        success: false,
+        message: '目录不存在',
+        path: dataPath
+      });
+    }
+    const files = await fsPromises.readdir(dataPath);
+    // 过滤出包含 U_field 且后缀为 .vtp 的文件（可根据实际情况调整过滤规则）
+    const velocityFiles = files.filter(file => file.endsWith('.vtp'));
+    res.json({ success: true, files: velocityFiles });
+  } catch (error) {
+    console.error('Error reading velocity files:', error);
+    res.status(500).json({
+      success: false,
+      message: '读取速度场文件失败',
+      details: error.message
+    });
   }
 });
 

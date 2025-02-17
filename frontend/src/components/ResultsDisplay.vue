@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-01-18 20:59:25
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-19 21:47:16
+ * @LastEditTime: 2025-02-16 21:40:35
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\ResultsDisplay.vue
  * @Description:
  * 
@@ -11,17 +11,19 @@
 
 <template>
   <div class="case-viewer">
+    <VelocityFieldDisplay v-if="caseStore.currentCaseId" :caseId="caseStore.currentCaseId" />
     <!-- Pass caseId instead of vtk-file-url -->
-    <VTKViewer 
+    <!--<VTKViewer 
       v-if="caseStore.currentCaseId" 
       :caseId="caseStore.currentCaseId"
       :key="caseStore.currentCaseId"
-    />
+    />-->
   </div>
 </template>
 
 <script setup>
 import VTKViewer from '@/components/VTKViewer.vue';
+import VelocityFieldDisplay from '@/components/VelocityFieldDisplay.vue';
 import { useCaseStore } from '@/store/caseStore';
 import { watch } from 'vue';
 
