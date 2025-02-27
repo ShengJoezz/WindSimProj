@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2024-12-30 10:58:27
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-02-15 18:03:30
+ * @LastEditTime: 2025-02-23 17:26:50
  * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\components\ParameterSettings.vue
  * @Description: 
  * 
@@ -289,14 +289,14 @@
   prop="postProcessing.layerSpacing"
   :inline="true"
   >
-  <el-input-number
+ <el-input-number
   v-model="caseStore.parameters.postProcessing.layerSpacing"
   :min="0"
   style="width: 120px;"
   :disabled="caseStore.infoExists"
   />
   </el-form-item>
-  <el-form-item
+   <!--<el-form-item
   label="各层数据宽度 (m)"
   prop="postProcessing.layerDataWidth"
   :inline="true"
@@ -319,7 +319,7 @@
   style="width: 120px;"
   :disabled="caseStore.infoExists"
   />
-  </el-form-item>
+  </el-form-item>-->
   </el-form-item>
   
   <!-- 添加中心经纬度展示（只读） -->

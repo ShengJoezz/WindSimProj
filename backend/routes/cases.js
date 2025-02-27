@@ -547,7 +547,7 @@ router.post('/:caseId/info', async (req, res) => {
         wakeB: parameters.grid.downstreamWidth,
         scale: parameters.grid.scale,
       },
-      simulation: { core: parameters.simulation.cores, step_count: parameters.simulation.steps },
+      simulation: { core: parameters.simulation.cores, step_count: parameters.simulation.steps, deltaT: parameters.simulation.deltaT },
       post: {
         numh: parameters.postProcessing.resultLayers,
         dh: parameters.postProcessing.layerSpacing,
@@ -830,6 +830,41 @@ router.get('/:caseId/list-velocity-files', async (req, res) => {
       message: '读取速度场文件失败',
       details: error.message
     });
+  }
+});
+
+// 列出当前工况 Output 目录下的指定三个文件
+router.get('/:caseId/list-output-files', async (req, res) => {
+  const { caseId } = req.params;
+  const outputPath = path.join(__dirname, '../uploads', caseId, 'run', 'Output');
+  try {
+    if (!fs.existsSync(outputPath)) {
+      return res.status(404).json({ success: false, message: 'Output目录不存在', path: outputPath });
+    }
+    const files = await fsPromises.readdir(outputPath);
+    const validFiles = files.filter(file =>
+      ['Output02-realHigh', 'Output04-U-P-Ct-fn(INIT)', 'Output06-U-P-Ct-fn(ADJUST)'].includes(file)
+    );
+    res.json({ success: true, files: validFiles, baseDirectory: outputPath });
+  } catch (error) {
+    console.error('Error listing Output files:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 读取指定文件内容
+router.get('/:caseId/output-file/:fileName', async (req, res) => {
+  const { caseId, fileName } = req.params;
+  const outputPath = path.join(__dirname, '../uploads', caseId, 'run', 'Output', fileName);
+  try {
+    if (!fs.existsSync(outputPath)) {
+      return res.status(404).json({ success: false, message: 'Output文件不存在', path: outputPath });
+    }
+    const content = await fsPromises.readFile(outputPath, 'utf-8');
+    res.json({ success: true, content });
+  } catch (error) {
+    console.error('Error reading output file:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 

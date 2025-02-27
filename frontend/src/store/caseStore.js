@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2024-12-30 10:58:27
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-02-15 19:08:18
+ * @LastEditTime: 2025-02-23 17:24:16
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\store\caseStore.js
  * @Description: Pinia 状态管理，包含工况初始化、参数管理、计算状态和持久化同步
  *

@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-01-10 17:16:53
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-19 21:44:42
+ * @LastEditTime: 2025-02-27 11:16:47
  * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\router\index.js
  * @Description: 
  * 
@@ -53,6 +53,11 @@ const routes = [
         path: "results",
         name: "ResultsDisplay",
         component: () => import("../components/ResultsDisplay.vue"),
+      },
+      {
+        path: "wind-management",
+        name: "WindManagement",
+        component: () => import("../components/WindTurbineManagement.vue"),
       },
     ],
   },

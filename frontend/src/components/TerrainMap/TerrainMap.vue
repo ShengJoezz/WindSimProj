@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-01-10 16:12:45
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-02-15 15:21:08
+ * @LastEditTime: 2025-02-19 19:57:16
  * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\TerrainMap.vue
  * @Description:
  *
@@ -276,67 +276,110 @@ const confirmDeleteTurbine = (turbine) => {
     .catch(() => {});
 };
 
-// 添加风机到 Three.js 场景
+// 添加风机到 Three.js 场景  
 const addWindTurbineToScene = (turbine) => {
   if (turbineMeshes.value.has(turbine.id)) return;
 
   const turbineGroup = new THREE.Group();
   turbineGroup.userData.turbineId = turbine.id;
 
-  // Enhanced tower geometry
+  // 改进的塔架几何体
   const towerGeometry = new THREE.CylinderGeometry(
-    2.5, 3.5, turbine.hubHeight,
-    16, 4, true
+    3, // 顶部半径稍小
+    4.5, // 底部半径稍大 
+    turbine.hubHeight,
+    32, // 更多分段,更圆滑
+    8,  // 更多高度分段
+    true
   );
-  const towerMaterial = new THREE.MeshPhongMaterial({
-    color: 0xfafafa,
+  
+  // 使用 MeshPhysicalMaterial 获得更真实的金属外观
+  const towerMaterial = new THREE.MeshPhysicalMaterial({
+    color: 0xeeeeee,
+    metalness: 0.8,
     roughness: 0.3,
-    metalness: 0.7,
-    flatShading: false
+    clearcoat: 0.3,
+    clearcoatRoughness: 0.25
   });
+
   const tower = new THREE.Mesh(towerGeometry, towerMaterial);
   tower.position.y = turbine.hubHeight / 2;
   turbineGroup.add(tower);
 
-  // Enhanced nacelle
-  const nacelleGeometry = new THREE.BoxGeometry(8, 4, 5);
-  const nacelleMaterial = new THREE.MeshPhongMaterial({
-    color: 0xe0e0e0,
-    roughness: 0.2,
-    metalness: 0.8
+  // 改进的机舱设计
+  const nacelleGroup = new THREE.Group();
+  nacelleGroup.position.y = turbine.hubHeight;
+
+  // 主机舱体
+  const nacelleGeometry = new THREE.BoxGeometry(12, 5, 7);
+  const nacelleMaterial = new THREE.MeshPhysicalMaterial({
+    color: 0xdddddd,
+    metalness: 0.9,
+    roughness: 0.4,
+    clearcoat: 0.4
   });
   const nacelle = new THREE.Mesh(nacelleGeometry, nacelleMaterial);
-  nacelle.position.y = turbine.hubHeight;
-  turbineGroup.add(nacelle);
+  nacelleGroup.add(nacelle);
 
-  // Enhanced blades
+  // 机舱顶部装饰
+  const topGeometry = new THREE.CylinderGeometry(1.5, 2, 2, 8);
+  const top = new THREE.Mesh(topGeometry, nacelleMaterial);
+  top.position.y = 3;
+  nacelleGroup.add(top);
+
+  turbineGroup.add(nacelleGroup);
+
+  // 改进的叶片设计
   const bladeShape = new THREE.Shape();
   bladeShape.moveTo(0, 0);
-  bladeShape.bezierCurveTo(2, 0, 4, turbine.rotorDiameter/4, 2, turbine.rotorDiameter/2);
-  bladeShape.bezierCurveTo(1, turbine.rotorDiameter/2, -1, turbine.rotorDiameter/4, 0, 0);
+  // 使用贝塞尔曲线创建更真实的叶片形状
+  bladeShape.bezierCurveTo(
+    2, 0,
+    4, turbine.rotorDiameter/4,
+    3, turbine.rotorDiameter/2
+  );
+  bladeShape.bezierCurveTo(
+    2.5, turbine.rotorDiameter/2 + 2,
+    -1, turbine.rotorDiameter/4 + 1,
+    0, 0
+  );
 
   const extrudeSettings = {
     steps: 1,
-    depth: 0.5,
+    depth: 1,
     bevelEnabled: true,
-    bevelThickness: 0.2,
-    bevelSize: 0.1,
-    bevelSegments: 3
+    bevelThickness: 0.3,
+    bevelSize: 0.2,
+    bevelSegments: 5
   };
 
   const bladeGeometry = new THREE.ExtrudeGeometry(bladeShape, extrudeSettings);
-  const bladeMaterial = new THREE.MeshPhongMaterial({
+  const bladeMaterial = new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
-    roughness: 0.3,
-    metalness: 0.4
+    metalness: 0.2,
+    roughness: 0.5,
+    clearcoat: 0.3
   });
 
+  // 创建叶片组
+  const bladesGroup = new THREE.Group();
+  bladesGroup.position.set(0, turbine.hubHeight, 0);
+
+  // 添加3个叶片
   for (let i = 0; i < 3; i++) {
     const blade = new THREE.Mesh(bladeGeometry, bladeMaterial);
-    blade.position.set(0, turbine.hubHeight, 0);
     blade.rotation.z = (i * Math.PI * 2) / 3;
-    turbineGroup.add(blade);
+    // 稍微倾斜叶片
+    blade.rotation.x = 0.12;
+    bladesGroup.add(blade);
   }
+
+  // 添加轮毂
+  const hubGeometry = new THREE.SphereGeometry(2, 32, 32);
+  const hub = new THREE.Mesh(hubGeometry, nacelleMaterial);
+  bladesGroup.add(hub);
+
+  turbineGroup.add(bladesGroup);
 
   const { x, z } = mapLatLonToXZ(turbine.latitude, turbine.longitude);
   const terrainHeight = getTerrainHeight(x, z);
@@ -347,6 +390,7 @@ const addWindTurbineToScene = (turbine) => {
     turbineMeshes.value.set(turbine.id, turbineGroup);
   }
 };
+
 // 从场景中删除风机
 const deleteWindTurbineFromScene = (turbineId) => {
   const turbineGroup = turbineMeshes.value.get(turbineId);
