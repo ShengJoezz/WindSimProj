@@ -1,3 +1,14 @@
+<!--
+ * @Author: joe 847304926@qq.com
+ * @Date: 2025-03-16 19:08:49
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-03-16 19:10:22
+ * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\views\Home.vue
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+-->
+
 <template>
   <div class="home-container">
     <div class="banner" ref="banner">
@@ -44,7 +55,8 @@
 
 .home-container {
   min-height: 100vh;
-  background-color: #f0f4f8;
+  background-color: #f5f7fa;
+  font-family: 'Segoe UI', 'PingFang SC', '微软雅黑', sans-serif;
 }
 
 .banner {
@@ -56,24 +68,30 @@
   justify-content: center;
   color: #ffffff;
   text-align: center;
-    background: linear-gradient(135deg, #213462 0%, #101E41 100%);
+  background: linear-gradient(135deg, #213462 0%, #102040 100%);
   overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 .logo-container {
-    position: relative;
-    z-index: 10;
-    margin-bottom: 20px;
-      margin-top: -20px; /* 向上移动 logo */
+  position: relative;
+  z-index: 10;
+  margin-bottom: 20px;
+  margin-top: -20px;
+  animation: fadeIn 1.2s ease-out;
 }
 
 .logo {
-    width: 200px; /* 调整 logo 大小 */
-    height: auto;
-    z-index: 2;
-     filter: drop-shadow(0 0 10px rgba(0, 0, 0, 0.3)); /* 为logo添加阴影 */
+  width: 200px;
+  height: auto;
+  z-index: 2;
+  filter: drop-shadow(0 0 8px rgba(0, 0, 0, 0.3));
+  transition: transform 0.3s ease;
 }
 
+.logo:hover {
+  transform: scale(1.02);
+}
 
 .wave-container {
   position: absolute;
@@ -117,6 +135,11 @@
   50% { transform: translateY(5px); }
 }
 
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 #particles-js {
   position: absolute;
   width: 100%;
@@ -131,39 +154,41 @@
   flex-direction: column;
   align-items: center;
   z-index: 1;
+  margin-bottom: 10px;
 }
+
 .title {
   font-size: 3.5rem;
   font-weight: 600;
   margin-bottom: 1rem;
-    background: linear-gradient(45deg, #ffffff, #e6f3ff);
+  background: linear-gradient(45deg, #ffffff, #e6f0ff);
   -webkit-background-clip: text;
-    background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
-   text-shadow: 0 0 10px rgba(255,255,255,0.15);
-      position: relative;
+  text-shadow: 0 0 10px rgba(255,255,255,0.15);
+  position: relative;
   display: inline-block;
+  letter-spacing: 0.5px;
 }
+
 .title::after {
   content: attr(data-text);
   position: absolute;
   left: 0;
   top: 0;
-    color: rgba(255,255,255,0.8);
-    text-shadow: 0 0 5px rgba(255,255,255,0.15),
-                0 0 10px rgba(255,255,255,0.15),
-                0 0 15px rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.8);
+  text-shadow: 0 0 5px rgba(255,255,255,0.15),
+              0 0 10px rgba(255,255,255,0.15);
   z-index: -1;
-    filter: blur(3px);
+  filter: blur(3px);
 }
-
 
 .subtitle {
   font-size: 1.8rem;
   font-weight: 500;
   color: rgba(255, 255, 255, 0.9);
-    margin-bottom: 2rem;
-     opacity: 0;
+  margin-bottom: 2rem;
+  opacity: 0;
   animation: fadeInUp 1s ease forwards;
   animation-delay: 0.5s;
 }
@@ -175,10 +200,11 @@
   margin: 0 auto;
   color: rgba(255, 255, 255, 0.9);
   padding: 0 2rem;
-       opacity: 0;
+  opacity: 0;
   animation: fadeInUp 1s ease forwards;
   animation-delay: 1s;
 }
+
 @keyframes fadeInUp {
   from {
     opacity: 0;
@@ -191,8 +217,8 @@
 }
 
 .content-section {
-  padding: 4rem 0;
-  background: #f0f4f8;
+  padding: 5rem 0;
+  background: #f5f7fa;
 }
 
 .intro-section {
@@ -200,56 +226,55 @@
   margin: 0 auto;
   padding: 0 2rem;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 2rem;
 }
 
 .intro-card {
-    background: white;
-    border-radius: 16px;
-    padding: 2.5rem 2rem;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
-    transition: all 0.3s ease;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    position: relative;
-    overflow: hidden;
-      opacity: 0;
+  background: white;
+  border-radius: 12px;
+  padding: 2.5rem 2rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  opacity: 0;
   animation: fadeInUp 1s ease forwards;
+  border: 1px solid rgba(230, 235, 245, 0.7);
 }
 
 .intro-card:nth-child(1) { animation-delay: 0.3s; }
 .intro-card:nth-child(2) { animation-delay: 0.6s; }
 .intro-card:nth-child(3) { animation-delay: 0.9s; }
 
-
 .intro-card:hover {
   transform: translateY(-10px);
-  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
 }
-
 
 .intro-icon-wrapper {
   width: 80px;
   height: 80px;
-  background: linear-gradient(135deg, #1e3c72, #2a5298);
+  background: linear-gradient(135deg, #213462, #304b7a);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   margin-bottom: 1.5rem;
-   transition: transform 0.3s ease;
-    animation: float 3s ease-in-out infinite;
+  transition: transform 0.3s ease;
+  animation: float 3s ease-in-out infinite;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
 }
 
 @keyframes float {
   0% { transform: translateY(0px); }
-  50% { transform: translateY(-10px); }
+  50% { transform: translateY(-8px); }
   100% { transform: translateY(0px); }
 }
-
 
 .intro-icon-wrapper i {
   font-size: 2rem;
@@ -257,10 +282,24 @@
 }
 
 .intro-title {
-  color: #1e3c72;
+  color: #213462;
   font-size: 1.5rem;
   font-weight: 600;
   margin-bottom: 1rem;
+  position: relative;
+  padding-bottom: 0.5rem;
+}
+
+.intro-title::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 30px;
+  height: 2px;
+  background: #213462;
+  border-radius: 2px;
 }
 
 .intro-text {
@@ -270,34 +309,41 @@
 }
 
 .scroll-down {
-    position: absolute;
-    bottom: 30px;
-    left: 50%;
-    transform: translateX(-50%);
-    cursor: pointer;
-    z-index: 2;
-    animation: bounce 2s infinite;
+  position: absolute;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  cursor: pointer;
+  z-index: 2;
+  animation: bounce 2s infinite;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+}
+
+.scroll-down:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .scroll-down i {
-    font-size: 30px;
-    color: white;
+  font-size: 20px;
+  color: white;
 }
 
 @keyframes bounce {
-    0%,
-    20%,
-    50%,
-    80%,
-    100% {
-        transform: translateY(0);
-    }
-    40% {
-        transform: translateY(-10px);
-    }
-    60% {
-        transform: translateY(-5px);
-    }
+  0%, 20%, 50%, 80%, 100% {
+    transform: translateX(-50%) translateY(0);
+  }
+  40% {
+    transform: translateX(-50%) translateY(-10px);
+  }
+  60% {
+    transform: translateX(-50%) translateY(-5px);
+  }
 }
 
 html {
@@ -322,24 +368,56 @@ html {
 .intro-card:hover::after {
   opacity: 1;
 }
+
 @media (max-width: 768px) {
   .banner {
     height: 100vh;
   }
-    .title {
-        font-size: 2.5rem;
-    }
+  
+  .title {
+    font-size: 2.5rem;
+  }
 
-    .subtitle {
-        font-size: 1.5rem;
-    }
-    .description {
-        font-size: 14px;
-         padding: 0 1rem;
+  .subtitle {
+    font-size: 1.5rem;
+  }
+  
+  .description {
+    font-size: 1.1rem;
+    padding: 0 1.5rem;
   }
 
   .intro-section {
     grid-template-columns: 1fr;
+    gap: 2rem;
+    padding: 0 1.5rem;
+  }
+  
+  .intro-card {
+    padding: 2rem 1.5rem;
+  }
+  
+  .logo {
+    width: 180px;
+  }
+  
+  .content-section {
+    padding: 4rem 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .title {
+    font-size: 2.2rem;
+  }
+  
+  .subtitle {
+    font-size: 1.3rem;
+  }
+  
+  .description {
+    font-size: 1rem;
+    padding: 0 1rem;
   }
 }
 </style>
@@ -348,6 +426,7 @@ html {
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import TerrainMap from '../components/TerrainMap/TerrainMap.vue';
+
 
 const route = useRoute();
 const caseId = computed(() => route.params.caseId || null);

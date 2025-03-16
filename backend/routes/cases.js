@@ -21,6 +21,7 @@ const checkCalculationStatus = require("../middleware/statusCheck");
 const rateLimit = require('express-rate-limit');
 const { knownTasks } =require('../utils/tasks');
 const windTurbinesRouter = require('./windTurbines');
+const archiver = require('archiver');
 
 // 辅助函数
 const calculateXY = (lon, lat, centerLon, centerLat) => {
@@ -865,6 +866,83 @@ router.get('/:caseId/output-file/:fileName', async (req, res) => {
   } catch (error) {
     console.error('Error reading output file:', error);
     res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 导出所有速度场文件为ZIP
+router.get('/:caseId/export-velocity-layers', async (req, res) => {
+  const { caseId } = req.params;
+  const dataPath = path.join(__dirname, '../uploads', caseId, 'run', 'postProcessing', 'Data');
+  
+  if (!fs.existsSync(dataPath)) {
+    return res.status(404).json({ success: false, message: '数据目录不存在' });
+  }
+  
+  try {
+    // 获取所有VTP文件
+    const files = fs.readdirSync(dataPath).filter(file => file.endsWith('.vtp'));
+    
+    if (files.length === 0) {
+      return res.status(404).json({ success: false, message: '未找到VTP文件' });
+    }
+    
+    // 设置响应头
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename=${caseId}_velocity_layers.zip`);
+    
+    // 创建ZIP归档
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.pipe(res);
+    
+    // 添加所有文件到ZIP
+    for (const file of files) {
+      const filePath = path.join(dataPath, file);
+      archive.file(filePath, { name: `${file}` });
+    }
+    
+    // 完成ZIP并发送
+    await archive.finalize();
+  } catch (error) {
+    console.error('创建ZIP文件失败:', error);
+    // 如果响应头尚未发送，返回错误
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, message: '创建ZIP文件失败', error: error.message });
+    }
+  }
+});
+
+// 获取完整风机性能数据（用于PDF报告）
+router.get('/:caseId/turbine-performance-data', async (req, res) => {
+  const { caseId } = req.params;
+  try {
+    // 获取风机位置数据
+    const realHighPath = path.join(__dirname, `../uploads/${caseId}/run/Output/Output02-realHigh`);
+    // 获取初始性能数据
+    const initPerfPath = path.join(__dirname, `../uploads/${caseId}/run/Output/Output04-U-P-Ct-fn(INIT)`);
+    // 获取调整后性能数据
+    const adjPerfPath = path.join(__dirname, `../uploads/${caseId}/run/Output/Output06-U-P-Ct-fn(ADJUST)`);
+    
+    // 检查文件是否存在
+    if (!fs.existsSync(realHighPath) || !fs.existsSync(initPerfPath) || !fs.existsSync(adjPerfPath)) {
+      return res.status(404).json({ success: false, message: '风机性能数据文件不存在' });
+    }
+    
+    // 读取文件内容
+    const realHighContent = await fsPromises.readFile(realHighPath, 'utf-8');
+    const initPerfContent = await fsPromises.readFile(initPerfPath, 'utf-8');
+    const adjPerfContent = await fsPromises.readFile(adjPerfPath, 'utf-8');
+    
+    res.json({
+      success: true,
+      data: {
+        realHigh: realHighContent,
+        initPerf: initPerfContent,
+        adjPerf: adjPerfContent
+      }
+    });
+  } catch (error) {
+    console.error('获取风机性能数据失败:', error);
+    res.status(500).json({ success: false, message: '获取风机性能数据失败', error: error.message });
   }
 });
 

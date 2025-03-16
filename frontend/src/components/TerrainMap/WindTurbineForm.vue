@@ -1,14 +1,16 @@
 <!--
  * @Author: joe 847304926@qq.com
- * @Date: 2025-01-10 17:39:11
+ * @Date: 2025-01-12 20:11:08
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-12 20:11:08
- * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\WindTurbineForm.vue
+ * @LastEditTime: 2025-03-16 19:02:11
+ * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\WindTurbineForm.vue
  * @Description: 
  * 
  * Copyright (c) 2025 by joe, All Rights Reserved.
- -->
- <template>
+-->
+
+<!-- WindTurbineForm.vue -->
+<template>
   <el-form
     :model="turbineForm"
     :rules="turbineRules"
@@ -168,7 +170,7 @@ const submitForm = () => {
       const newTurbine = { ...turbineForm.value, id: generateUUID() };
       emit("add-turbine", newTurbine);
       ElMessage.success("风机添加成功");
-      turbineFormRef.value.resetFields();
+      turbineFormRef.value.resetFields(); // 添加表单重置
     } else {
       ElMessage.warning("请正确填写所有必填项");
     }
@@ -179,20 +181,65 @@ const submitForm = () => {
 
 <style scoped>
 .turbine-form {
-  padding: 10px 20px 20px 20px;
+  padding: 16px 20px 24px 20px;
+}
+
+.stylish-input {
+  border-radius: 8px;
+  transition: all 0.3s ease;
+}
+
+.stylish-input:focus {
+  box-shadow: 0 0 0 3px rgba(64, 158, 255, 0.1);
+}
+
+:deep(.el-form-item__label) {
+  font-weight: 500;
+  color: #606266;
+  font-size: 14px;
+  padding-bottom: 4px;
 }
 
 .submit-button {
   width: 100%;
-  height: 40px;
-  background-color: #409eff; /* 主蓝色 */
+  height: 44px;
+  background-color: #409eff;
   border-color: #409eff;
   color: white;
-  transition: background-color 0.3s, border-color 0.3s;
+  transition: all 0.3s ease;
+  border-radius: 8px;
+  font-weight: 500;
+  font-size: 15px;
+  box-shadow: 0 4px 12px rgba(64, 158, 255, 0.25);
+  margin-top: 8px;
 }
 
-.submit-button:hover {
-  background-color: #66b1ff; /* 悬停时稍深的蓝色 */
+.submit-button:hover:not(:disabled) {
+  background-color: #66b1ff;
   border-color: #66b1ff;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(64, 158, 255, 0.35);
+}
+
+.submit-button:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.2);
+}
+
+.submit-button:disabled {
+  background-color: #a0cfff;
+  border-color: #a0cfff;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: not-allowed;
+}
+
+:deep(.el-input__inner) {
+  height: 40px;
+  border-radius: 8px;
+}
+
+:deep(.el-form-item.is-error .el-input__inner) {
+  border-color: #F56C6C;
+  box-shadow: 0 0 0 2px rgba(245, 108, 108, 0.1);
 }
 </style>

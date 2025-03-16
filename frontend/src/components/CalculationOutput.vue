@@ -1,125 +1,147 @@
 <!--
  * @Author: joe 847304926@qq.com
- * @Date: 2025-02-15 16:32:45
+ * @Date: 2025-03-16 17:27:19
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-02-15 18:54:50
+ * @LastEditTime: 2025-03-16 17:35:55
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\CalculationOutput.vue
  * @Description:
- *   计算输出组件：
- *    - 顶部按钮根据 store.calculationStatus 显示“开始计算”、“计算中…”或“计算完成”，
- *      当状态为 "running" 或 "completed" 时禁用按钮，新建工况（"not_started"）时允许点击。
- *    - 任务列表按照 knownTasks 顺序展示，每个任务根据状态显示不同图标：
- *         pending：显示一个占位标签 (<span>),
- *         running：显示 Loading 图标（旋转效果）,
- *         completed：显示 Check 图标 (打勾),
- *         error：显示 Close 图标.
- *    - 终端输出区域实时显示后端 run.sh 传回的输出文本（通过 socket 推送）。
- *
- * 注意：所有对 store.calculationStatus 的更新都使用 .value 操作，
- *       同时 getIconComponent 返回的不是字符串，而是引入的图标组件对象或合法的 HTML 标签名称。
  *
  * Copyright (c) 2025 by joe, All Rights Reserved.
 -->
+
 <template>
   <div class="calculation-output-container">
-    <h2>计算输出</h2>
-    <!-- 顶部按钮：仅当状态为 not_started 时可点击 -->
-    <el-button
-      type="primary"
-      @click="startComputation"
-      :disabled="buttonDisabled"
-      class="start-button"
-    >
-      <template v-if="store.calculationStatus === 'running'">
-        <el-icon><Loading /></el-icon> 计算中...
-      </template>
-      <span v-else-if="store.calculationStatus === 'completed'">计算完成</span>
-      <span v-else>开始计算</span>
-    </el-button>
+    <div class="calculation-header">
+      <h2>计算输出</h2>
+      <!-- 顶部按钮：仅当状态为 not_started 时可点击 -->
+      <el-button
+        type="primary"
+        @click="startComputation"
+        :disabled="buttonDisabled"
+        class="start-button"
+        :class="{'pulse-button': getCalculationStatus() === 'not_started'}"
+      >
+        <template v-if="getCalculationStatus() === 'running'">
+          <el-icon class="rotating-icon"><Loading /></el-icon> 计算中...
+        </template>
+        <span v-else-if="getCalculationStatus() === 'completed'">
+          <el-icon><Check /></el-icon> 计算完成
+        </span>
+        <span v-else>
+          <el-icon><i class="el-icon-play"></i></el-icon> 开始计算
+        </span>
+      </el-button>
+    </div>
 
     <!-- 计算完成提示 -->
-    <div v-if="store.calculationStatus === 'completed'" class="calculation-complete-message">
-      <el-alert title="计算已完成。无需重新计算。" type="success" show-icon />
+    <div v-if="getCalculationStatus() === 'completed'" class="calculation-complete-message">
+      <el-alert title="计算已完成。无需重新计算。" type="success" show-icon :closable="false" />
     </div>
 
-    <!-- 任务列表区域 -->
-    <div v-if="store.calculationStatus !== 'not_started'" class="task-list-section">
-      <h3>执行步骤</h3>
-      <ul class="task-list">
-        <li
-          v-for="task in tasks"
-          :key="task.id"
-          class="task-item"
-          :class="{
-            'task-completed': task.status === 'completed',
-            'task-error': task.status === 'error',
-            'task-running': task.status === 'running'
-          }"
+    <div class="flex-layout" v-if="getCalculationStatus() !== 'not_started'">
+      <!-- 任务列表和终端输出并排显示 -->
+      <div class="side-by-side-container">
+        <!-- 任务列表区域 -->
+        <div class="task-list-section">
+          <h3><i class="fas fa-tasks"></i> 执行步骤</h3>
+          <ul class="task-list">
+            <li
+              v-for="task in tasks"
+              :key="task.id"
+              class="task-item"
+              :class="{
+                'task-completed': task.status === 'completed',
+                'task-error': task.status === 'error',
+                'task-running': task.status === 'running',
+                'task-pending': task.status === 'pending'
+              }"
+            >
+              <div class="task-icon">
+                <el-icon :color="getIconColor(task.status)">
+                  <component :is="getIconComponent(task.status)" :class="{'rotating-icon': task.status === 'running'}" />
+                </el-icon>
+              </div>
+              <span class="task-name">{{ task.name }}</span>
+            </li>
+          </ul>
+        </div>
+
+        <!-- 终端输出区域 - 放在右侧 -->
+        <div class="openfoam-output">
+          <h3><i class="fas fa-terminal"></i> 终端输出</h3>
+          <div class="terminal-header">
+            <div class="terminal-dots">
+              <span class="dot red"></span>
+              <span class="dot yellow"></span>
+              <span class="dot green"></span>
+            </div>
+            <div class="terminal-title">OpenFOAM 输出</div>
+          </div>
+          <el-scrollbar ref="outputScrollbar" height="500px" class="terminal-content">
+            <pre class="output-content">{{ openfoamOutput }}</pre>
+          </el-scrollbar>
+        </div>
+      </div>
+
+      <!-- 进度条区域 - 放在下方 -->
+      <div class="progress-section">
+        <h3><i class="fas fa-chart-line"></i> 计算进度</h3>
+        <el-progress
+          :percentage="overallProgress"
+          :status="progressStatus()"
+          :stroke-width="15"
+          :text-inside="true"
+          striped
+          :striped-flow="getCalculationStatus() === 'running'"
+          class="enhanced-progress"
+          role="progressbar"
+          :aria-valuenow="overallProgress"
+          aria-valuemin="0"
+          aria-valuemax="100"
         >
-          <el-icon :color="getIconColor(task.status)">
-            <!-- 修改处：返回图标组件对象或 HTML 标签 -->
-            <component :is="getIconComponent(task.status)" class="icon" />
-          </el-icon>
-          <span class="task-name">{{ task.name }}</span>
-        </li>
-      </ul>
-    </div>
+          <template #format>
+            <span class="progress-text">{{ overallProgress }}%</span>
+          </template>
+        </el-progress>
+        <div class="eta-display" v-if="showEta()">
+          <el-tag type="info" size="small">
+            <i class="far fa-clock"></i> 预计剩余时间: {{ eta }} 秒
+          </el-tag>
+        </div>
+      </div>
 
-    <!-- 进度条区域 -->
-    <div v-if="store.calculationStatus !== 'not_started'" class="progress-section">
-      <el-progress
-        :percentage="overallProgress"
-        :status="progressStatus()"
-        :stroke-width="20"
-        :text-inside="true"
-        striped
-        :striped-flow="store.calculationStatus === 'running'"
-        class="enhanced-progress"
-        role="progressbar"
-        :aria-valuenow="overallProgress"
-        aria-valuemin="0"
-        aria-valuemax="100"
-      >
-        <template #format>
-          <span class="progress-text">{{ overallProgress }}%</span>
-        </template>
-      </el-progress>
-      <div class="eta-display" v-if="showEta()">
-        预计剩余时间: {{ eta }} 秒
+      <!-- 提示信息和按钮保持不变 -->
+      <div v-if="computationMessage" :class="['message-display', messageClass()]" role="alert">
+        <i class="fas" :class="messageIconClass()"></i> {{ computationMessage }}
+      </div>
+
+      <div class="actions">
+        <el-button
+          v-if="getCalculationStatus() === 'completed'"
+          type="success"
+          @click="viewResults"
+          class="view-results-button"
+        >
+          <i class="fas fa-chart-bar"></i> 查看结果
+        </el-button>
+        <el-button
+          type="warning"
+          @click="resetComputation"
+          class="reset-button"
+        >
+          <i class="fas fa-redo"></i> 重置
+        </el-button>
       </div>
     </div>
 
-    <!-- 终端输出区域 -->
-    <div class="openfoam-output" v-if="store.calculationStatus !== 'not_started'">
-      <h3>终端输出</h3>
-      <el-scrollbar ref="outputScrollbar" height="300px">
-        <pre class="output-content">{{ openfoamOutput }}</pre>
-      </el-scrollbar>
-    </div>
-
-    <!-- 提示信息 -->
-    <div v-if="computationMessage" :class="messageClass()" class="message-display" role="alert">
-      {{ computationMessage }}
-    </div>
-
-    <!-- 操作按钮 -->
-    <div class="actions" v-if="store.calculationStatus !== 'not_started'">
-      <el-button
-        v-if="store.calculationStatus === 'completed'"
-        type="success"
-        @click="viewResults"
-        class="view-results-button"
-      >
-        查看结果
-      </el-button>
-      <el-button
-        v-if="store.calculationStatus !== 'not_started'"
-        type="warning"
-        @click="resetComputation"
-        class="reset-button"
-      >
-        重置
-      </el-button>
+    <!-- 未开始计算时的空状态 -->
+    <div v-if="getCalculationStatus() === 'not_started'" class="empty-state">
+      <div class="empty-state-icon">
+        <i class="fas fa-wind fa-3x"></i>
+      </div>
+      <div class="empty-state-text">
+        点击"开始计算"按钮启动风场模拟计算过程
+      </div>
     </div>
   </div>
 </template>
@@ -138,11 +160,19 @@ const router = useRouter();
 const store = useCaseStore();
 const caseId = route.params.caseId;
 
+// 使用安全访问方法获取计算状态
+const getCalculationStatus = () => {
+  if (store && typeof store.calculationStatus !== 'undefined') {
+    return store.calculationStatus;
+  }
+  return 'not_started'; // 默认值
+};
 
 // computed 属性：按钮禁用，当状态为 "running" 或 "completed" 时禁用
-const buttonDisabled = computed(() =>
-  store.calculationStatus === 'running' || store.calculationStatus === 'completed'
-);
+const buttonDisabled = computed(() => {
+  const status = getCalculationStatus();
+  return status === 'running' || status === 'completed';
+});
 
 // 状态变量
 const overallProgress = ref(0);
@@ -178,13 +208,25 @@ const progressStatus = () => {
 };
 
 const messageClass = () => {
-  if (store.calculationStatus === 'running')
+  const status = getCalculationStatus();
+  if (status === 'running')
     return 'info-message';
-  if (store.calculationStatus === 'completed')
+  if (status === 'completed')
     return 'success-message';
-  if (store.calculationStatus === 'error')
+  if (status === 'error')
     return 'error-message';
   return '';
+};
+
+const messageIconClass = () => {
+  const status = getCalculationStatus();
+  if (status === 'running')
+    return 'fa-info-circle';
+  if (status === 'completed')
+    return 'fa-check-circle';
+  if (status === 'error')
+    return 'fa-exclamation-circle';
+  return 'fa-info-circle';
 };
 
 const showEta = () => overallProgress.value >= 5 && eta.value !== null;
@@ -199,103 +241,135 @@ const calculateETA = () => {
 };
 
 onMounted(async () => {
-  await store.initializeCase(caseId);
-  store.connectSocket(caseId);
-  store.listenToSocketEvents();
-
-  // 加载持久化进度
-  const savedProgress = await store.loadCalculationProgress();
-  if (savedProgress) {
-    overallProgress.value = savedProgress.progress || 0;
-    if (savedProgress.tasks) {
-      tasks.value = knownTasks.map(task => ({
-        id: task.id,
-        name: task.name,
-        status: savedProgress.tasks[task.id] || 'pending'
-      }));
-    }
-    if (savedProgress.outputs) {
-      openfoamOutput.value = savedProgress.outputs.join("\n");
-    }
-    if (savedProgress.completed) {
-      store.calculationStatus = 'completed';
-      overallProgress.value = 100;
-    }
-  }
-
-  // 加载已有输出
+  // 确保store初始化完成
   try {
-    const resp = await axios.get(`/api/cases/${caseId}/openfoam-output`);
-    if (resp.data.output) {
-      openfoamOutput.value = resp.data.output;
+    await store.initializeCase(caseId);
+    store.connectSocket(caseId);
+    store.listenToSocketEvents();
+
+    // 加载持久化进度
+    const savedProgress = await store.loadCalculationProgress();
+    if (savedProgress) {
+      overallProgress.value = savedProgress.progress || 0;
+      if (savedProgress.tasks) {
+        tasks.value = knownTasks.map(task => ({
+          id: task.id,
+          name: task.name,
+          status: savedProgress.tasks[task.id] || 'pending'
+        }));
+      }
+      if (savedProgress.outputs) {
+        openfoamOutput.value = savedProgress.outputs.join("\n");
+      }
+      if (savedProgress.completed) {
+        if (store && typeof store.calculationStatus !== 'undefined') {
+          store.calculationStatus = 'completed';
+        }
+        overallProgress.value = 100;
+      }
+    }
+
+    // 加载已有输出
+    try {
+      const resp = await axios.get(`/api/cases/${caseId}/openfoam-output`);
+      if (resp.data.output) {
+        openfoamOutput.value = resp.data.output;
+      }
+    } catch (error) {
+      console.error("加载终端输出失败:", error);
+    }
+
+    watch(() => overallProgress.value, () => {
+      calculateETA();
+    });
+
+    // 监听 socket 事件
+    if (store.socket) {
+      store.socket.on('calculationOutput', (output) => {
+        openfoamOutput.value += output + "\n";
+        nextTick(() => {
+          if (outputScrollbar.value && outputScrollbar.value.wrap) {
+            outputScrollbar.value.wrap.scrollTop = outputScrollbar.value.wrap.scrollHeight;
+          }
+        });
+      });
+
+      store.socket.on('taskUpdate', (taskStatuses) => {
+        tasks.value = knownTasks.map(task => ({
+          id: task.id,
+          name: task.name,
+          status: taskStatuses[task.id] || 'pending'
+        }));
+      });
+
+      store.socket.on('calculationProgress', (data) => {
+        overallProgress.value = data.progress;
+      });
+
+      store.socket.on('calculationCompleted', () => {
+        if (store && typeof store.calculationStatus !== 'undefined') {
+          store.calculationStatus = 'completed';
+        }
+        overallProgress.value = 100;
+        openfoamOutput.value += "\n计算完成";
+        ElMessage.success("计算完成");
+      });
+
+      store.socket.on('calculationError', (error) => {
+        if (store && typeof store.calculationStatus !== 'undefined') {
+          store.calculationStatus = 'error';
+        }
+        openfoamOutput.value += "\n计算错误: " + (error.message || "未知错误");
+        computationMessage.value = error.message || "计算错误";
+        ElMessage.error(computationMessage.value);
+      });
     }
   } catch (error) {
-    console.error("加载终端输出失败:", error);
-  }
-
-  watch(() => overallProgress.value, () => {
-    calculateETA();
-  });
-
-  // 监听 socket 事件
-  if (store.socket) {
-    store.socket.on('calculationOutput', (output) => {
-      openfoamOutput.value += output + "\n";
-      nextTick(() => {
-        if (outputScrollbar.value && outputScrollbar.value.wrap) {
-          outputScrollbar.value.wrap.scrollTop = outputScrollbar.value.wrap.scrollHeight;
-        }
-      });
-    });
-    store.socket.on('taskUpdate', (taskStatuses) => {
-      tasks.value = knownTasks.map(task => ({
-        id: task.id,
-        name: task.name,
-        status: taskStatuses[task.id] || 'pending'
-      }));
-    });
-    store.socket.on('calculationProgress', (data) => {
-      overallProgress.value = data.progress;
-    });
-    store.socket.on('calculationCompleted', () => {
-      store.calculationStatus = 'completed';
-      overallProgress.value = 100;
-      openfoamOutput.value += "\n计算完成";
-      ElMessage.success("计算完成");
-    });
-    store.socket.on('calculationError', (error) => {
-      store.calculationStatus = 'error';
-      openfoamOutput.value += "\n计算错误: " + (error.message || "未知错误");
-      computationMessage.value = error.message || "计算错误";
-      ElMessage.error(computationMessage.value);
-    });
+    console.error("初始化计算组件失败:", error);
+    ElMessage.error("初始化计算组件失败");
   }
 });
 
 const startComputation = async () => {
-  if (store.calculationStatus === 'running' || store.calculationStatus === 'completed') {
+  const status = getCalculationStatus();
+  if (status === 'running' || status === 'completed') {
     ElMessage.warning("计算正在进行中或已完成，不允许重复点击");
     return;
   }
-  console.log("Before setting to 'running', store.calculationStatus:", store.calculationStatus);
-  console.log("Type of store.calculationStatus:", typeof store.calculationStatus);
+
   try {
-    store.calculationStatus = 'running';
+    if (store && typeof store.calculationStatus !== 'undefined') {
+      store.calculationStatus = 'running';
+    }
     overallProgress.value = 0;
     computationMessage.value = '';
     openfoamOutput.value = '';
     tasks.value = knownTasks.map(task => ({ ...task, status: 'pending' }));
-    store.startTime = Date.now();
+
+    if (store) {
+      store.startTime = Date.now();
+    }
+
     eta.value = null;
-    await store.saveCalculationProgress();
-    await store.fetchCalculationStatus();
+
+    if (store && typeof store.saveCalculationProgress === 'function') {
+      await store.saveCalculationProgress();
+    }
+
+    if (store && typeof store.fetchCalculationStatus === 'function') {
+      await store.fetchCalculationStatus();
+    }
+
     const response = await axios.post(`/api/cases/${caseId}/calculate`);
     if (!response.data.success) {
       throw new Error(response.data.message || '启动计算失败');
     }
+
     ElMessage.success("计算已启动");
   } catch (error) {
-    store.calculationStatus = 'not_started';
+    if (store && typeof store.calculationStatus !== 'undefined') {
+      store.calculationStatus = 'not_started';
+    }
     computationMessage.value = error.response?.data?.message || error.message || '计算启动失败';
     openfoamOutput.value += "\n启动失败: " + computationMessage.value;
     ElMessage.error(computationMessage.value);
@@ -309,13 +383,21 @@ const viewResults = () => {
 const resetComputation = async () => {
   try {
     await axios.delete(`/api/cases/${caseId}/calculation-progress`);
-    store.calculationStatus = 'not_started';
+
+    if (store && typeof store.calculationStatus !== 'undefined') {
+      store.calculationStatus = 'not_started';
+    }
+
     overallProgress.value = 0;
     computationMessage.value = '';
     openfoamOutput.value = '';
     eta.value = null;
     tasks.value = knownTasks.map(task => ({ ...task, status: 'pending' }));
-    store.resetCalculationProgress();
+
+    if (store && typeof store.resetCalculationProgress === 'function') {
+      store.resetCalculationProgress();
+    }
+
     ElMessage.success("计算已重置");
   } catch (error) {
     ElMessage.error("重置计算失败");
@@ -324,140 +406,385 @@ const resetComputation = async () => {
 };
 
 onBeforeUnmount(() => {
-  store.disconnectSocket();
+  if (store && typeof store.disconnectSocket === 'function') {
+    store.disconnectSocket();
+  }
 });
 </script>
 
 <style scoped>
 .calculation-output-container {
-  padding: 20px;
+  padding: 1.5rem;
   background-color: #fff;
-  border-radius: 10px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
+
+.calculation-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid #f0f2f5;
+  padding-bottom: 0.8rem;
+}
+
 h2 {
-  color: #409eff;
-  margin-bottom: 20px;
-  text-align: center;
-}
-.start-button,
-.view-results-button,
-.reset-button {
-  width: 150px;
-  margin: 10px auto;
-  display: block;
-}
-.calculation-complete-message {
-  margin-top: 20px;
-}
-.task-list-section {
-  margin-top: 20px;
-  margin-top: 20px;
-}
-.task-list {
-  list-style: none;
-  padding: 0;
+  color: #2c3e50;
   margin: 0;
+  font-weight: 600;
+  font-size: 1.5rem;
+  display: flex;
+  align-items: center;
 }
+
+h2::before {
+  content: '';
+  display: inline-block;
+  width: 3px;
+  height: 16px;
+  background: linear-gradient(to bottom, #409eff, #67c23a);
+  margin-right: 8px;
+  border-radius: 2px;
+}
+
+h3 {
+  color: #606266;
+  font-size: 1rem;
+  margin-top: 0;
+  margin-bottom: 0.8rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+}
+
+h3 i {
+  margin-right: 0.5rem;
+  color: #409eff;
+  font-size: 0.9rem;
+}
+
+.flex-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  height: 100%;
+}
+
+/* 修改相关的样式 */
+.side-by-side-container {
+  display: flex;
+  gap: 1rem;
+  height: 600px; /* 大幅度增加 side-by-side-container 的高度 */
+  margin-bottom: 1rem;
+}
+
+.task-list-section {
+  flex: 0.7; /* 执行步骤区域宽度进一步增加到 70% */
+  min-width: 0;
+  background-color: #f9fafc;
+  border-radius: 6px;
+  padding: 0.8rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* 确保内容超出时不溢出容器 */
+}
+
+.task-list {
+  flex: 1;
+  padding: 0; /* 移除滚动相关属性 */
+  margin: 0;
+  list-style: none;
+  border-radius: 6px;
+  background: white;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.openfoam-output {
+  flex: 0.3; /* 终端输出区域宽度减少到 30% */
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.terminal-content {
+  flex: 1;
+}
+
+.progress-section {
+  background-color: #f9fafc;
+  border-radius: 6px;
+  padding: 0.8rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 768px) {
+  .side-by-side-container {
+    flex-direction: column;
+    height: auto; /* 响应式布局下高度自动 */
+  }
+
+  .task-list-section,
+  .openfoam-output {
+    flex: none;
+    height: auto; /* 移动端高度也自动，根据内容调整 */
+  }
+
+  .task-list {
+    max-height: 200px; /* 移动端任务列表可以考虑加回最大高度和滚动 */
+    overflow-y: auto;
+  }
+}
+
+.start-button {
+  height: 36px;
+  border-radius: 18px;
+  font-weight: 500;
+  min-width: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(to right, #409eff, #36d1dc);
+  border: none;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.start-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(64, 158, 255, 0.3);
+}
+
+.calculation-complete-message {
+  margin-bottom: 1rem;
+}
+
+
 .task-item {
   display: flex;
   align-items: center;
-  padding: 8px;
-  border-bottom: 1px solid #eee;
-  transition: background-color 0.3s;
+  padding: 0.5rem 0.8rem;
+  border-bottom: 1px solid #f5f5f5;
+  transition: background-color 0.2s;
+  font-size: 0.9rem;
 }
+
 .task-item:last-child {
   border-bottom: none;
 }
-.task-name {
-  margin-left: 8px;
-  flex-grow: 1;
+
+.task-icon {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
-.icon {
+
+.task-name {
+  margin-left: 0.8rem;
+  flex-grow: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #333; /* 加重字体颜色 */
+}
+
+.rotating-icon {
   animation: rotating 2s linear infinite;
 }
+
 @keyframes rotating {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
 .task-completed {
   background-color: #f0fff4;
-  border-left: 4px solid #34d399;
+  border-left: 3px solid #67c23a;
 }
+
 .task-error {
   background-color: #fff0f0;
-  border-left: 4px solid #f56c6c;
+  border-left: 3px solid #f56c6c;
 }
+
 .task-running {
-  background-color: #f0f5ff;
-  border-left: 4px solid #409EFF;
-  padding-left: 12px;
-  font-weight: bold;
+  background-color: #f0f8ff;
+  border-left: 3px solid #409eff;
+  font-weight: 500;
 }
-.progress-section {
-  margin-top: 30px;
-  text-align: center;
+
+.task-pending {
+  border-left: 3px solid transparent;
+  opacity: 0.7;
 }
+
 .enhanced-progress {
-  width: 80%;
-  margin: 0 auto;
-  border-radius: 10px;
+  width: 100%;
+  margin: 0.5rem 0;
+  border-radius: 12px;
   overflow: hidden;
-  box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
 }
+
 .progress-text {
   font-weight: bold;
-  color: #409eff;
+  font-size: 0.8rem;
 }
+
 .eta-display {
-  margin-top: 10px;
-  font-size: 14px;
-  color: #666;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
 }
+
 .openfoam-output {
-  margin-top: 20px;
-  padding: 10px;
-  background: #1e1e1e;
-  color: #fff;
-  border-radius: 4px;
+  flex: 1;
+  min-height: 250px;
+  display: flex;
+  flex-direction: column;
 }
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  background-color: #343a40;
+  padding: 0.3rem 0.8rem;
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+}
+
+.terminal-dots {
+  display: flex;
+  gap: 4px;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.red { background-color: #ff6058; }
+.yellow { background-color: #ffbd2e; }
+.green { background-color: #27c93f; }
+
+.terminal-title {
+  color: #fff;
+  font-size: 0.75rem;
+  margin-left: auto;
+  opacity: 0.8;
+}
+
+.terminal-content {
+  background-color: #1e1e1e;
+  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 6px;
+  flex: 1;
+}
+
 .output-content {
-  font-family: monospace;
+  font-family: 'Consolas', 'Courier New', monospace;
   white-space: pre-wrap;
   word-wrap: break-word;
   margin: 0;
-  padding: 10px;
+  padding: 0.8rem;
+  color: #eaeaea;
+  line-height: 1.4;
+  font-size: 0.85rem;
 }
+
 .message-display {
-  margin-top: 20px;
+  padding: 0.8rem;
+  border-radius: 6px;
+  font-size: 0.95rem;
   text-align: center;
-  font-size: 16px;
 }
+
 .success-message {
+  background-color: #f0fff4;
   color: #67c23a;
+  border-left: 3px solid #67c23a;
 }
+
 .error-message {
+  background-color: #fff0f0;
   color: #f56c6c;
+  border-left: 3px solid #f56c6c;
 }
+
 .info-message {
+  background-color: #f4f4f5;
   color: #909399;
+  border-left: 3px solid #909399;
 }
+
 .actions {
-  margin-top: 20px;
-  text-align: center;
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 0.5rem;
 }
-@media (max-width: 600px) {
-  .calculation-output-container {
-    padding: 10px;
+
+.view-results-button {
+  background: linear-gradient(to right, #67c23a, #95d475);
+  border: none;
+  color: white;
+  border-radius: 18px;
+  padding: 0.6rem 1.2rem;
+}
+
+.reset-button {
+  background: linear-gradient(to right, #e6a23c, #f8c36d);
+  border: none;
+  color: white;
+  border-radius: 18px;
+  padding: 0.6rem 1.2rem;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+  color: #909399;
+  background-color: #f9fafc;
+  border-radius: 6px;
+  flex: 1;
+}
+
+.empty-state-icon {
+  margin-bottom: 1rem;
+  color: #c0c4cc;
+}
+
+.empty-state-text {
+  font-size: 0.95rem;
+  text-align: center;
+  max-width: 250px;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .side-by-side-container {
+    flex-direction: column;
+    height: auto; /* 响应式布局下高度自动 */
   }
-  .task-item {
-    font-size: 0.9em;
+
+  .task-list-section,
+  .openfoam-output {
+    flex: none;
+    height: auto; /* 移动端高度也自动，根据内容调整 */
   }
-  .start-button,
-  .view-results-button,
-  .reset-button {
-    width: 100%;
-    min-width: 0;
+
+  .task-list {
+    max-height: 200px; /* 移动端任务列表可以考虑加回最大高度和滚动 */
+    overflow-y: auto;
   }
 }
 </style>

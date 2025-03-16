@@ -1,14 +1,16 @@
 <!--
  * @Author: joe 847304926@qq.com
- * @Date: 2025-01-10 17:32:31
+ * @Date: 2025-01-12 21:52:31
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-12 21:52:31
- * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\WindTurbineManagement.vue
+ * @LastEditTime: 2025-03-16 19:02:47
+ * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\WindTurbineManagement.vue
  * @Description: 
  * 
  * Copyright (c) 2025 by joe, All Rights Reserved.
- -->
- <template>
+-->
+
+<!-- WindTurbineManagement.vue -->
+<template>
   <el-drawer
     v-model="localVisible"
     direction="rtl"
@@ -135,14 +137,16 @@ const deleteTurbine = (turbine) => {
 <style scoped>
 .sidebar-drawer {
   background: #ffffff;
-  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
+  box-shadow: -2px 0 24px rgba(0, 0, 0, 0.15);
+  border-radius: 16px 0 0 16px;
 }
 
 .sidebar-container {
-  padding: 20px;
+  padding: 24px;
   height: 100%;
   display: flex;
   flex-direction: column;
+  background: linear-gradient(135deg, #f9f9f9, #ffffff);
 }
 
 .management-tabs {
@@ -151,8 +155,33 @@ const deleteTurbine = (turbine) => {
   height: 100%;
 }
 
-.management-tabs .el-tabs__header {
-  margin-bottom: 10px;
+:deep(.el-tabs__header) {
+  margin-bottom: 20px;
+}
+
+:deep(.el-tabs__nav) {
+  background: #f2f6fc;
+  border-radius: 8px;
+  padding: 4px;
+}
+
+:deep(.el-tabs__item) {
+  height: 40px;
+  line-height: 40px;
+  font-weight: 500;
+  color: #606266;
+  transition: all 0.3s ease;
+  border-radius: 6px;
+}
+
+:deep(.el-tabs__item.is-active) {
+  color: #409EFF;
+  background: #ffffff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+}
+
+:deep(.el-tabs__active-bar) {
+  display: none;
 }
 
 .tab-content-wrapper {
@@ -164,10 +193,29 @@ const deleteTurbine = (turbine) => {
 .collapse-title {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 16px;
+  gap: 10px;
+  font-size: 18px;
   font-weight: 600;
-  color: #303133;
-  margin-bottom: 0;
+  color: #2c3e50;
+  margin: 0;
+}
+
+/* 美化 collapse 组件 */
+:deep(.el-collapse-item__header) {
+  background-color: transparent;
+  border-bottom: 1px solid #e6e8eb;
+  padding: 16px;
+  font-weight: 600;
+  border-radius: 12px;
+  transition: all 0.3s ease;
+}
+
+:deep(.el-collapse-item__header:hover) {
+  background-color: rgba(64, 158, 255, 0.05);
+}
+
+:deep(.el-collapse-item__content) {
+  padding: 20px 8px;
+  border: none;
 }
 </style>

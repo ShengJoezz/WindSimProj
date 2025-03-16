@@ -1,42 +1,60 @@
 <!-- frontend/src/views/NewCase.vue -->
 <template>
-  <div>
-    <h2>新建工况</h2>
-    <el-form
-      ref="formRef"
-      :model="form"
-      :rules="rules"
-      label-width="120px"
-      @submit.prevent="handleSubmit"
-    >
-      <el-form-item label="工况名称" prop="caseName">
-        <el-input v-model="form.caseName" placeholder="输入工况名称" />
-      </el-form-item>
-
-      <el-form-item label="地形数据 (GeoTIFF)" prop="terrainFile">
-        <el-upload
-          class="upload-demo"
-          drag
-          :file-list="terrainFileList"
-          :before-upload="beforeUploadGeoTIFF"
-          :on-remove="removeTerrainFile"
-          accept=".tif,.tiff"
-          :auto-upload="false"
-          :on-change="handleTerrainChange"
-        >
-          <i class="el-icon-upload"></i>
-          <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
-          <div class="el-upload__tip">仅支持 .tif/.tiff 文件</div>
-        </el-upload>
-      </el-form-item>
-
-      <el-form-item>
-        <el-button type="primary" @click="handleSubmit">创建工况</el-button>
-      </el-form-item>
-    </el-form>
-    <div v-if="message" :class="{'success-message': success, 'error-message': !success}" style="margin-top: 20px;">
-      {{ message }}
+  <div class="new-case-container">
+    <div class="case-header">
+      <h2>新建工况</h2>
+      <p class="subtitle">创建一个新的地形分析工况</p>
     </div>
+    
+    <el-card class="form-card">
+      <el-form
+        ref="formRef"
+        :model="form"
+        :rules="rules"
+        label-width="120px"
+        @submit.prevent="handleSubmit"
+      >
+        <el-form-item label="工况名称" prop="caseName">
+          <el-input 
+            v-model="form.caseName" 
+            placeholder="输入工况名称" 
+            class="custom-input"
+          />
+        </el-form-item>
+
+        <el-form-item label="地形数据 (GeoTIFF)" prop="terrainFile">
+          <el-upload
+            class="upload-box"
+            drag
+            :file-list="terrainFileList"
+            :before-upload="beforeUploadGeoTIFF"
+            :on-remove="removeTerrainFile"
+            accept=".tif,.tiff"
+            :auto-upload="false"
+            :on-change="handleTerrainChange"
+          >
+            <div class="upload-content">
+              <i class="el-icon-upload upload-icon"></i>
+              <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
+              <div class="el-upload__tip">仅支持 .tif/.tiff 格式的地形文件</div>
+            </div>
+          </el-upload>
+        </el-form-item>
+
+        <el-form-item class="submit-item">
+          <el-button type="primary" class="submit-button" @click="handleSubmit">
+            <i class="el-icon-plus"></i> 创建工况
+          </el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
+    
+    <transition name="fade">
+      <div v-if="message" :class="['message-box', success ? 'success-message' : 'error-message']">
+        <i :class="success ? 'el-icon-check' : 'el-icon-close'"></i>
+        {{ message }}
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -162,17 +180,120 @@ const handleSubmit = async () => {
 </script>
 
 <style scoped>
+.new-case-container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.case-header {
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+.case-header h2 {
+  font-size: 28px;
+  color: #303133;
+  margin-bottom: 8px;
+}
+
+.subtitle {
+  color: #909399;
+  font-size: 16px;
+}
+
+.form-card {
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  margin-bottom: 30px;
+  padding: 10px;
+}
+
+.custom-input {
+  border-radius: 4px;
+}
+
+.upload-box {
+  width: 100%;
+}
+
+.upload-content {
+  padding: 30px 0;
+}
+
+.upload-icon {
+  font-size: 48px;
+  color: #409EFF;
+  margin-bottom: 16px;
+}
+
+.el-upload__text {
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+
+.el-upload__text em {
+  color: #409EFF;
+  font-style: normal;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.el-upload__tip {
+  color: #909399;
+  font-size: 14px;
+}
+
+.submit-item {
+  margin-top: 30px;
+  display: flex;
+  justify-content: center;
+}
+
+.submit-button {
+  min-width: 180px;
+  padding: 12px 20px;
+  font-size: 16px;
+  border-radius: 4px;
+  transition: all 0.3s;
+}
+
+.submit-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(64, 158, 255, 0.4);
+}
+
+.message-box {
+  padding: 12px 20px;
+  margin-top: 20px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  transition: all 0.3s;
+}
+
 .success-message {
-  color: green;
+  background-color: #f0f9eb;
+  color: #67c23a;
+  border: 1px solid #e1f3d8;
 }
+
 .error-message {
-  color: red;
+  background-color: #fef0f0;
+  color: #f56c6c;
+  border: 1px solid #fde2e2;
 }
-.upload-demo i {
-  font-size: 40px;
-  color: #409EFF;
+
+.message-box i {
+  margin-right: 8px;
+  font-size: 16px;
 }
-.upload-demo .el-upload__text em {
-  color: #409EFF;
+
+.fade-enter-active, .fade-leave-active {
+  transition: opacity 0.5s;
+}
+
+.fade-enter-from, .fade-leave-to {
+  opacity: 0;
 }
 </style>

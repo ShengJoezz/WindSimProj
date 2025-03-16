@@ -1,14 +1,16 @@
 <!--
  * @Author: joe 847304926@qq.com
- * @Date: 2024-12-30 10:58:27
+ * @Date: 2025-03-16 18:59:56
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-02-15 15:17:44
- * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\components\Dashboard.vue
- * @Description:
- *
+ * @LastEditTime: 2025-03-16 19:00:15
+ * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\ControlPanel.vue
+ * @Description: 
+ * 
  * Copyright (c) 2025 by joe, All Rights Reserved.
- -->
- <template>
+-->
+
+<!-- Dashboard.vue -->
+<template>
   <el-drawer
     v-model="localVisible"
     direction="ltr"
@@ -165,79 +167,139 @@ const handleClose = () => {
 <style scoped>
 .sidebar-drawer {
   background: #ffffff;
-  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1); /* 微妙的阴影 */
+  box-shadow: 0 0 24px rgba(0, 0, 0, 0.15);
+  border-radius: 0 16px 16px 0;
 }
 
 .sidebar-container {
-  padding: 20px;
+  padding: 24px;
   height: 100%;
   display: flex;
   flex-direction: column;
+  background: linear-gradient(135deg, #f9f9f9, #ffffff);
 }
 
 .el-collapse {
-  border: none; /* 移除默认边框 */
+  border: none;
+  background: transparent;
 }
 
 .el-collapse-item__header {
-  background-color: #f5f7fa; /* 浅灰色背景 */
-  border-bottom: 1px solid #ebeef5; /* 底部浅灰色边框 */
-  padding: 12px 16px;
-  border-radius: 4px 4px 0 0; /* 右上和左上圆角 */
+  background-color: transparent;
+  border-bottom: 1px solid #e6e8eb;
+  padding: 16px;
+  font-weight: 600;
+  border-radius: 12px;
+  transition: all 0.3s ease;
+}
+
+.el-collapse-item__header:hover {
+  background-color: rgba(64, 158, 255, 0.05);
 }
 
 .el-collapse-item__content {
-  padding: 16px;
-  border-left: 1px solid #ebeef5;
-  border-right: 1px solid #ebeef5;
-  border-bottom: 1px solid #ebeef5;
-  border-radius: 0 0 4px 4px; /* 右下和左下圆角 */
+  padding: 20px 8px;
+  border: none;
 }
 
 .collapse-title {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 16px;
+  gap: 10px;
+  font-size: 18px;
   font-weight: 600;
-  color: #303133;
-  margin-bottom: 0;
+  color: #2c3e50;
+  margin: 0;
 }
 
 .control-group {
-  margin-bottom: 20px;
+  margin-bottom: 24px;
+  background: #f9fafc;
+  padding: 16px;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.control-group:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
 }
 
 .group-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
-  color: #606266; /* 灰色文字 */
-  margin-bottom: 12px;
+  color: #409EFF;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(64, 158, 255, 0.2);
 }
 
 .control-buttons {
   display: flex;
-  gap: 8px;
+  gap: 10px;
+  width: 100%;
+}
+
+.control-buttons .el-button {
+  flex: 1;
+  height: 40px;
+  border-radius: 8px;
+  font-weight: 500;
+  transition: all 0.3s ease;
 }
 
 .animation-controls {
-  margin-top: 10px;
+  margin-top: 16px;
 }
 
 .speed-control {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
+  margin-top: 8px;
 }
 
 .speed-label {
   font-size: 14px;
-  color: #606266;
+  color: #5e6d82;
+  font-weight: 500;
 }
 
 .control-card {
   margin-bottom: 16px;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  box-shadow: none;
+  background: transparent;
+}
+
+.card-content {
+  padding: 8px 0;
+}
+
+/* 增强开关样式 */
+:deep(.el-switch__core) {
+  border-radius: 16px;
+  height: 22px;
+}
+
+:deep(.el-slider__runway) {
+  height: 8px;
+  border-radius: 4px;
+  background-color: #e4e7ed;
+}
+
+:deep(.el-slider__bar) {
+  height: 8px;
+  border-radius: 4px;
+  background-color: #409EFF;
+}
+
+:deep(.el-slider__button) {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #409EFF;
+  background-color: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 </style>

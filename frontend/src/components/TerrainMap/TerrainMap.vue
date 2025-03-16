@@ -1,15 +1,16 @@
 <!--
  * @Author: joe 847304926@qq.com
- * @Date: 2025-01-10 16:12:45
+ * @Date: 2025-03-16 17:12:18
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-02-19 19:57:16
- * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\TerrainMap.vue
- * @Description:
- *
+ * @LastEditTime: 2025-03-16 19:01:11
+ * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\TerrainMap.vue
+ * @Description: 
+ * 
  * Copyright (c) 2025 by joe, All Rights Reserved.
- -->
+-->
 
- <template>
+<!-- TerrainMap.vue -->
+<template>
   <div class="map-wrapper">
     <!-- Terrain Rendering Area -->
     <div
@@ -276,23 +277,24 @@ const confirmDeleteTurbine = (turbine) => {
     .catch(() => {});
 };
 
-// 添加风机到 Three.js 场景  
+// 添加风机到 Three.js 场景
 const addWindTurbineToScene = (turbine) => {
   if (turbineMeshes.value.has(turbine.id)) return;
 
   const turbineGroup = new THREE.Group();
   turbineGroup.userData.turbineId = turbine.id;
+  turbineGroup.userData.hubHeight = turbine.hubHeight; // 保存 hubHeight 到 userData
 
   // 改进的塔架几何体
   const towerGeometry = new THREE.CylinderGeometry(
     3, // 顶部半径稍小
-    4.5, // 底部半径稍大 
+    4.5, // 底部半径稍大
     turbine.hubHeight,
     32, // 更多分段,更圆滑
     8,  // 更多高度分段
     true
   );
-  
+
   // 使用 MeshPhysicalMaterial 获得更真实的金属外观
   const towerMaterial = new THREE.MeshPhysicalMaterial({
     color: 0xeeeeee,
@@ -363,6 +365,7 @@ const addWindTurbineToScene = (turbine) => {
 
   // 创建叶片组
   const bladesGroup = new THREE.Group();
+  bladesGroup.name = "bladesGroup"; // 命名叶片组
   bladesGroup.position.set(0, turbine.hubHeight, 0);
 
   // 添加3个叶片
@@ -388,6 +391,8 @@ const addWindTurbineToScene = (turbine) => {
     turbineGroup.position.set(x, terrainHeight, z);
     scene.add(turbineGroup);
     turbineMeshes.value.set(turbine.id, turbineGroup);
+  } else {
+    console.warn(`无法获取风机 ${turbine.id} 的地形高度，风机未添加`);
   }
 };
 
@@ -442,7 +447,10 @@ const mapLatLonToXZ = (latitude, longitude) => {
 
 // 获取指定 XZ 坐标的地形高度
 const getTerrainHeight = (x, z) => {
-  if (!terrainMesh) return null;
+  if (!terrainMesh) {
+    console.warn("尝试获取地形高度但地形网格不存在");
+    return 0; // 返回默认高度而不是null
+  }
 
   const raycaster = new THREE.Raycaster();
   const origin = new THREE.Vector3(x, 1000, z);
@@ -455,6 +463,7 @@ const getTerrainHeight = (x, z) => {
     return intersects[0].point.y;
   }
 
+  console.warn(`位置 (${x}, ${z}) 找不到地形交叉点, 尝试查找最近点`);
   // Fallback: try nearest point if no direct intersection
   const vertices = terrainMesh.geometry.attributes.position.array;
   let closestHeight = null;
@@ -471,7 +480,7 @@ const getTerrainHeight = (x, z) => {
     }
   }
 
-  return closestHeight;
+  return closestHeight !== null ? closestHeight : 0; // 确保始终返回一个数值，默认为0
 };
 
 // 加载 GeoTIFF 数据
@@ -785,16 +794,15 @@ const animate = () => {
   controls.update();
   renderer.render(scene, camera);
    // 叶片旋转
-  if (bladeRotation.value) {
-    turbineMeshes.value.forEach((turbineGroup) => {
-         for (let i = 1; i <= 3; i++) {
-            const blade = turbineGroup.children[i];
-           if (blade) {
-              blade.rotation.z += 0.01 * rotationSpeed.value;
-            }
-        }
-      });
-  }
+   if (bladeRotation.value) {
+  turbineMeshes.value.forEach((turbineGroup) => {
+    // 找到叶片组（应该是第三个子对象，index=2）
+    const bladesGroup = turbineGroup.children.find(child => child.name === "bladesGroup");
+    if (bladesGroup) {
+      bladesGroup.rotation.z += 0.01 * rotationSpeed.value;
+    }
+  });
+}
 };
 
 // 处理批量导入风机
@@ -860,22 +868,25 @@ const loadAndDisplayTurbines = async () => {
     // Load turbines from store/backend
     await caseStore.fetchWindTurbines();
 
-    // Clear existing turbines
-    turbineMeshes.value.forEach(mesh => {
-      scene.remove(mesh);
-      mesh.traverse(child => {
-        if (child.isMesh) {
-          child.geometry.dispose();
-          child.material.dispose();
-        }
-      });
-    });
-    turbineMeshes.value.clear();
+    // Optimization: Diff and update turbines instead of clearing all
+    const oldTurbineIds = Array.from(turbineMeshes.value.keys());
+    const newTurbineIds = caseStore.windTurbines.map(turbine => turbine.id);
 
-    // Add loaded turbines to scene
-    caseStore.windTurbines.forEach(turbine => {
-      addWindTurbineToScene(turbine);
+    // Identify turbines to remove
+    const turbinesToRemove = oldTurbineIds.filter(id => !newTurbineIds.includes(id));
+    turbinesToRemove.forEach(id => {
+      deleteWindTurbineFromScene(id);
     });
+
+    // Identify turbines to add or update (for simplicity, re-add all new turbines)
+    caseStore.windTurbines.forEach(turbine => {
+      if (!turbineMeshes.value.has(turbine.id)) {
+        addWindTurbineToScene(turbine); // Add only if not already in scene
+      }
+      // In a real update scenario, you might want to update existing turbine properties here
+    });
+
+
   } catch (error) {
     console.error('Failed to load and display turbines:', error);
     ElMessage.error('加载风机失败');
@@ -958,18 +969,31 @@ watch(() => hoveredTurbine.value, (newTurbine, oldTurbine) => {
 
 watch(
   () => caseStore.windTurbines,
-  (newTurbines) => {
+  (newTurbines, oldTurbines) => {
     console.log('Wind turbines updated:', newTurbines);
-    // Clear existing turbines
-    turbineMeshes.value.forEach((turbine) => {
-      scene.remove(turbine);
-    });
-    turbineMeshes.value.clear();
 
-    // Add all turbines
-    newTurbines.forEach((turbine) => {
-      addWindTurbineToScene(turbine);
-    });
+    // Optimization: Diff and update turbines
+    if (oldTurbines) {
+      const oldTurbineIds = oldTurbines.map(t => t.id);
+      const newTurbineIds = newTurbines.map(t => t.id);
+
+      // Identify turbines to remove
+      const turbinesToRemove = oldTurbineIds.filter(id => !newTurbineIds.includes(id));
+      turbinesToRemove.forEach(id => {
+        deleteWindTurbineFromScene(id);
+      });
+
+      // Identify turbines to add
+      const turbinesToAdd = newTurbines.filter(turbine => !oldTurbineIds.includes(turbine.id));
+      turbinesToAdd.forEach(turbine => {
+        addWindTurbineToScene(turbine);
+      });
+    } else {
+      // Initial load: Add all turbines
+      newTurbines.forEach((turbine) => {
+        addWindTurbineToScene(turbine);
+      });
+    }
   },
   { deep: true }
 );
@@ -980,31 +1004,38 @@ watch(
   position: relative;
   width: 100%;
   height: 100vh;
-  background: #f5f7fa; /* Light gray background */
-  overflow: hidden; /* Prevents scrollbars on the main wrapper */
+  background: linear-gradient(135deg, #f5f7fa, #e4e7ed);
+  overflow: hidden;
 }
 
 .terrain-renderer {
   width: 100%;
   height: 100%;
+  transition: filter 0.3s ease;
 }
-  .terrain-loading {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    z-index: 100;
-  }
-/* 工具栏样式在 TopToolbar.vue 中定义 */
 
-/* 地形信息和工具提示样式在各自的组件中定义 */
-.debug-overlay {
+.terrain-loading {
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  background: rgba(255, 0, 0, 0.2);
-  padding: 10px;
-  z-index: 1000;
+  z-index: 100;
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(10px);
+  padding: 32px 48px;
+  border-radius: 16px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+}
+
+:deep(.el-loading-text) {
+  font-size: 16px;
+  font-weight: 500;
+  color: #409EFF;
+  margin-top: 16px;
+}
+
+:deep(.el-loading-spinner) {
+  transform: scale(1.2);
 }
 </style>

@@ -1,13 +1,15 @@
 <!--
  * @Author: joe 847304926@qq.com
- * @Date: 2025-01-12 18:32:29
+ * @Date: 2025-02-15 15:19:17
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-02-15 15:19:17
+ * @LastEditTime: 2025-03-16 19:01:51
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\UploadComponent.vue
- * @Description:
- *
+ * @Description: 
+ * 
  * Copyright (c) 2025 by joe, All Rights Reserved.
 -->
+
+<!-- UploadComponent.vue -->
 <template>
   <div class="upload-section">
     <el-upload
@@ -175,22 +177,107 @@ const handleFileChange = (file) => {
 <style scoped>
 .upload-section {
   padding: 20px;
+  background: #f9fafc;
+  border-radius: 12px;
+  margin-top: 24px;
+  border: 1px dashed #dcdfe6;
+  transition: all 0.3s ease;
+}
+
+.upload-section:hover {
+  border-color: #409EFF;
+  background: #f2f6fc;
 }
 
 .upload-wrapper {
   margin-bottom: 20px;
 }
 
+:deep(.el-upload) {
+  width: 100%;
+}
+
+:deep(.el-upload-dragger) {
+  width: 100%;
+  height: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed #dcdfe6;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.8);
+  transition: all 0.3s ease;
+}
+
+:deep(.el-upload-dragger:hover) {
+  background: #ffffff;
+  border-color: #409EFF;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.05);
+}
+
+:deep(.el-upload-dragger i) {
+  font-size: 40px;
+  color: #c0c4cc;
+  margin-bottom: 16px;
+}
+
+:deep(.el-upload__text) {
+  color: #606266;
+  font-size: 14px;
+  text-align: center;
+}
+
+:deep(.el-upload__text em) {
+  color: #409EFF;
+  font-style: normal;
+  font-weight: 600;
+}
+
+:deep(.el-upload__tip) {
+  color: #909399;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 8px;
+  border: 1px solid #ebeef5;
+}
+
+:deep(.el-progress-bar__outer) {
+  border-radius: 8px;
+  height: 8px;
+}
+
+:deep(.el-progress-bar__inner) {
+  border-radius: 8px;
+}
+
 .error-list {
   margin-top: 20px;
-  padding: 10px;
-  background-color: #fff3f3;
-  border-radius: 4px;
+  padding: 16px;
+  background-color: #fef0f0;
+  border-radius: 8px;
+  border: 1px solid #fde2e2;
+}
+
+.error-list h4 {
+  color: #f56c6c;
+  margin-top: 0;
+  margin-bottom: 12px;
+  font-size: 14px;
 }
 
 .error-item {
   color: #f56c6c;
-  margin: 5px 0;
-  font-size: 14px;
+  margin: 8px 0;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 8px 12px;
+  background: rgba(245, 108, 108, 0.05);
+  border-radius: 6px;
+  border-left: 3px solid #f56c6c;
 }
 </style>

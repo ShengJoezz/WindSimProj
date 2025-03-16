@@ -1,14 +1,5 @@
-<!--
- * @Author: joe 847304926@qq.com
- * @Date: 2025-01-10 17:32:19
- * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-12 20:11:15
- * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\WindTurbineList.vue
- * @Description: 
- * 
- * Copyright (c) 2025 by joe, All Rights Reserved.
- -->
- <template>
+<!-- WindTurbineList.vue -->
+<template>
   <div v-if="windTurbines.length" class="turbine-list">
     <el-card
       v-for="turbine in windTurbines"
@@ -111,25 +102,30 @@ const confirmDelete = (turbine) => {
 .turbine-list {
   padding: 16px;
   overflow-y: auto;
-  height: calc(100% - 40px); /* 根据需要调整高度 */
+  height: calc(100% - 40px);
 }
 
 .turbine-card {
-  margin-bottom: 16px;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  transition: box-shadow 0.3s; /* 平滑过渡 */
+  margin-bottom: 20px;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  transition: all 0.3s ease;
+  border: 1px solid rgba(235, 238, 245, 0.8);
+  overflow: hidden;
 }
 
 .turbine-card:hover {
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15); /* 悬停时稍深的阴影 */
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  border-color: rgba(64, 158, 255, 0.3);
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
+  padding: 16px;
+  background: linear-gradient(135deg, #f8fafc, #f2f6fc);
   border-bottom: 1px solid #ebeef5;
 }
 
@@ -137,37 +133,87 @@ const confirmDelete = (turbine) => {
   font-size: 16px;
   font-weight: 600;
   color: #303133;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.turbine-name::before {
+  content: '';
+  display: block;
+  width: 10px;
+  height: 10px;
+  background: #409EFF;
+  border-radius: 50%;
 }
 
 .turbine-actions {
   display: flex;
-  gap: 8px;
+  gap: 12px;
 }
 
 .turbine-actions .action-button {
-  padding: 6px; /* 小按钮填充 */
+  padding: 8px;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  color: #606266;
+}
+
+.turbine-actions .action-button:hover {
+  background-color: rgba(64, 158, 255, 0.1);
+  color: #409EFF;
 }
 
 .turbine-details {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
-  padding: 12px 16px;
+  gap: 12px;
+  padding: 16px;
+  background: #fff;
 }
 
 .detail-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 0;
+  padding: 8px 12px;
+  background: #f9fafc;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.detail-item:hover {
+  background: #f2f6fc;
 }
 
 .detail-item .label {
   color: #909399;
+  font-weight: 500;
+  font-size: 13px;
 }
 
 .detail-item .value {
   color: #303133;
-  font-family: monospace;
+  font-family: 'SF Mono', Menlo, Monaco, monospace;
+  font-weight: 500;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.7);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+/* 美化元素空态 */
+:deep(.el-empty) {
+  padding: 40px 0;
+}
+
+:deep(.el-empty__image) {
+  opacity: 0.6;
+}
+
+:deep(.el-empty__description) {
+  margin-top: 20px;
+  color: #909399;
 }
 </style>
