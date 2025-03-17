@@ -22,6 +22,9 @@ const rateLimit = require('express-rate-limit');
 const { knownTasks } =require('../utils/tasks');
 const windTurbinesRouter = require('./windTurbines');
 const archiver = require('archiver');
+const puppeteer = require('puppeteer');
+const handlebars = require('handlebars');
+const momenttz = require('moment-timezone');
 
 // 辅助函数
 const calculateXY = (lon, lat, centerLon, centerLat) => {
@@ -945,6 +948,307 @@ router.get('/:caseId/turbine-performance-data', async (req, res) => {
     res.status(500).json({ success: false, message: '获取风机性能数据失败', error: error.message });
   }
 });
+
+// 服务器端PDF报告生成
+router.post('/:caseId/generate-pdf-report', async (req, res) => {
+  const { caseId } = req.params;
+  console.log(`开始为工况 ${caseId} 生成PDF报告`);
+  try {
+    // 确认目录存在
+    const casePath = path.join(__dirname, '../uploads', caseId);
+    if (!fs.existsSync(casePath)) {
+      return res.status(404).json({ success: false, message: '工况不存在' });
+    }
+    
+    // 读取各类必要数据
+    // 1. 读取参数
+    const parametersPath = path.join(casePath, 'parameters.json');
+    let parameters = null;
+    if (fs.existsSync(parametersPath)) {
+      parameters = JSON.parse(await fsPromises.readFile(parametersPath, 'utf-8'));
+    } else {
+      // 使用默认参数
+      parameters = {
+        calculationDomain: { width: 10000, height: 800 },
+        conditions: { windDirection: 0, inletWindSpeed: 10 },
+        grid: {
+          encryptionHeight: 210,
+          encryptionLayers: 21,
+          gridGrowthRate: 1.2,
+          maxExtensionLength: 360,
+          encryptionRadialLength: 50,
+          downstreamRadialLength: 100,
+          encryptionRadius: 200,
+          encryptionTransitionRadius: 400,
+          terrainRadius: 4000,
+          terrainTransitionRadius: 5000,
+          downstreamLength: 2000,
+          downstreamWidth: 600,
+          scale: 0.001,
+        },
+        simulation: { cores: 1, steps: 100, deltaT: 1 },
+        postProcessing: {
+          resultLayers: 10,
+          layerSpacing: 20,
+          layerDataWidth: 1000,
+          layerDataHeight: 1000,
+        }
+      };
+    }
+    
+    // 2. 读取info.json获取工况名称和计算状态
+    const infoJsonPath = path.join(casePath, 'info.json');
+    let caseName = caseId;
+    let calculationStatus = 'not_started';
+    let centerCoordinates = { lon: null, lat: null };
+    if (fs.existsSync(infoJsonPath)) {
+      const info = JSON.parse(await fsPromises.readFile(infoJsonPath, 'utf-8'));
+      caseName = info.key || caseId;
+      calculationStatus = info.calculationStatus || 'not_started';
+      centerCoordinates = info.center || { lon: null, lat: null };
+    }
+    
+    // 3. 获取风机数据
+    const turbineStatePath = path.join(casePath, 'turbine_state.json');
+    let windTurbines = [];
+    if (fs.existsSync(turbineStatePath)) {
+      const state = JSON.parse(await fsPromises.readFile(turbineStatePath, 'utf-8'));
+      windTurbines = state.windTurbines || [];
+    }
+    
+    // 4. 获取计算进度
+    const progressPath = path.join(casePath, 'calculation_progress.json');
+    let overallProgress = 0;
+    if (fs.existsSync(progressPath)) {
+      const progress = JSON.parse(await fsPromises.readFile(progressPath, 'utf-8'));
+      overallProgress = progress.progress || 0;
+    }
+    
+    // 5. 获取结果数据（如果有）
+    const resultsPath = path.join(casePath, 'results.json');
+    let results = {};
+    if (fs.existsSync(resultsPath)) {
+      results = JSON.parse(await fsPromises.readFile(resultsPath, 'utf-8'));
+    }
+    
+    // 6. 获取风机性能数据
+    let turbinePerformance = {
+      turbineCount: windTurbines.length,
+      avgSpeed: null,
+      totalPower: null,
+      avgCt: null
+    };
+    
+    // 尝试从Output文件中提取风机性能数据
+    const adjPerfPath = path.join(casePath, 'run/Output/Output06-U-P-Ct-fn(ADJUST)');
+    if (fs.existsSync(adjPerfPath)) {
+      try {
+        const adjPerfContent = await fsPromises.readFile(adjPerfPath, 'utf-8');
+        const lines = adjPerfContent.split('\n').filter(line => line.trim() !== '');
+        
+        // 排除标题行，计算平均值
+        const dataLines = lines.slice(1);
+        if (dataLines.length > 0) {
+          let totalSpeed = 0;
+          let totalPower = 0;
+          let totalCt = 0;
+          
+          for (const line of dataLines) {
+            const values = line.trim().split(/\s+/);
+            if (values.length >= 4) {
+              totalSpeed += parseFloat(values[1]) || 0;
+              totalPower += parseFloat(values[2]) || 0;
+              totalCt += parseFloat(values[3]) || 0;
+            }
+          }
+          
+          turbinePerformance.avgSpeed = (totalSpeed / dataLines.length).toFixed(2);
+          turbinePerformance.totalPower = totalPower.toFixed(2);
+          turbinePerformance.avgCt = (totalCt / dataLines.length).toFixed(3);
+        }
+      } catch (error) {
+        console.error('提取风机性能数据失败:', error);
+      }
+    }
+    
+    // 生成中心坐标字符串
+    let centerCoordinatesText = "经度: N/A, 纬度: N/A";
+    if (centerCoordinates.lon && centerCoordinates.lat) {
+      centerCoordinatesText = `经度: ${centerCoordinates.lon.toFixed(6)}, 纬度: ${centerCoordinates.lat.toFixed(6)}`;
+    } else if (windTurbines.length > 0) {
+      // 如果没有中心坐标但有风机，计算中心点
+      try {
+        const longitudes = windTurbines.map(turbine => parseFloat(turbine.longitude));
+        const latitudes = windTurbines.map(turbine => parseFloat(turbine.latitude));
+        const minLon = Math.min(...longitudes);
+        const maxLon = Math.max(...longitudes);
+        const minLat = Math.min(...latitudes);
+        const maxLat = Math.max(...latitudes);
+        const centerLon = (minLon + maxLon) / 2;
+        const centerLat = (minLat + maxLat) / 2;
+        centerCoordinatesText = `经度: ${centerLon.toFixed(6)}, 纬度: ${centerLat.toFixed(6)}`;
+      } catch (error) {
+        console.error('计算中心坐标失败:', error);
+      }
+    }
+    
+    // 获取当前日期时间（中国时区）
+    const now = momenttz().tz('Asia/Shanghai');
+    const dateStr = now.format('YYYY-MM-DD');
+    const timeStr = now.format('HH:mm:ss');
+    
+    // 准备报告数据
+    const reportData = {
+      caseId,
+      caseName,
+      centerCoordinates: centerCoordinatesText,
+      dateGenerated: dateStr,
+      timeGenerated: timeStr,
+      parameters,
+      turbines: windTurbines,
+      status: {
+        calculationStatus,
+        progress: overallProgress,
+        statusText: getStatusText(calculationStatus)
+      },
+      results,
+      turbineStats: turbinePerformance
+    };
+    
+   // 使用二进制流处理
+   const pdfBuffer = await generatePDF(reportData);
+    
+   if (!pdfBuffer || pdfBuffer.length < 1000) {
+     throw new Error(`PDF生成失败或内容不完整 (${pdfBuffer ? pdfBuffer.length : 0} bytes)`);
+   }
+   
+   // 直接以二进制流发送，不使用res.send()
+   res.writeHead(200, {
+     'Content-Type': 'application/pdf',
+     'Content-Length': pdfBuffer.length,
+     'Content-Disposition': `attachment; filename="${encodeURIComponent(caseName || caseId)}_report.pdf"`
+   });
+   res.end(pdfBuffer);
+   
+   console.log(`PDF报告生成成功，大小: ${pdfBuffer.length} bytes`);
+ } catch (error) {
+   console.error('生成PDF报告失败:', error);
+   res.status(500).json({ 
+     success: false, 
+     message: '生成PDF报告失败',
+     error: error.message 
+   });
+ }
+});
+
+// 获取计算状态文本
+function getStatusText(status) {
+  switch (status) {
+    case 'running':
+      return '计算进行中';
+    case 'completed':
+      return '计算已完成';
+    case 'error':
+      return '计算出错';
+    case 'not_started':
+    case 'not_completed':
+      return '未开始计算';
+    default:
+      return '未知状态';
+  }
+}
+
+// 生成PDF的函数
+// Generate PDF using Puppeteer
+async function generatePDF(data) {
+  try {
+    // Read the template
+    const templatePath = path.join(__dirname, '../templates/report-template.html');
+    const templateContent = await fsPromises.readFile(templatePath, 'utf-8');
+    
+    // Register Handlebars helpers
+    handlebars.registerHelper('eq', function(a, b) {
+      return a === b;
+    });
+    
+    handlebars.registerHelper('gt', function(a, b) {
+      return a > b;
+    });
+    
+    // Add status color
+    if (data.status) {
+      switch(data.status.calculationStatus) {
+        case 'completed':
+          data.status.statusColor = '#10b981';
+          break;
+        case 'running':
+          data.status.statusColor = '#3b82f6';
+          break;
+        case 'error':
+          data.status.statusColor = '#ef4444';
+          break;
+        default:
+          data.status.statusColor = '#6b7280';
+      }
+    }
+    
+    // Compile the template
+    const template = handlebars.compile(templateContent);
+    
+    // Render HTML
+    const html = template(data);
+    
+    // For debugging - save the rendered HTML
+    const debugHtmlPath = path.join(__dirname, '../debug_report.html');
+    await fsPromises.writeFile(debugHtmlPath, html);
+    
+    // Launch Puppeteer with explicit options for reliability
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: [
+        '--no-sandbox', 
+        '--disable-setuid-sandbox', 
+        '--disable-dev-shm-usage',
+        '--lang=zh-CN',
+        '--font-render-hinting=medium'
+      ]
+    });
+    
+    const page = await browser.newPage();
+    
+    // Set content and wait until network is idle
+    await page.setContent(html, { waitUntil: 'networkidle0' });
+    
+    // Add a small delay to ensure rendering is complete
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // Generate PDF with explicit settings
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: {
+        top: '20mm',
+        right: '20mm',
+        bottom: '20mm',
+        left: '20mm'
+      },
+      displayHeaderFooter: false
+    });
+    
+    // Close the browser
+    await browser.close();
+    
+    // For debugging - save the generated PDF
+    const debugPdfPath = path.join(__dirname, '../debug_report.pdf');
+    await fsPromises.writeFile(debugPdfPath, pdfBuffer);
+    
+    return pdfBuffer;
+  } catch (error) {
+    console.error('PDF generation failed:', error);
+    throw error;
+  }
+}
+
 
 router.use("/:caseId/wind-turbines", windTurbinesRouter);
 

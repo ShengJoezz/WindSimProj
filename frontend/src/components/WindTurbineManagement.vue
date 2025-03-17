@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-02-27 11:47:56
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-02-27 11:59:24
+ * @LastEditTime: 2025-03-17 16:02:02
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\WindTurbineManagement.vue
  * @Description: 
  * 
@@ -578,11 +578,14 @@
       },
       hovertemplate: '<b>%{text}</b><br>' +
         '风速: %{x:.1f} m/s<br>' +
-        '功率: %{customdata:.1f} kW<br>' +
-        '推力系数: %{marker.size:.3f}<br>' +
+        '功率: %{customdata[0]:.1f} kW<br>' + // 直接使用原始功率值
+        '推力系数: %{customdata[1]:.3f}<br>' + // 新增推力系数显示
         '高度: %{marker.color:.1f} m<br>' +
         '<extra></extra>',
-      customdata: combinedData.value.map(item => item.adjPower) // 存储原始功率值用于悬停显示
+        customdata: combinedData.value.map(item => [
+      item.adjPower,  // 原始功率值（未除以100）
+      item.adjCt      // 原始推力系数值（未乘以50）
+    ]) // 存储原始功率值用于悬停显示
     }];
   
     const layout = {
