@@ -129,7 +129,7 @@
             />
           </el-form-item>
           <el-form-item
-            label="最大待证长度 (m)"
+            label="最大特征长度 (m)"
             prop="grid.maxExtensionLength"
             :inline="true"
             class="child-form-item"

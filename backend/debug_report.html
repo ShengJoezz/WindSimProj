@@ -181,10 +181,10 @@
   <!-- 封面页 -->
   <div class="page cover">
     <h1>风场流场计算报告</h1>
-    <h2>工况名称: {{ caseName }}</h2>
-    <p style="font-size: 14px;">经度: {{ centerLongitude }}° 纬度: {{ centerLatitude }}°</p>
-    <p style="margin-top: 20px;">报告生成日期: {{ today }}</p>
-    <p>报告生成时间: {{ currentTime }}</p>
+    <h2>工况名称: WangGE</h2>
+    <p style="font-size: 14px;">经度: ° 纬度: °</p>
+    <p style="margin-top: 20px;">报告生成日期: </p>
+    <p>报告生成时间: </p>
   </div>
   
   <!-- 计算参数页 -->
@@ -193,14 +193,14 @@
     
     <h3>计算域</h3>
     <div style="margin-left: 20px;">
-      <p>宽度: {{ parameters.calculationDomain.width }} m</p>
-      <p>高度: {{ parameters.calculationDomain.height }} m</p>
+      <p>宽度: 10000 m</p>
+      <p>高度: 800 m</p>
     </div>
     
     <h3>风向条件</h3>
     <div style="margin-left: 20px;">
-      <p>风向角: {{ parameters.conditions.windDirection }}°</p>
-      <p>入口风速: {{ parameters.conditions.inletWindSpeed }} m/s</p>
+      <p>风向角: 0°</p>
+      <p>入口风速: 10 m/s</p>
     </div>
     
     <h3>网格配置</h3>
@@ -214,55 +214,55 @@
       <tbody>
         <tr>
           <td>加密区高度</td>
-          <td>{{ parameters.grid.encryptionHeight }} m</td>
+          <td>300 m</td>
         </tr>
         <tr>
           <td>加密层数</td>
-          <td>{{ parameters.grid.encryptionLayers }}</td>
+          <td>30</td>
         </tr>
         <tr>
           <td>网格生长率</td>
-          <td>{{ parameters.grid.gridGrowthRate }}</td>
+          <td>1.1</td>
         </tr>
         <tr>
           <td>最大待证长度</td>
-          <td>{{ parameters.grid.maxExtensionLength }} m</td>
+          <td>360 m</td>
         </tr>
         <tr>
           <td>加密区径向长度</td>
-          <td>{{ parameters.grid.encryptionRadialLength }} m</td>
+          <td>100 m</td>
         </tr>
         <tr>
           <td>尾流区径向长度</td>
-          <td>{{ parameters.grid.downstreamRadialLength }} m</td>
+          <td>200 m</td>
         </tr>
         <tr>
           <td>加密半径</td>
-          <td>{{ parameters.grid.encryptionRadius }} m</td>
+          <td>400 m</td>
         </tr>
         <tr>
           <td>加密过渡半径</td>
-          <td>{{ parameters.grid.encryptionTransitionRadius }} m</td>
+          <td>400 m</td>
         </tr>
         <tr>
           <td>地形半径</td>
-          <td>{{ parameters.grid.terrainRadius }} m</td>
+          <td>4000 m</td>
         </tr>
         <tr>
           <td>地形过渡半径</td>
-          <td>{{ parameters.grid.terrainTransitionRadius }} m</td>
+          <td>5000 m</td>
         </tr>
         <tr>
           <td>尾流区长度</td>
-          <td>{{ parameters.grid.downstreamLength }} m</td>
+          <td>2000 m</td>
         </tr>
         <tr>
           <td>尾流区宽度</td>
-          <td>{{ parameters.grid.downstreamWidth }} m</td>
+          <td>600 m</td>
         </tr>
         <tr>
           <td>缩放比</td>
-          <td>{{ parameters.grid.scale }}</td>
+          <td>0.001</td>
         </tr>
       </tbody>
     </table>
@@ -278,15 +278,15 @@
       <tbody>
         <tr>
           <td>核数</td>
-          <td>{{ parameters.simulation.cores }}</td>
+          <td>8</td>
         </tr>
         <tr>
           <td>步数</td>
-          <td>{{ parameters.simulation.steps }}</td>
+          <td>100</td>
         </tr>
         <tr>
           <td>时间步长</td>
-          <td>{{ parameters.simulation.deltaT }}</td>
+          <td>1</td>
         </tr>
       </tbody>
     </table>
@@ -296,7 +296,7 @@
   <div class="page">
     <h1>2. 风机布局与数据</h1>
     
-    <p style="font-size: 14px; margin-bottom: 15px;">风机总数: {{ windTurbines.length }}</p>
+    <p style="font-size: 14px; margin-bottom: 15px;">风机总数: </p>
     
     <table>
       <thead>
@@ -312,12 +312,12 @@
       <tbody>
         {% for turbine in windTurbines %}
           <tr>
-            <td>{{ turbine.id }}</td>
-            <td>{{ turbine.longitude }}</td>
-            <td>{{ turbine.latitude }}</td>
-            <td>{{ turbine.hubHeight }}</td>
-            <td>{{ turbine.rotorDiameter }}</td>
-            <td>{{ turbine.type }}</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
           </tr>
         {% endfor %}
       </tbody>
@@ -338,14 +338,14 @@
     
     <div class="status-box">
       <h3 style="margin-top: 0;">计算状态</h3>
-      <p style="font-weight: bold; color: {{ statusColor }}">
-        当前状态: {{ statusText }}
+      <p style="font-weight: bold; color: ">
+        当前状态: 
       </p>
       
       {% if calculationStatus == 'completed' %}
         <p>计算已成功完成，可在应用程序中查看详细结果。</p>
       {% elif calculationStatus == 'running' %}
-        <p>当前进度: {{ overallProgress }}%</p>
+        <p>当前进度: %</p>
       {% endif %}
     </div>
     
@@ -360,19 +360,19 @@
       <tbody>
         <tr>
           <td>平均风速</td>
-          <td>{% if turbineStats.avgSpeed %}{{ turbineStats.avgSpeed }} m/s{% else %}报告生成时暂无数据{% endif %}</td>
+          <td>{% if turbineStats.avgSpeed %}6248.59 m/s{% else %}报告生成时暂无数据{% endif %}</td>
         </tr>
         <tr>
           <td>最大风速</td>
-          <td>{% if maxWindSpeed %}{{ maxWindSpeed }} m/s{% else %}报告生成时暂无数据{% endif %}</td>
+          <td>{% if maxWindSpeed %} m/s{% else %}报告生成时暂无数据{% endif %}</td>
         </tr>
         <tr>
           <td>最小风速</td>
-          <td>{% if minWindSpeed %}{{ minWindSpeed }} m/s{% else %}报告生成时暂无数据{% endif %}</td>
+          <td>{% if minWindSpeed %} m/s{% else %}报告生成时暂无数据{% endif %}</td>
         </tr>
         <tr>
           <td>湍流强度</td>
-          <td>{% if turbulenceIntensity %}{{ turbulenceIntensity }}{% else %}报告生成时暂无数据{% endif %}</td>
+          <td>{% if turbulenceIntensity %}{% else %}报告生成时暂无数据{% endif %}</td>
         </tr>
       </tbody>
     </table>
@@ -385,22 +385,22 @@
     <div class="stats-container">
       <div class="stat-card">
         <div class="stat-label">风机数量</div>
-        <div class="stat-value">{{ turbineStats.turbineCount }}</div>
+        <div class="stat-value">23</div>
       </div>
       
       <div class="stat-card">
         <div class="stat-label">平均风速</div>
-        <div class="stat-value">{% if turbineStats.avgSpeed %}{{ turbineStats.avgSpeed }} m/s{% else %}N/A{% endif %}</div>
+        <div class="stat-value">{% if turbineStats.avgSpeed %}6248.59 m/s{% else %}N/A{% endif %}</div>
       </div>
       
       <div class="stat-card">
         <div class="stat-label">总功率</div>
-        <div class="stat-value">{% if turbineStats.totalPower %}{{ turbineStats.totalPower }} kW{% else %}N/A{% endif %}</div>
+        <div class="stat-value">{% if turbineStats.totalPower %}10.56 kW{% else %}N/A{% endif %}</div>
       </div>
       
       <div class="stat-card">
         <div class="stat-label">平均推力系数</div>
-        <div class="stat-value">{% if turbineStats.avgCt %}{{ turbineStats.avgCt }}{% else %}N/A{% endif %}</div>
+        <div class="stat-value">{% if turbineStats.avgCt %}185.764{% else %}N/A{% endif %}</div>
       </div>
     </div>
     
@@ -408,10 +408,10 @@
       <h4>性能调整概述</h4>
       <p>通过流场仿真和动态调整，风机群整体性能获得了优化：</p>
       <ul>
-        <li>入口风速：{{ parameters.conditions.inletWindSpeed }} m/s</li>
-        <li>调整后平均风速：{% if turbineStats.avgSpeed %}{{ turbineStats.avgSpeed }} m/s{% else %}暂无数据{% endif %}</li>
-        <li>平均风速变化：{% if turbineSpeedChange %}{{ turbineSpeedChange }} %{% else %}暂无数据{% endif %}</li>
-        <li>总发电量：{% if turbineStats.totalPower %}{{ turbineStats.totalPower }} kW{% else %}暂无数据{% endif %}</li>
+        <li>入口风速：10 m/s</li>
+        <li>调整后平均风速：{% if turbineStats.avgSpeed %}6248.59 m/s{% else %}暂无数据{% endif %}</li>
+        <li>平均风速变化：{% if turbineSpeedChange %} %{% else %}暂无数据{% endif %}</li>
+        <li>总发电量：{% if turbineStats.totalPower %}10.56 kW{% else %}暂无数据{% endif %}</li>
       </ul>
     </div>
     
@@ -438,15 +438,15 @@
       <tbody>
         <tr>
           <td>平均风速变化</td>
-          <td colspan="2">{{ turbineSpeedChange }} %</td>
+          <td colspan="2"> %</td>
         </tr>
         <tr>
           <td>总功率变化</td>
-          <td colspan="2">{{ turbinePowerChange }} %</td>
+          <td colspan="2"> %</td>
         </tr>
         <tr>
           <td>推力系数平均变化</td>
-          <td colspan="2">{{ turbineCtChange }} %</td>
+          <td colspan="2"> %</td>
         </tr>
       </tbody>
     </table>
@@ -475,12 +475,12 @@
         {% for turbine in turbineData %}
           {% if loop.index <= 10 %}
           <tr>
-            <td>{{ turbine.id }}</td>
-            <td>{{ turbine.initSpeed }}</td>
-            <td>{{ turbine.adjSpeed }}</td>
-            <td>{{ turbine.initPower }}</td>
-            <td>{{ turbine.adjPower }}</td>
-            <td>{{ turbine.adjCt }}</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
           </tr>
           {% endif %}
         {% endfor %}
@@ -504,7 +504,7 @@
     <p class="note">以上建议基于单一工况计算结果，实际应用时应结合多工况和长期气象数据进行综合评估。</p>
     
     <div class="footer">
-      <p>风场流场计算报告 - {{ caseName }} - 第 5 页</p>
+      <p>风场流场计算报告 - WangGE - 第 5 页</p>
       <p>© 2025 风场流场仿真系统</p>
     </div>
   </div>
