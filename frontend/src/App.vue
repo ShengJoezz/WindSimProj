@@ -1,13 +1,4 @@
-<!--
- * @Author: joe 847304926@qq.com
- * @Date: 2024-12-30 10:58:27
- * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-01-10 17:16:31
- * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\frontend\src\App.vue
- * @Description: 
- * 
- * Copyright (c) 2025 by joe, All Rights Reserved.
- -->
+<!-- /frontend/src/App.vue -->
 <template>
   <div class="app-container" role="application">
     <Dashboard />

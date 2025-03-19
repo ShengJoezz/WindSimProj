@@ -1,11 +1,12 @@
+<!-- frontend/src/components/ResultsDisplay.vue -->
 <!--
  * @Author: joe 847304926@qq.com
  * @Date: 2025-03-16 19:34:42
- * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-03-16 20:47:44
+ * @LastEditors: joe 您的名字
+ * @LastEditTime: 2025-03-17 调整为当前日期
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\ResultsDisplay.vue
- * @Description: 
- * 
+ * @Description:
+ *
  * Copyright (c) 2025 by joe, All Rights Reserved.
 -->
 
@@ -22,7 +23,7 @@
         <button class="export-button" @click="exportLayerPhotos">
           <i class="fa fa-image"></i>  导出速度场文件
         </button>
-        <!-- 新增PDF报告按钮 -->
+        <!-- 新增PDF报告按钮 - 简化调用，无需传递图表引用 -->
         <button class="export-button pdf-button" @click="generatePdfReport">
           <i class="fa fa-file-pdf"></i>  生成PDF报告
         </button>
@@ -61,14 +62,11 @@
         />
       </div>
     </div>
-   <!-- 添加PDF生成器组件 -->
-   <div class="pdf-button-container">
+    <!-- 添加PDF生成器组件 -->
+    <div class="pdf-button-container">
       <PDFReportGenerator
         v-if="caseStore.currentCaseId"
         :caseId="caseStore.currentCaseId"
-        :vtk-viewer-ref="vtkViewerRef"
-        :velocity-field-ref="velocityRef"
-        :wind-turbine-ref="getWindTurbineRef()"
         ref="pdfGeneratorRef"
       />
     </div>
@@ -81,74 +79,33 @@ import VTKViewer from '@/components/VTKViewer.vue';
 import VelocityFieldDisplay from '@/components/VelocityFieldDisplay.vue';
 import PDFReportGenerator from '@/components/PDFReportGenerator.vue';
 import { useCaseStore } from '@/store/caseStore';
+import { useRouter } from 'vue-router'; // 引入 useRouter
 
 const caseStore = useCaseStore();
+const router = useRouter(); // 初始化 router
 
 // 用于获取组件实例的引用
 const vtkViewerRef = ref(null);
 const velocityRef = ref(null);
 const pdfGeneratorRef = ref(null);
 
-// 获取风机组件的引用
-function getWindTurbineRef() {
-  // 这里直接从DOM中获取组件，它可能是通过路由加载的
-  const windTurbineElement = document.querySelector('.wind-performance');
-  if (windTurbineElement && windTurbineElement.__vue__) {
-    return windTurbineElement.__vue__;
-  }
-  
-  // 查找可能的Vue 3组件实例
-  // Vue 3中组件实例会挂载在__vnode或者_vnode下
-  if (windTurbineElement && (windTurbineElement.__vnode || windTurbineElement._vnode)) {
-    // 尝试获取Vue 3组件实例
-    return windTurbineElement;
-  }
-  
-  // 如果什么都找不到，返回null
-  return {
-    turbineCount: caseStore.windTurbines.length,
-    speedComparisonOverviewChart: null,
-    powerComparisonOverviewChart: null,
-    performanceChangeChart: null
-  };
-}
-
-// 生成PDF报告
-const generatePdfReport = () => {
-  // 检查是否需要先获取风机管理组件的引用
-  const windTurbineRef = getWindTurbineRef();
-  
+// 生成PDF报告 - 简化调用，无需传递风机引用，数据由后端服务准备
+const generatePdfReport = async () => {
   if (pdfGeneratorRef.value) {
-    pdfGeneratorRef.value.generatePDF();
-  } else {
-    showNotification('PDF生成器组件未加载', 'error');
-  }
-};
+    try {
+      showNotification('正在生成PDF报告...', 'info');
 
-// 获取WindTurbineManagement组件的引用
-const fetchWindTurbineComponent = async () => {
-  // 先跳转到风机管理页面以确保组件加载
-  await router.push({
-    name: 'WindManagement',
-    params: { caseId: caseStore.currentCaseId }
-  });
-  
-  // 给组件一些时间加载
-  setTimeout(() => {
-    // 获取组件引用
-    const windManagementComponent = document.querySelector('.wind-performance');
-    if (windManagementComponent && windManagementComponent.__vue__) {
-      windTurbineRef.value = windManagementComponent.__vue__;
-      
-      // 返回到结果页面
-      router.push({
-        name: 'ResultsDisplay',
-        params: { caseId: caseStore.currentCaseId }
-      });
-    } else {
-      showNotification('无法获取风机性能数据', 'warning');
+      // 直接调用 PDF 生成器，无需传递额外的引用
+      await pdfGeneratorRef.value.generatePDF();
+
+      showNotification('PDF报告生成成功', 'success');
+    } catch (error) {
+      console.error('PDF报告生成失败:', error);
+      showNotification('PDF报告生成失败: ' + error.message, 'error');
     }
-  }, 500);
+  } else {
+    showNotification('PDF生成器未准备好', 'error');
+  }
 };
 
 // 通知反馈状态

@@ -1,30 +1,20 @@
-/*
- * @Author: joe 847304926@qq.com
- * @Date: 2025-01-10 16:46:19
- * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-02-16 21:54:51
- * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\backend\app.js
- * @Description:
- *
- * Copyright (c) 2025 by joe, All Rights Reserved.
- */
-
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const helmet = require('helmet');             // 新增 helmet 中间件
-const morgan = require('morgan');             // 新增 morgan 日志中间件
+const helmet = require('helmet');
+const morgan = require('morgan');
 const http = require('http');
 const { Server } = require('socket.io');
 
 const casesRouter = require('./routes/cases');
 const windTurbinesRouter = require('./routes/windTurbinesRouter');
 const errorHandler = require('./middleware/errorHandler');
+const terrainRouter = require('./routes/terrain');
 
 const app = express();
 
-app.use(helmet());                            // 使用 helmet 中间件
-app.use(morgan('combined'));                  // 使用 morgan 中间件
+app.use(helmet());
+app.use(morgan('combined'));
 
 app.use(cors({
   origin: ['http://localhost:5173'],
@@ -36,16 +26,25 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-app.use('/api/cases', casesRouter);
-app.use('/api/cases/:caseId/wind-turbines', windTurbinesRouter);
-
+// Log all incoming requests but don't terminate them
 app.use((req, res, next) => {
   console.log('\n=== 新请求 ===');
   console.log(`${req.method} ${req.url}`);
   console.log('Headers:', req.headers);
+  next(); // Important! Continue to the next middleware
+});
+
+// Route definitions
+app.use('/api/cases', casesRouter);
+app.use('/api/cases/:caseId/wind-turbines', windTurbinesRouter);
+app.use('/api/cases', terrainRouter);
+
+// 404 handler - should be AFTER all your routes
+app.use((req, res, next) => {
   res.status(404).json({ success: false, message: 'Route not found' });
 });
 
+// Error handler
 app.use(errorHandler);
 
 const server = http.createServer(app);
@@ -69,7 +68,7 @@ io.on('connection', (socket) => {
 
 app.set('socketio', io);
 
-const PORT = process.env.PORT || 5000; // 从环境变量或默认值获取端口
+const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`后端服务器运行在端口 ${PORT}`);
 });

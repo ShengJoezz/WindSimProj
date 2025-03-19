@@ -77,7 +77,7 @@ const elevationLabels = computed(() => {
   position: absolute;
   bottom: 24px;
   right: 24px;
-  width: 320px;
+  width: 450px;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   z-index: 10;
 }

@@ -1,14 +1,4 @@
-<!--
- * @Author: joe 847304926@qq.com
- * @Date: 2025-03-16 19:06:52
- * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-03-16 19:06:58
- * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\Dashboard.vue
- * @Description: 
- * 
- * Copyright (c) 2025 by joe, All Rights Reserved.
--->
-
+<!-- /frontend/src/components/Dashboard.vue -->
 <template>
   <div class="dashboard-container" role="navigation">
     <el-menu
@@ -362,7 +352,7 @@ const getMenuItemClass = (item) => {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 12px;
-  background-image: 
+  background-image:
     radial-gradient(circle at 10% 20%, rgba(30, 41, 59, 0.4) 0%, transparent 20%),
     radial-gradient(circle at 90% 80%, rgba(30, 41, 59, 0.4) 0%, transparent 20%);
 }
@@ -601,11 +591,11 @@ const getMenuItemClass = (item) => {
   .el-menu-vertical-demo:not(.el-menu--collapse) {
     width: 240px;
   }
-  
+
   .el-menu-item {
     font-size: 13px;
   }
-  
+
   .logo-text {
     font-size: 18px;
   }

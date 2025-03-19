@@ -1,15 +1,4 @@
-<!--
- * @Author: joe 847304926@qq.com
- * @Date: 2025-03-16 17:12:18
- * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-03-16 19:01:11
- * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\TerrainMap.vue
- * @Description: 
- * 
- * Copyright (c) 2025 by joe, All Rights Reserved.
--->
-
-<!-- TerrainMap.vue -->
+<!-- frontend/src/components/TerrainMap/TerrainMap.vue -->
 <template>
   <div class="map-wrapper">
     <!-- Terrain Rendering Area -->
@@ -29,6 +18,7 @@
     <TopToolbar
       @toggle-sidebar="toggleSidebar"
       @add-turbine="handleAddTurbineClick"
+      @toggle-terrain-clipping="toggleTerrainClipping"
     />
 
     <!-- Left Sidebar: Control Panel -->
@@ -53,6 +43,23 @@
       @add-turbine="addWindTurbineToScene"
       @import-turbines="handleBulkImport"
     />
+
+    <!-- Terrain Clipping Panel -->
+    <TerrainClipping
+      v-model:visible="sidebars.terrainClipping"
+      :geographic-bounds="formattedGeoBounds"
+      @preview-crop="previewCropArea"
+      @apply-crop="applyCropArea"
+      @save-terrain="saveClippedTerrain"
+    />
+
+    <!-- Crop Preview Overlay -->
+    <div v-if="cropPreviewActive" class="crop-preview-overlay">
+      <div class="crop-preview-info">
+        <span>预览裁剪区域</span>
+        <el-button size="small" type="danger" @click="cancelCropPreview">取消</el-button>
+      </div>
+    </div>
 
     <!-- Terrain Info Box -->
     <TerrainInfo
@@ -81,13 +88,14 @@ import { ref, onMounted, onBeforeUnmount, watch, computed, nextTick } from "vue"
 import { useRoute, onBeforeRouteLeave } from 'vue-router';
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
-import { ElLoading, ElMessage, ElMessageBox } from "element-plus";
+import { ElLoading, ElMessage, ElMessageBox, ElLoadingService } from "element-plus";
 import { useCaseStore } from "../../store/caseStore";
 import TopToolbar from "./TopToolbar.vue";
 import ControlPanel from "./ControlPanel.vue";
 import WindTurbineManagement from "./WindTurbineManagement.vue";
 import TerrainInfo from "./TerrainInfo.vue";
 import TurbineTooltip from "./TurbineTooltip.vue";
+import TerrainClipping from "./TerrainClipping.vue"; // Import TerrainClipping Component
 import axios from "axios";
 import { fromArrayBuffer } from "geotiff";
 import Papa from "papaparse";
@@ -107,10 +115,15 @@ const rotationSpeed = ref(1.0);
 const sidebars = ref({
   control: false,
   management: false,
+  terrainClipping: false, // Add terrainClipping to sidebars state
 });
 const hoveredTurbine = ref(null);
 const tooltipPos = ref({ x: 0, y: 0 });
 const hasRendererInitialized = ref(false);
+const cropPreviewActive = ref(false);
+const cropPreviewBounds = ref(null);
+let cropPreviewMesh = null;
+
 
 // Three.js 变量
 let scene, camera, renderer, controls;
@@ -178,21 +191,37 @@ const toggleSidebar = (type) => {
     sidebars.value[type]
   );
 
-  // 关闭其他侧边栏
+  // Close other sidebars when opening a new one
   Object.keys(sidebars.value).forEach((key) => {
     if (key !== type) {
       sidebars.value[key] = false;
     }
   });
 
-  // 切换目标侧边栏
+  // Toggle the target sidebar
   sidebars.value[type] = !sidebars.value[type];
+
+  // Cancel crop preview when closing terrain clipping panel
+  if (type === 'terrainClipping' && !sidebars.value.terrainClipping) {
+    cancelCropPreview();
+  }
 };
 
 // 处理添加风机按钮点击
 const handleAddTurbineClick = () => {
   sidebars.value.management = true;
 };
+
+// 添加处理裁剪地形按钮点击的方法
+const handleClipTerrainClick = () => {
+  // 关闭其他侧边栏，打开地形裁剪面板
+  Object.keys(sidebars.value).forEach((key) => {
+    sidebars.value[key] = key === 'terrainClipping';
+  });
+  // 或者简单地设置
+  // sidebars.value.terrainClipping = true;
+};
+
 
 // 切换线框模式
 const toggleWireframe = () => {
@@ -415,6 +444,26 @@ const deleteWindTurbineFromScene = (turbineId) => {
   }
 };
 
+// 添加一个专门用于切换地形裁剪面板的方法
+const toggleTerrainClipping = () => {
+  // 切换地形裁剪面板的显示状态
+  sidebars.value.terrainClipping = !sidebars.value.terrainClipping;
+  
+  // 如果打开地形裁剪面板，则关闭其他面板
+  if (sidebars.value.terrainClipping) {
+    Object.keys(sidebars.value).forEach(key => {
+      if (key !== 'terrainClipping') {
+        sidebars.value[key] = false;
+      }
+    });
+  }
+  
+  // 如果关闭了地形裁剪面板，取消任何正在进行的裁剪预览
+  if (!sidebars.value.terrainClipping) {
+    cancelCropPreview();
+  }
+};
+
 // 将经纬度映射到 XZ 坐标
 const mapLatLonToXZ = (latitude, longitude) => {
   if (
@@ -517,7 +566,7 @@ const loadGeoTIFF = async (caseId) => {
     const data = rasters[0];
 
     // 数据下采样以限制数据点数量
-    const maxDataPoints = 120000;
+    const maxDataPoints = 100000;
     let downsampleFactor = 1;
     const totalPoints = width * height;
     if (totalPoints > maxDataPoints) {
@@ -861,6 +910,175 @@ const disposeThreeResources = () => {
   }
 };
 
+// --- Terrain Cropping Functionality ---
+
+const previewCropArea = (bounds) => {
+  // Remove previous preview if exists
+  if (cropPreviewMesh) {
+    scene.remove(cropPreviewMesh);
+    cropPreviewMesh = null;
+  }
+
+  if (!bounds) {
+    cropPreviewActive.value = false;
+    return;
+  }
+
+  cropPreviewActive.value = true;
+  cropPreviewBounds.value = bounds;
+
+  // Create a more visually appealing preview
+  const { minLat, minLon, maxLat, maxLon } = bounds;
+  const minXZ = mapLatLonToXZ(minLat, minLon);
+  const maxXZ = mapLatLonToXZ(maxLat, maxLon);
+
+  // Create the group for all preview elements
+  cropPreviewMesh = new THREE.Group();
+
+  // Sample terrain heights at corners and center
+  const corners = [
+    { x: minXZ.x, z: minXZ.z },
+    { x: maxXZ.x, z: minXZ.z },
+    { x: maxXZ.x, z: maxXZ.z },
+    { x: minXZ.x, z: maxXZ.z },
+    { x: (minXZ.x + maxXZ.x) / 2, z: (minXZ.z + maxXZ.z) / 2 } // center
+  ];
+
+  const heights = corners.map(({x, z}) => getTerrainHeight(x, z) || 0);
+  const minHeight = Math.min(...heights);
+  const maxHeight = Math.max(...heights);
+
+  // Create box shape with height to cover from min to max terrain height plus padding
+  const width = Math.abs(maxXZ.x - minXZ.x);
+  const depth = Math.abs(maxXZ.z - minXZ.z);
+  const heightPadding = 100; // Add some padding above and below the terrain
+  const boxHeight = Math.max(maxHeight - minHeight + heightPadding, 20); // Ensure minimum height
+
+  // Create semi-transparent box
+  const boxGeometry = new THREE.BoxGeometry(width, boxHeight, depth);
+  const boxMaterial = new THREE.MeshBasicMaterial({
+    color: 0x22cc88,
+    transparent: true,
+    opacity: 0.15,
+    depthWrite: false // Prevent z-fighting
+  });
+
+  const boxMesh = new THREE.Mesh(boxGeometry, boxMaterial);
+  boxMesh.position.set(
+    (minXZ.x + maxXZ.x) / 2,
+    minHeight + boxHeight / 2,
+    (minXZ.z + maxXZ.z) / 2
+  );
+  cropPreviewMesh.add(boxMesh);
+
+  // Add wireframe edges
+  const edgeGeometry = new THREE.EdgesGeometry(boxGeometry);
+  const edgeMaterial = new THREE.LineBasicMaterial({
+    color: 0x00aa66,
+    linewidth: 2
+  });
+
+  const edgeMesh = new THREE.LineSegments(edgeGeometry, edgeMaterial);
+  edgeMesh.position.copy(boxMesh.position);
+  cropPreviewMesh.add(edgeMesh);
+
+  // Add corner posts to the ground
+  const postRadius = 1.5;
+  const postHeight = boxHeight + 20; // Extend posts slightly beyond box
+  const postGeometry = new THREE.CylinderGeometry(postRadius, postRadius, postHeight, 8);
+  const postMaterial = new THREE.MeshBasicMaterial({ color: 0x22cc88 });
+
+  // Create four corner posts
+  [
+    { x: minXZ.x, z: minXZ.z },
+    { x: maxXZ.x, z: minXZ.z },
+    { x: maxXZ.x, z: maxXZ.z },
+    { x: minXZ.x, z: maxXZ.z }
+  ].forEach(({x, z}) => {
+    const height = getTerrainHeight(x, z) || 0;
+    const post = new THREE.Mesh(postGeometry, postMaterial);
+    post.position.set(x, height + postHeight/2, z);
+    cropPreviewMesh.add(post);
+  });
+
+  scene.add(cropPreviewMesh);
+};
+
+const cancelCropPreview = () => {
+  if (cropPreviewMesh) {
+    scene.remove(cropPreviewMesh);
+    cropPreviewMesh = null;
+  }
+  cropPreviewActive.value = false;
+  cropPreviewBounds.value = null;
+};
+
+const applyCropArea = async (bounds) => {
+  let loading = ElLoading.service({
+    lock: true,
+    text: '正在裁剪地形...',
+    background: 'rgba(0, 0, 0, 0.7)'
+  });
+
+  try {
+    const { caseId } = route.params;
+    const response = await axios.post(`/api/cases/${caseId}/terrain/crop`, bounds);
+
+    if (response.data.success) {
+      cancelCropPreview(); // Remove preview after successful crop
+      await loadGeoTIFF(caseId); // Reload the terrain
+      ElMessage.success('地形裁剪成功');
+    } else {
+      ElMessage.error(response.data.message || '地形裁剪失败');
+    }
+  } catch (error) {
+    console.error('裁剪地形失败', error);
+    ElMessage.error('裁剪地形失败: ' + (error.response?.data?.message || error.message));
+  } finally {
+    loading.close();
+  }
+};
+
+const saveClippedTerrain = async (saveOptions) => {
+  let loading = ElLoading.service({
+    lock: true,
+    text: '正在保存地形...',
+    background: 'rgba(0, 0, 0, 0.7)'
+  });
+
+  try {
+    const { caseId } = route.params;
+    const response = await axios.post(
+      `/api/cases/${caseId}/terrain/save`,
+      saveOptions,
+      { responseType: 'blob' } // Expecting a binary blob as response
+    );
+
+    // Create download link
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+
+    // Determine file extension based on format
+    const extension = saveOptions.format === 'geotiff' ? '.tif' : '.asc';
+    link.setAttribute('download', `${saveOptions.filename}${extension}`);
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link); // Clean up link
+
+    ElMessage.success('地形数据已保存');
+  } catch (error) {
+    console.error('保存地形失败', error);
+    ElMessage.error('保存地形失败: ' + (error.response?.data?.message || error.message));
+  } finally {
+    loading.close();
+  }
+};
+
+// --- End Terrain Cropping Functionality ---
+
+
 // 生命周期钩子
 
 const loadAndDisplayTurbines = async () => {
@@ -1037,5 +1255,26 @@ watch(
 
 :deep(.el-loading-spinner) {
   transform: scale(1.2);
+}
+
+/* Crop Preview Styles */
+.crop-preview-overlay {
+  position: absolute;
+  top: 80px;
+  left: 24px;
+  background: rgba(0, 200, 0, 0.8);
+  color: white;
+  padding: 10px 16px;
+  border-radius: 8px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.crop-preview-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 </style>
