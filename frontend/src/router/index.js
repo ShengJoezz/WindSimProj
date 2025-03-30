@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-03-30 14:43:20
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-03-30 17:42:27
+ * @LastEditTime: 2025-03-30 20:44:59
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\router\index.js
  * @Description: 
  * 
@@ -16,16 +16,10 @@ import NewCase from "../views/NewCase.vue";
 import Cases from "../views/Cases.vue";
 import { ElMessage } from 'element-plus';
 import { useCaseStore } from "../store/caseStore"; // Keep this for calculation check
-import VTKTest from '@/components/VTKTest.vue'; // Keep if used
-import { useWindMastStore } from "../store/windMastStore"; // 导入 windMast store
+import windMastRoutes from './windmast.routes';
 
 
 const routes = [
-  {
-    path: "/windmast", 
-    name: "WindMastAnalysis",
-    component: () => import("../components/WindDataAnalysis/WindMastAnalysisView.vue"),
-  },
   { path: "/", name: "Home", component: Home },
   { path: "/new", name: "NewCase", component: NewCase },
   { path: "/cases", name: "Cases", component: Cases },
@@ -75,6 +69,7 @@ const routes = [
     // Add beforeEnter guard if needed for CaseDetails itself
     // beforeEnter: (to, from, next) => { ... }
   },
+  ...windMastRoutes
   // Add other top-level routes if any
 ];
 

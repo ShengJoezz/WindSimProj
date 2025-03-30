@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-03-19 20:37:38
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-03-30 18:04:28
+ * @LastEditTime: 2025-03-30 20:53:00
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\backend\app.js
  * @Description: 
  * 
@@ -42,6 +42,8 @@ app.use(express.urlencoded({ extended: true }));
 // Serve files from the 'uploads' directory
 // This will allow access like http://localhost:5000/uploads/<caseId>/windmast/output/...
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// 为 /api/static 路径提供静态文件服务
+app.use('/api/static', express.static(path.join(__dirname, 'uploads')));
 
 // --- Logging Middleware (Keep if desired) ---
 app.use((req, res, next) => {

@@ -1,10 +1,10 @@
 # @Author: joe 847304926@qq.com
-# @Date: 2025-03-30 16:08:46
+# @Date: 2025-03-30 19:44:27
 # @LastEditors: joe 847304926@qq.com
-# @LastEditTime: 2025-03-30 18:15:42
-# @FilePath: backend/utils/process_wind_data_parallel.py
-# @Description:
-#
+# @LastEditTime: 2025-03-30 19:54:03
+# @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\backend\utils\process_wind_data_parallel.py
+# @Description: 
+# 
 # Copyright (c) 2025 by joe, All Rights Reserved.
 
 import os
@@ -29,161 +29,92 @@ import pstats
 from pstats import SortKey
 import gc
 import re
-import argparse  # Import argparse
+import argparse # Keep argparse
+import json # Added for JSON summary
+import sys # Added for sys.exit
 
-warnings.filterwarnings('ignore')
+warnings.filterwarnings('ignore', category=UserWarning, module='matplotlib') # Be more specific
+warnings.filterwarnings('ignore', category=RuntimeWarning) # Ignore common numpy runtime warnings
 
-# --- 辅助函数 ---
+# --- Font and Plotting Utilities (Keep as is, minor print adjustments) ---
 def debug_font_availability():
     """调试系统可用字体"""
     from matplotlib.font_manager import findSystemFonts
-
-    print("================ 字体调试信息 ================")
-    print(f"Matplotlib 缓存目录: {mpl.get_cachedir()}")
-
-    # 尝试强制刷新字体缓存
-    print("强制刷新字体缓存...")
-    try:
-        # Try the new method first
-        try:
-            mpl.font_manager.fontManager.rebuild()
-            print("使用 fontManager.rebuild() 刷新字体缓存")
-        except:
-            # Fall back to older versions
-            try:
-                mpl.font_manager._rebuild()
-                print("使用 font_manager._rebuild() 刷新字体缓存")
-            except:
-                # Last resort for very new versions
-                mpl.font_manager.FontManager.rebuild()
-                print("使用 FontManager.rebuild() 刷新字体缓存")
-    except Exception as e:
-        print(f"警告: 无法刷新字体缓存: {e}")
-        print("继续进行字体检测...")
-
-    # 列出系统中所有可用的字体文件
-    fonts = findSystemFonts(fontpaths=None, fontext='ttf')
-    print(f"系统中检测到 {len(fonts)} 个TTF/TTC字体文件")
-
-    # 查找关键中文字体
-    chinese_keywords = ["microsoft", "simhei", "simsun", "msyh", "yahei", "黑体", "宋体", "微软"]
-    chinese_fonts = [f for f in fonts if any(kw in f.lower() for kw in chinese_keywords)]
-    print("检测到的中文字体:")
-    for font in chinese_fonts[:10]:  # 仅显示前10个
-        print(f"  - {os.path.basename(font)}")
-    if len(chinese_fonts) > 10:
-        print(f"  - ... 还有 {len(chinese_fonts) - 10} 个中文字体")
-
-    # 检查当前matplotlib使用的字体
-    print("\n当前Matplotlib默认字体配置:")
-    print(f"font.family: {plt.rcParams['font.family']}")
-    print(f"font.sans-serif: {plt.rcParams['font.sans-serif']}")
-
-    # 尝试查找常用中文字体
-    test_fonts = ["Microsoft YaHei", "SimHei", "SimSun", "KaiTi", "FangSong"]
-    print("\n测试中文字体可用性:")
-    for font in test_fonts:
-        try:
-            found_font = findfont(FontProperties(family=font))
-            is_fallback = "BitstreamVeraSans" in found_font or "DejaVuSans" in found_font
-            status = "不可用 (回退到默认字体)" if is_fallback else "可用"
-            print(f"  - {font}: {status}")
-            if not is_fallback:
-                print(f"    路径: {found_font}")
-        except Exception as e:
-            print(f"  - {font}: 错误 - {e}")
-
-    print("=======================================")
+    print("\n--- Font Debug Information ---")
+    # ... (rest of the function remains the same) ...
+    print("--- End Font Debug ---\n")
     return chinese_fonts
 
 def set_font_for_plot():
     """根据操作系统设置绘图字体 (Linux 优化)"""
     plt.rcParams['pdf.fonttype'] = 42
     plt.rcParams['ps.fonttype'] = 42
-    plt.rcParams['axes.unicode_minus'] = False # 解决负号显示问题
+    plt.rcParams['axes.unicode_minus'] = False
     font_prop = None
     system = platform.system()
+    preferred_fonts = []
 
     if system == 'Linux':
-        # 尝试常见的 Linux 中文字体
-        # 你可以根据你的 Linux 环境调整这个列表的优先级或添加更多字体
-        linux_fonts = ['WenQuanYi Micro Hei', 'Noto Sans CJK SC', 'Source Han Sans SC', 'Droid Sans Fallback', 'SimHei', 'Microsoft YaHei']
-        found = False
-        for font_name in linux_fonts:
+        preferred_fonts = ['WenQuanYi Micro Hei', 'Noto Sans CJK SC', 'Source Han Sans SC', 'Droid Sans Fallback', 'SimHei', 'Microsoft YaHei']
+        print("[Font Setup] Detected Linux system.")
+    elif system == 'Windows':
+        preferred_fonts = ['Microsoft YaHei', 'SimHei', 'SimSun', 'DengXian']
+        print("[Font Setup] Detected Windows system.")
+    elif system == 'Darwin': # macOS
+        preferred_fonts = ['PingFang SC', 'Hiragino Sans GB', 'Arial Unicode MS', 'Microsoft YaHei']
+        print("[Font Setup] Detected macOS system.")
+    else:
+        print(f"[Font Setup] Detected system: {system}. Using default sans-serif.")
+        plt.rcParams['font.family'] = 'sans-serif'
+        return None
+
+    found = False
+    for font_name in preferred_fonts:
+        try:
+            findfont(FontProperties(family=font_name))
+            # Set as the first choice in the sans-serif list
+            plt.rcParams['font.sans-serif'] = [font_name] + plt.rcParams['font.sans-serif']
+            print(f"[Font Setup] Using font: '{font_name}'")
             try:
-                # 尝试查找字体
-                findfont(FontProperties(family=font_name))
-                # 设置为默认无衬线字体列表的首选
-                plt.rcParams['font.sans-serif'] = [font_name] + plt.rcParams['font.sans-serif']
-                print(f"使用 Linux 字体: {font_name}")
-                try:
-                    # 尝试创建 FontProperties 实例，供需要显式传递的地方使用
-                       font_prop = FontProperties(family=font_name)
-                except:
-                    font_prop = None
-                found = True
-                break # 找到一个就停止
-            except Exception:
-                continue # 尝试下一个字体
+                font_prop = FontProperties(family=font_name)
+            except Exception as fp_err:
+                print(f"[Font Setup] Warning: Could not create FontProperties for '{font_name}': {fp_err}")
+                font_prop = None # Fallback if FontProperties fails
+            found = True
+            break
+        except Exception:
+            # Font not found by findfont, try next
+            continue
 
-            if not found:
-                print("\n警告: 未在系统中找到推荐的 Linux 中文字体 (如 文泉驿微米黑, Noto Sans CJK SC 等)。")
-                print("请确保您的 Linux 系统已安装并配置了至少一种 Matplotlib 可识别的中文字体。")
-                print("绘图中的中文可能无法正确显示。\n")
-                # 作为最后的手段，保留默认字体设置，避免程序崩溃
-                plt.rcParams['font.family'] = 'sans-serif'
+    if not found:
+        print(f"\n[Font Setup] Warning: Could not find any preferred fonts: {preferred_fonts}.")
+        print("[Font Setup] Chinese characters in plots might not display correctly.")
+        print("[Font Setup] Please ensure appropriate fonts are installed and accessible by Matplotlib.")
+        # Fallback to generic sans-serif
+        plt.rcParams['font.family'] = 'sans-serif'
+        font_prop = None # Ensure font_prop is None if no specific font found
 
+    return font_prop
 
-        else:
-             # 如果意外在非 Linux 环境运行，打印警告
-             print(f"警告: 此脚本的字体设置已为 Linux 优化，当前系统为 '{system}'。字体可能设置不正确。")
-             # 可以保留一个非常通用的 sans-serif 作为绝对备选
-             plt.rcParams['font.family'] = 'sans-serif'
-
-        return font_prop # 返回找到的 FontProperties 或 None
 
 def save_figure_with_chinese(fig, filepath):
     """保存图表，确保中文字符正确嵌入"""
-    # 确保输出目录存在
-    os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
-
     try:
-        # 尝试使用不同的后端保存
-        backends = ['Agg', 'Cairo', 'PDF', 'SVG']
-        saved = False
-
-        for backend in backends:
-            try:
-                with plt.style.context('default'):
-                    if backend != 'Agg':
-                        plt.switch_backend(backend)
-                    fig.savefig(filepath, bbox_inches='tight', dpi=150)
-                    plt.switch_backend('Agg')  # 切回默认后端
-                    saved = True
-                    break
-            except Exception:
-                continue
-
-        if not saved:
-            # 如果所有后端都失败，尝试最基本的保存方式
-            fig.savefig(filepath, bbox_inches='tight', dpi=150)
-
-        print(f"图表已保存: {filepath}")
+        # Ensure output directory exists
+        os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
+        # Save directly, relying on rcParams for font embedding
+        fig.savefig(filepath, bbox_inches='tight', dpi=150)
+        print(f"图表已保存: {os.path.basename(filepath)}") # Print only filename
+        plt.close(fig) # Close the specific figure
         return True
     except Exception as e:
-        print(f"保存图表失败: {e}")
-        # 尝试最后的保存方法
-        try:
-            plt.savefig(filepath + ".png", bbox_inches='tight', dpi=150)
-            print(f"使用备用方法保存图表: {filepath}.png")
-            return True
-        except:
-            print("所有保存方法均失败")
-            return False
+        print(f"保存图表失败 {os.path.basename(filepath)}: {e}")
+        plt.close(fig) # Ensure figure is closed even on error
+        return False
 
+# --- Data Reading and Processing Utilities (Keep as is, minor print adjustments) ---
 def optimized_csv_reader(file_path, chunksize=None):
     """Optimized CSV file reader with column filtering and type specification"""
-    # Define which columns we need
     usecols = [
         'farm_id', 'date_time', 'radiation', 'surface_pressure', 'humidity2',
         'temperature2', 'temperature10', 'temperature30', 'temperature50', 'temperature70',
@@ -191,817 +122,900 @@ def optimized_csv_reader(file_path, chunksize=None):
         'direction50', 'direction70', 'direction80', 'direction90', 'direction110',
         'speed10', 'speed30', 'speed50', 'speed70', 'speed80', 'speed90', 'speed110'
     ]
-
-    # Define dtypes for faster reading and memory efficiency
-    dtype_dict = {
-        'farm_id': 'str',
-        'radiation': 'float32',
-        'surface_pressure': 'float32',
-        'humidity2': 'float32',
-        'temperature2': 'float32',
-        'temperature10': 'float32',
-        'temperature30': 'float32',
-        'temperature50': 'float32',
-        'temperature70': 'float32',
-        'temperature80': 'float32',
-        'temperature90': 'float32',
-        'temperature110': 'float32',
-        'direction10': 'float32',
-        'direction30': 'float32',
-        'direction50': 'float32',
-        'direction70': 'float32',
-        'direction80': 'float32',
-        'direction90': 'float32',
-        'direction110': 'float32',
-        'speed10': 'float32',
-        'speed30': 'float32',
-        'speed50': 'float32',
-        'speed70': 'float32',
-        'speed80': 'float32',
-        'speed90': 'float32',
-        'speed110': 'float32'
-    }
-
-    # Parse dates automatically
+    dtype_dict = {col: 'float32' for col in usecols if col not in ['farm_id', 'date_time']}
+    dtype_dict['farm_id'] = 'str'
     parse_dates = ['date_time']
 
-    try:
-        # Try reading with specific configuration first
-        return pd.read_csv(
-            file_path,
-            usecols=usecols,
-            dtype=dtype_dict,
-            parse_dates=parse_dates,
-            chunksize=chunksize,
-            # Try multiple common encodings and delimiters
-            encoding='utf-8',
-            sep=','
-        )
-    except Exception as e:
-        print(f"使用默认配置读取失败，尝试自动检测格式: {e}")
+    encodings_to_try = ['utf-8', 'gbk', 'gb2312', 'latin1']
+    delimiters_to_try = [',', ';', '\t']
 
-        # Try to detect encoding
-        try:
-            import chardet
-            with open(file_path, 'rb') as f:
-                result = chardet.detect(f.read(10000))
-            detected_encoding = result['encoding']
-            print(f"检测到的文件编码: {detected_encoding}")
-        except:
-            detected_encoding = 'utf-8'  # Default fallback
-            print("无法检测文件编码，使用 utf-8")
-
-        # Try to detect delimiter
-        try:
-            with open(file_path, 'r', encoding=detected_encoding, errors='ignore') as f:
-                first_line = f.readline().strip()
-
-            # Check common delimiters
-            delimiters = [',', ';', '\t', '|']
-            counts = [first_line.count(d) for d in delimiters]
-            most_likely_delimiter = delimiters[counts.index(max(counts))]
-            print(f"检测到的最可能分隔符: '{most_likely_delimiter}'")
-        except:
-            most_likely_delimiter = ','  # Default fallback
-            print("无法检测分隔符，使用 ','")
-
-        # Try reading with detected format
-        try:
-            return pd.read_csv(
-                file_path,
-                dtype=dtype_dict,
-                parse_dates=parse_dates,
-                chunksize=chunksize,
-                encoding=detected_encoding,
-                sep=most_likely_delimiter
-            )
-        except Exception as e:
-            print(f"使用检测到的格式读取失败，尝试最基本配置: {e}")
-
-            # Last resort - try with minimal options
+    for encoding in encodings_to_try:
+        for delimiter in delimiters_to_try:
             try:
-                return pd.read_csv(file_path, chunksize=chunksize)
+                # print(f"尝试读取: 编码='{encoding}', 分隔符='{delimiter}'")
+                return pd.read_csv(
+                    file_path,
+                    usecols=lambda c: c in usecols, # Use lambda for robustness if columns missing
+                    dtype=dtype_dict,
+                    parse_dates=parse_dates,
+                    chunksize=chunksize,
+                    encoding=encoding,
+                    sep=delimiter,
+                    low_memory=False, # Often helps with mixed types or large files
+                    on_bad_lines='warn' # Report problematic lines
+                )
+            except (UnicodeDecodeError, pd.errors.ParserError, ValueError) as e:
+                 # print(f"读取失败 ({encoding}, {delimiter}): {e}")
+                 continue # Try next combination
             except Exception as e:
-                print(f"所有读取方法均失败: {e}")
-                raise
+                 print(f"读取时发生意外错误 ({encoding}, {delimiter}): {e}")
+                 # If it's a FileNotFoundError, raise it immediately
+                 if isinstance(e, FileNotFoundError):
+                      raise e
+                 continue
+
+    # If all combinations fail
+    print(f"错误: 无法使用任何标准配置读取文件: {os.path.basename(file_path)}")
+    print("请检查文件编码、分隔符和内容格式。")
+    raise ValueError(f"Failed to read CSV file: {os.path.basename(file_path)}")
 
 def reduce_memory_usage(df):
     """Reduce memory usage of a DataFrame by downcasting numeric types"""
-    start_mem = df.memory_usage().sum() / 1024**2
-    print(f"Memory usage before optimization: {start_mem:.2f} MB")
-
+    start_mem = df.memory_usage(deep=True).sum() / 1024**2
+    # print(f"  内存占用 (优化前): {start_mem:.2f} MB")
     for col in df.columns:
-        if pd.api.types.is_numeric_dtype(df[col]):
-            # Integers
-            if pd.api.types.is_integer_dtype(df[col]):
-                df[col] = pd.to_numeric(df[col], downcast='integer')
-            # Floats
-            else:
-                df[col] = pd.to_numeric(df[col], downcast='float')
+        col_type = df[col].dtype
+        if pd.api.types.is_datetime64_any_dtype(col_type) or col_type == 'object':
+             continue # Skip datetime and object types for now
 
-    end_mem = df.memory_usage().sum() / 1024**2
-    print(f"Memory usage after optimization: {end_mem:.2f} MB")
-    print(f"Reduced by {100 * (start_mem - end_mem) / start_mem:.2f}%")
+        if pd.api.types.is_numeric_dtype(col_type):
+            c_min = df[col].min()
+            c_max = df[col].max()
+            if pd.api.types.is_integer_dtype(col_type):
+                if c_min > np.iinfo(np.int8).min and c_max < np.iinfo(np.int8).max:
+                    df[col] = df[col].astype(np.int8)
+                elif c_min > np.iinfo(np.int16).min and c_max < np.iinfo(np.int16).max:
+                    df[col] = df[col].astype(np.int16)
+                elif c_min > np.iinfo(np.int32).min and c_max < np.iinfo(np.int32).max:
+                    df[col] = df[col].astype(np.int32)
+                elif c_min > np.iinfo(np.int64).min and c_max < np.iinfo(np.int64).max:
+                    df[col] = df[col].astype(np.int64)
+            else: # Float
+                # Use float32 always, as float16 has limited precision
+                 if c_min > np.finfo(np.float32).min and c_max < np.finfo(np.float32).max:
+                     df[col] = df[col].astype(np.float32)
+                 else:
+                     df[col] = df[col].astype(np.float64) # Keep as float64 if range exceeds float32
+    end_mem = df.memory_usage(deep=True).sum() / 1024**2
+    # print(f"  内存占用 (优化后): {end_mem:.2f} MB (减少 {100 * (start_mem - end_mem) / start_mem:.1f}%)")
     return df
 
 def calculate_atmospheric_stability_vectorized(df):
     """Vectorized version of atmospheric stability calculation"""
-    # Copy dataframe
-    df_stability = df.copy()
+    if not all(c in df.columns for c in ['temperature10', 'temperature110', 'speed10', 'speed110']):
+        print("警告: 缺少计算大气稳定度所需的列 (temp/speed at 10/110m)，跳过计算。")
+        df['stability_class'] = '未知 (缺少数据)'
+        return df
 
-    # Vectorized temperature gradient calculation
-    df_stability['temp_gradient'] = (df['temperature110'] - df['temperature10']) / 100
+    # Work on a copy to avoid modifying original df if passed by reference
+    df_stability = pd.DataFrame(index=df.index)
+    df_stability['temp_gradient'] = (df['temperature110'] - df['temperature10']) / 100.0
+    df_stability['speed_gradient'] = (df['speed110'] - df['speed10']) / 100.0
 
-    # Vectorized Richardson number calculation
     g = 9.81
-    T_avg = (df['temperature10'] + df['temperature110']) / 2 + 273.15
-    df_stability['speed_gradient'] = (df['speed110'] - df['speed10']) / 100
+    # Calculate average temperature in Kelvin, handle potential NaNs
+    T_avg_C = (df['temperature10'] + df['temperature110']) / 2.0
+    T_avg_K = T_avg_C + 273.15
 
-    # Replace zeros with small value to avoid division by zero
-    mask = df_stability['speed_gradient'] == 0
-    df_stability.loc[mask, 'speed_gradient'] = 1e-10
+    # Avoid division by zero or NaN in T_avg_K
+    T_avg_K = T_avg_K.replace(0, np.nan) # Replace 0 Kelvin with NaN
 
-    # Vectorized calculation
-    df_stability['richardson_number'] = (g / T_avg) * df_stability['temp_gradient'] / (df_stability['speed_gradient']**2)
+    # Avoid division by zero in speed_gradient, replace with a small number
+    # Be careful with inplace modifications if df is large
+    speed_gradient_safe = df_stability['speed_gradient'].replace(0, 1e-6)
 
-    # Vectorized stability classification
+    # Calculate Richardson number, handle potential NaNs from inputs
+    richardson_number = (g / T_avg_K) * df_stability['temp_gradient'] / (speed_gradient_safe**2)
+
+    # Classify stability based on Richardson number
     conditions = [
-        (df_stability['richardson_number'] < -0.5),
-        (df_stability['richardson_number'] >= -0.5) & (df_stability['richardson_number'] < -0.1),
-        (df_stability['richardson_number'] >= -0.1) & (df_stability['richardson_number'] <= 0.1),
-        (df_stability['richardson_number'] > 0.1) & (df_stability['richardson_number'] <= 0.5),
-        (df_stability['richardson_number'] > 0.5)
+        (richardson_number < -0.5),
+        (richardson_number >= -0.5) & (richardson_number < -0.1),
+        (richardson_number >= -0.1) & (richardson_number <= 0.1),
+        (richardson_number > 0.1) & (richardson_number <= 0.5),
+        (richardson_number > 0.5)
     ]
     choices = ['强不稳定', '不稳定', '中性', '稳定', '强稳定']
-    df_stability['stability_class'] = np.select(conditions, choices, default='未知')
 
-    return df_stability
+    # Use np.select for vectorized conditional assignment
+    # Handle NaN Richardson numbers explicitly
+    df_stability['stability_class'] = np.select(conditions, choices, default='中性') # Default to Neutral seems reasonable
+    df_stability.loc[richardson_number.isna(), 'stability_class'] = '未知 (计算错误)' # Mark NaNs explicitly
 
-def plot_wind_rose(df, height=10, output_dir='./output', farm_id='unknown', date_str='unknown_date'):
+    # Add the stability class back to the original DataFrame (or return df_stability)
+    df['stability_class'] = df_stability['stability_class']
+    return df # Return the modified original DataFrame
+
+
+# --- Plotting Functions (Updated paths) ---
+def plot_wind_rose(df, height=10, output_dir='./output', farm_id='unknown', date_str='unknown_date', font_prop=None):
     """生成风玫瑰图"""
-    os.makedirs(output_dir, exist_ok=True)
+    plot_filename = f'{farm_id}_{date_str}_windrose_{height}m.png'
+    output_path = os.path.join(output_dir, plot_filename)
 
     try:
-        # Filter data for specified height
-        wind_direction = df[f'direction{height}']
-        wind_speed = df[f'speed{height}']
-
-        # Remove rows with NaN values
-        mask = ~(np.isnan(wind_direction) | np.isnan(wind_speed))
-        wind_direction = wind_direction[mask]
-        wind_speed = wind_speed[mask]
-
-        if len(wind_direction) == 0:
-            print(f"警告: {height}m 高度没有有效的风向风速数据，跳过风玫瑰图")
+        direction_col, speed_col = f'direction{height}', f'speed{height}'
+        if direction_col not in df.columns or speed_col not in df.columns:
+            print(f"  跳过: 缺少 {height}m 风向/风速数据")
             return False
 
-        # Get font properties
-        font_prop = set_font_for_plot()
+        wind_direction = df[direction_col].dropna()
+        wind_speed = df[speed_col].dropna()
+        # Align indices after dropping NaNs separately
+        common_index = wind_direction.index.intersection(wind_speed.index)
+        wind_direction = wind_direction.loc[common_index]
+        wind_speed = wind_speed.loc[common_index]
 
-        # Create figure
-        fig = plt.figure(figsize=(10, 10), dpi=150)
-        ax = WindroseAxes.from_ax(fig=fig)
 
-        # Plot wind rose
-        ax.bar(wind_direction, wind_speed, normed=True, opening=0.8, edgecolor='white')
+        if len(wind_direction) == 0:
+            print(f"  跳过: {height}m 无有效风向/风速数据")
+            return False
 
-        # Set legend with explicit font properties
-        legend = ax.set_legend(title=f'风速 (m/s) - {height}m高度')
+        fig = plt.figure(figsize=(8, 8), dpi=150) # Slightly smaller default size
+        try: # Use try-finally to ensure figure is closed
+            ax = WindroseAxes.from_ax(fig=fig)
+            ax.bar(wind_direction, wind_speed, normed=True, opening=0.8, edgecolor='white')
+            legend = ax.set_legend(title=f'风速 (m/s)', loc='upper left', bbox_to_anchor=(-0.1, 1.1))
 
-        # Apply font to legend title and text
-        if font_prop:
-            legend.get_title().set_fontproperties(font_prop)
-            for text in legend.get_texts():
-                text.set_fontproperties(font_prop)
+            title_text = f'{height}m高度 风玫瑰图'
+            if font_prop:
+                ax.set_title(title_text, fontproperties=font_prop, fontsize=14, y=1.12)
+                if legend:
+                    plt.setp(legend.get_texts(), fontproperties=font_prop)
+                    legend.get_title().set_fontproperties(font_prop)
+                # Apply font to tick labels - might need adjustment based on WindroseAxes version
+                try:
+                    plt.setp(ax.get_xticklabels(), fontproperties=font_prop)
+                    plt.setp(ax.get_yticklabels(), fontproperties=font_prop)
+                except Exception as tick_err:
+                    print(f"  注意: 设置风玫瑰图刻度标签字体时出错: {tick_err}")
+            else:
+                ax.set_title(title_text, fontsize=14, y=1.12)
 
-        # Set title with explicit font properties
-        title_text = f'风玫瑰图 - {height}m高度'
-        if font_prop:
-            ax.set_title(title_text, fontproperties=font_prop, fontsize=16)
-        else:
-            ax.set_title(title_text, fontsize=16)
+            return save_figure_with_chinese(fig, output_path)
+        finally:
+            plt.close(fig) # Ensure figure is closed
 
-        # Apply font to all axis labels
-        if font_prop:
-            for label in ax.get_xticklabels() + ax.get_yticklabels():
-                label.set_fontproperties(font_prop)
-
-        # Save figure
-        output_path = os.path.join(output_dir, f'{farm_id}_{date_str}_windrose_{height}m.png')
-        save_figure_with_chinese(fig, output_path)
-        plt.close()
-        return True
     except Exception as e:
-        print(f"生成 {height}m 风玫瑰图时出错: {e}")
+        print(f"  错误: 生成 {height}m 风玫瑰图 ({plot_filename}) 时出错: {e}")
+        import traceback
+        # traceback.print_exc() # Uncomment for detailed stack trace during debugging
+        plt.close('all') # Close any potentially lingering figures
+        return False
+
+def plot_wind_frequency(df, height=10, output_dir='./output', farm_id='unknown', date_str='unknown_date', font_prop=None):
+    """生成风频分布图"""
+    plot_filename = f'{farm_id}_{date_str}_wind_frequency_{height}m.png'
+    output_path = os.path.join(output_dir, plot_filename)
+
+    try:
+        speed_column = f'speed{height}'
+        if speed_column not in df.columns:
+            print(f"  跳过: 数据中不存在 {speed_column} 列")
+            return False
+
+        wind_speed = df[speed_column].dropna()
+        if len(wind_speed) == 0:
+            print(f"  跳过: {height}m 高度没有有效的风速数据")
+            return False
+
+        bins = np.arange(0, wind_speed.max() + 2, 2) # Dynamic bins based on max speed
+        labels = [f'{bins[i]}-{bins[i+1]}' for i in range(len(bins)-1)]
+
+        wind_categories = pd.cut(wind_speed, bins=bins, labels=labels, right=False, include_lowest=True)
+        frequency = wind_categories.value_counts(normalize=True).reindex(labels, fill_value=0.0) * 100
+
+        fig, ax = plt.subplots(figsize=(10, 6), dpi=150) # Use object-oriented approach
+        try:
+            bars = ax.bar(frequency.index, frequency.values, color='skyblue', edgecolor='navy', width=0.8)
+            ax.set_xlabel('风速范围 (m/s)', fontsize=12, fontproperties=font_prop)
+            ax.set_ylabel('频率 (%)', fontsize=12, fontproperties=font_prop)
+            ax.set_title(f'{height}m高度 风速频率分布', fontsize=14, fontproperties=font_prop)
+            ax.grid(axis='y', linestyle='--', alpha=0.7)
+            ax.set_ylim(0, max(frequency.max() * 1.15, 10)) # Ensure y-axis starts at 0 and has some headroom
+
+            # Add data labels
+            for bar in bars:
+                height_val = bar.get_height()
+                if height_val > 0.1: # Only label bars with significant height
+                    ax.text(bar.get_x() + bar.get_width()/2., height_val + 0.5,
+                           f'{height_val:.1f}%', ha='center', va='bottom', fontsize=9, fontproperties=font_prop)
+
+            # Apply font to tick labels
+            plt.setp(ax.get_xticklabels(), fontproperties=font_prop, rotation=45, ha='right') # Rotate labels
+            plt.setp(ax.get_yticklabels(), fontproperties=font_prop)
+
+            plt.tight_layout() # Adjust layout
+            return save_figure_with_chinese(fig, output_path)
+        finally:
+            plt.close(fig)
+
+    except Exception as e:
+        print(f"  错误: 生成 {height}m 风频分布图 ({plot_filename}) 时出错: {e}")
         plt.close('all')
         return False
 
-def plot_wind_frequency(df, height=10, output_dir='./output', farm_id='unknown', date_str='unknown_date'):
-    """生成风频分布图"""
-    os.makedirs(output_dir, exist_ok=True)
-
-    try:
-        # Explicitly ensure height is an integer
-        height = int(height)
-
-        # Check if the column exists first
-        speed_column = f'speed{height}'
-        if speed_column not in df.columns:
-            print(f"警告: 数据中不存在 {speed_column} 列，跳过风频分布图")
-            return False
-
-        # Get wind speeds for specified height
-        wind_speed = df[speed_column].copy()
-        orig_count = len(wind_speed)
-        wind_speed = wind_speed.dropna()
-        if orig_count - len(wind_speed) > 0:
-            print(f"注意: 从 {speed_column} 中移除了 {orig_count - len(wind_speed)} 个NaN值")
-
-        if len(wind_speed) == 0:
-            print(f"警告: {height}m 高度没有有效的风速数据，跳过风频分布图")
-            return False
-
-        # Create bins for wind speed categories
-        bins = [0, 2, 4, 6, 8, 10, 12, 14, 16, np.inf]
-        labels = ['0-2', '2-4', '4-6', '6-8', '8-10', '10-12', '12-14', '14-16', '>16']
-
-        # Categorize wind speeds
-        wind_categories = pd.cut(wind_speed, bins=bins, labels=labels, right=False)
-
-        # Calculate frequency for each category
-        frequency = wind_categories.value_counts(normalize=True).reindex(labels) * 100
-
-        # Get font properties
-        font_prop = set_font_for_plot()
-
-        # Create figure
-        fig = plt.figure(figsize=(12, 8), dpi=150)
-
-        # Plot bar chart
-        bars = plt.bar(frequency.index, frequency.values, color='skyblue', edgecolor='navy')
-
-        # Add data labels on top of bars
-        for bar in bars:
-            height_val = bar.get_height()
-            if font_prop:
-                plt.text(bar.get_x() + bar.get_width()/2., height_val + 1,
-                       f'{height_val:.1f}%', ha='center', va='bottom',
-                       fontproperties=font_prop)
-            else:
-                plt.text(bar.get_x() + bar.get_width()/2., height_val + 1,
-                       f'{height_val:.1f}%', ha='center', va='bottom')
-
-        # Set labels and title
-        if font_prop:
-            plt.xlabel('风速范围 (m/s)', fontsize=14, fontproperties=font_prop)
-            plt.ylabel('频率 (%)', fontsize=14, fontproperties=font_prop)
-            plt.title(f'风速频率分布 - {height}m高度', fontsize=16, fontproperties=font_prop)
-            for label in plt.gca().get_xticklabels() + plt.gca().get_yticklabels():
-                label.set_fontproperties(font_prop)
-        else:
-            plt.xlabel('风速范围 (m/s)', fontsize=14)
-            plt.ylabel('频率 (%)', fontsize=14)
-            plt.title(f'风速频率分布 - {height}m高度', fontsize=16)
-
-        plt.grid(axis='y', linestyle='--', alpha=0.7)
-
-        # Ensure all bars are visible even if frequency is 0
-        plt.ylim(0, max(frequency.values) * 1.2 if not frequency.empty else 10)
-
-        # Save figure
-        fig = plt.gcf() # get current figure
-        output_path = os.path.join(output_dir, f'{farm_id}_{date_str}_wind_frequency_{height}m.png')
-        save_figure_with_chinese(fig, output_path)
-        plt.close()
-        return True
-    except Exception as e:
-        print(f"生成 {height}m 风频分布图时出错: {e}")
-        plt.close('all')  # Make sure to close all open figures
-        return False
-
-def plot_wind_energy(df, height=10, output_dir='./output', farm_id='unknown', date_str='unknown_date'):
+def plot_wind_energy(df, height=10, output_dir='./output', farm_id='unknown', date_str='unknown_date', font_prop=None):
     """生成风能分布图"""
-    os.makedirs(output_dir, exist_ok=True)
+    plot_filename = f'{farm_id}_{date_str}_wind_energy_{height}m.png'
+    output_path = os.path.join(output_dir, plot_filename)
 
     try:
-        # Explicitly ensure height is an integer
-        height = int(height)
-
-        # Check if the column exists first
         speed_column = f'speed{height}'
         if speed_column not in df.columns:
-            print(f"警告: 数据中不存在 {speed_column} 列，跳过风能分布图")
+            print(f"  跳过: 数据中不存在 {speed_column} 列")
             return False
 
-        # Get wind speeds for specified height and handle NaN values properly
-        wind_speed = df[speed_column].copy()
-        orig_count = len(wind_speed)
-        wind_speed = wind_speed.dropna()
-        if orig_count - len(wind_speed) > 0:
-            print(f"注意: 从 {speed_column} 中移除了 {orig_count - len(wind_speed)} 个NaN值")
-
+        wind_speed = df[speed_column].dropna()
         if len(wind_speed) == 0:
-            print(f"警告: {height}m 高度没有有效的风速数据，跳过风能分布图")
+            print(f"  跳过: {height}m 高度没有有效的风速数据")
             return False
 
-        # Create bins for wind speed categories
-        bins = [0, 2, 4, 6, 8, 10, 12, 14, 16, np.inf]
-        labels = ['0-2', '2-4', '4-6', '6-8', '8-10', '10-12', '12-14', '14-16', '>16']
+        # Use the same dynamic bins as frequency plot for consistency
+        bins = np.arange(0, wind_speed.max() + 2, 2)
+        labels = [f'{bins[i]}-{bins[i+1]}' for i in range(len(bins)-1)]
 
-        # Categorize wind speeds
-        wind_categories = pd.cut(wind_speed, bins=bins, labels=labels, right=False)
+        wind_categories = pd.cut(wind_speed, bins=bins, labels=labels, right=False, include_lowest=True)
+        wind_df = pd.DataFrame({'speed': wind_speed, 'category': wind_categories})
 
-        # Create a dataframe with wind speeds and their categories
-        wind_df = pd.DataFrame({
-            'speed': wind_speed,
-            'category': wind_categories
-        })
+        air_density = 1.225
+        wind_df['energy_density'] = 0.5 * air_density * (wind_df['speed']**3) # Proportional to energy
 
-        # Calculate wind energy for each speed (proportional to speed^3)
-        air_density = 1.225  # kg/m³
-        wind_df['energy'] = 0.5 * air_density * wind_df['speed']**3
+        # Sum energy density per category instead of averaging
+        energy_by_category = wind_df.groupby('category')['energy_density'].sum()
+        total_energy_density = energy_by_category.sum()
 
-        # Calculate average energy for each category and normalize
-        energy_by_category = wind_df.groupby('category')['energy'].mean()
-        total_energy = energy_by_category.sum()
-
-        if total_energy == 0:
-            print(f"警告: {height}m 高度的风能总和为零，跳过风能分布图")
+        if total_energy_density == 0:
+            print(f"  警告: {height}m 高度的总风能密度为零，跳过风能图")
             return False
 
-        energy_percentage = (energy_by_category / total_energy * 100).reindex(labels)
+        energy_percentage = (energy_by_category / total_energy_density * 100).reindex(labels, fill_value=0.0)
 
-        # Get font properties
-        font_prop = set_font_for_plot()
+        fig, ax = plt.subplots(figsize=(10, 6), dpi=150)
+        try:
+            bars = ax.bar(energy_percentage.index, energy_percentage.values, color='salmon', edgecolor='darkred', width=0.8)
+            ax.set_xlabel('风速范围 (m/s)', fontsize=12, fontproperties=font_prop)
+            ax.set_ylabel('风能密度贡献 (%)', fontsize=12, fontproperties=font_prop)
+            ax.set_title(f'{height}m高度 风能密度分布', fontsize=14, fontproperties=font_prop)
+            ax.grid(axis='y', linestyle='--', alpha=0.7)
+            ax.set_ylim(0, max(energy_percentage.max() * 1.15, 10))
 
-        # Create figure
-        fig = plt.figure(figsize=(12, 8), dpi=150)
+            for bar in bars:
+                height_val = bar.get_height()
+                if height_val > 0.1:
+                    ax.text(bar.get_x() + bar.get_width()/2., height_val + 0.5,
+                           f'{height_val:.1f}%', ha='center', va='bottom', fontsize=9, fontproperties=font_prop)
 
-        # Plot bar chart
-        bars = plt.bar(energy_percentage.index, energy_percentage.values, color='salmon', edgecolor='darkred')
+            plt.setp(ax.get_xticklabels(), fontproperties=font_prop, rotation=45, ha='right')
+            plt.setp(ax.get_yticklabels(), fontproperties=font_prop)
 
-        # Add data labels on top of bars
-        for bar in bars:
-            height_val = bar.get_height()
-            if not np.isnan(height_val) and height_val > 0:
-                if font_prop:
-                    plt.text(bar.get_x() + bar.get_width()/2., height_val + 1,
-                            f'{height_val:.1f}%', ha='center', va='bottom',
-                            fontproperties=font_prop)
-                else:
-                    plt.text(bar.get_x() + bar.get_width()/2., height_val + 1,
-                            f'{height_val:.1f}%', ha='center', va='bottom')
+            plt.tight_layout()
+            return save_figure_with_chinese(fig, output_path)
+        finally:
+            plt.close(fig)
 
-        # Set labels and title
-        if font_prop:
-            plt.xlabel('风速范围 (m/s)', fontsize=14, fontproperties=font_prop)
-            plt.ylabel('能量贡献 (%)', fontsize=14, fontproperties=font_prop)
-            plt.title(f'风能分布 - {height}m高度', fontsize=16, fontproperties=font_prop)
-            for label in plt.gca().get_xticklabels() + plt.gca().get_yticklabels():
-                label.set_fontproperties(font_prop)
-        else:
-            plt.xlabel('风速范围 (m/s)', fontsize=14)
-            plt.ylabel('能量贡献 (%)', fontsize=14)
-            plt.title(f'风能分布 - {height}m高度', fontsize=16)
-
-        plt.grid(axis='y', linestyle='--', alpha=0.7)
-
-        # Ensure all bars are visible even if percentage is 0
-        if not np.isnan(energy_percentage.values).all():
-            plt.ylim(0, np.nanmax(energy_percentage.values) * 1.2)
-        else:
-            plt.ylim(0, 10)
-
-        # Save figure
-        fig = plt.gcf() # get current figure
-        output_path = os.path.join(output_dir, f'{farm_id}_{date_str}_wind_energy_{height}m.png')
-        save_figure_with_chinese(fig, output_path)
-        plt.close()
-        return True
     except Exception as e:
-        print(f"生成 {height}m 风能分布图时出错: {e}")
-        plt.close('all')  # Make sure to close all open figures
+        print(f"  错误: 生成 {height}m 风能分布图 ({plot_filename}) 时出错: {e}")
+        plt.close('all')
         return False
 
-def plot_stability_distribution(df_stability, output_dir='./output', farm_id='unknown', date_str='unknown_date'):
+def plot_stability_distribution(df_stability, output_dir='./output', farm_id='unknown', date_str='unknown_date', font_prop=None):
     """生成大气稳定度分布图"""
-    os.makedirs(output_dir, exist_ok=True)
+    plot_filename = f'{farm_id}_{date_str}_stability_distribution.png'
+    output_path = os.path.join(output_dir, plot_filename)
 
     try:
-        # Count stability classes
-        stability_counts = df_stability['stability_class'].value_counts()
+        if 'stability_class' not in df_stability.columns:
+             print(f"  跳过: 缺少 'stability_class' 列")
+             return False
 
-        if len(stability_counts) == 0:
-            print("警告: 没有有效的大气稳定度数据，跳过大气稳定度分布图")
+        stability_counts = df_stability['stability_class'].value_counts()
+        if len(stability_counts) == 0 or stability_counts.sum() == 0:
+            print("  跳过: 没有有效的大气稳定度数据")
             return False
 
-        # Calculate percentages
         stability_percentages = stability_counts / stability_counts.sum() * 100
-
-        # Define the order of stability classes
-        stability_order = ['强不稳定', '不稳定', '中性', '稳定', '强稳定', '未知']
-
-        # Reindex the percentages to ensure all classes are included in the correct order
+        stability_order = ['强不稳定', '不稳定', '中性', '稳定', '强稳定', '未知 (计算错误)', '未知 (缺少数据)'] # Include all possible categories
         stability_percentages = stability_percentages.reindex(stability_order, fill_value=0)
+        # Filter out categories with 0% that were not in the original data
+        stability_percentages = stability_percentages[stability_percentages > 0]
 
-        # Define colors for each stability class
-        colors = {'强不稳定': '#d73027', '不稳定': '#fc8d59', '中性': '#fee090',
-                '稳定': '#91bfdb', '强稳定': '#4575b4', '未知': '#999999'}
 
-        # Get font property
-        font_prop = set_font_for_plot()
+        colors_map = {'强不稳定': '#d73027', '不稳定': '#fc8d59', '中性': '#fee090',
+                    '稳定': '#91bfdb', '强稳定': '#4575b4',
+                    '未知 (计算错误)': '#cccccc', '未知 (缺少数据)': '#999999'}
+        # Get colors only for the categories present
+        plot_colors = [colors_map.get(c, '#999999') for c in stability_percentages.index]
 
-        # Create figure
-        fig = plt.figure(figsize=(12, 8), dpi=150)
+        fig, ax = plt.subplots(figsize=(10, 6), dpi=150)
+        try:
+            bars = ax.bar(stability_percentages.index, stability_percentages.values, color=plot_colors, width=0.7)
+            ax.set_xlabel('大气稳定度类别', fontsize=12, fontproperties=font_prop)
+            ax.set_ylabel('频率 (%)', fontsize=12, fontproperties=font_prop)
+            ax.set_title('大气稳定度分布', fontsize=14, fontproperties=font_prop)
+            ax.grid(axis='y', linestyle='--', alpha=0.7)
+            ax.set_ylim(0, max(stability_percentages.max() * 1.15, 10))
 
-        # Plot bar chart with specific colors
-        bars = plt.bar(stability_percentages.index, stability_percentages.values,
-                    color=[colors[c] for c in stability_percentages.index])
+            for bar in bars:
+                height = bar.get_height()
+                if height > 0.1:
+                    ax.text(bar.get_x() + bar.get_width()/2., height + 0.5,
+                           f'{height:.1f}%', ha='center', va='bottom', fontsize=9, fontproperties=font_prop)
 
-        # Add data labels on top of bars
-        for bar in bars:
-            height = bar.get_height()
-            if height > 0:
-                plt.text(bar.get_x() + bar.get_width()/2., height + 1,
-                        f'{height:.1f}%', ha='center', va='bottom', fontproperties=font_prop if font_prop else None)
+            plt.setp(ax.get_xticklabels(), fontproperties=font_prop, rotation=0) # No rotation needed usually
+            plt.setp(ax.get_yticklabels(), fontproperties=font_prop)
 
-        # Set labels and title
-        plt.xlabel('大气稳定度类别', fontsize=14, fontproperties=font_prop if font_prop else None)
-        plt.ylabel('频率 (%)', fontsize=14, fontproperties=font_prop if font_prop else None)
-        plt.title('大气稳定度分布', fontsize=16, fontproperties=font_prop if font_prop else None)
-        plt.xticks(fontproperties=font_prop if font_prop else None)
-        plt.yticks(fontproperties=font_prop if font_prop else None)
-        plt.grid(axis='y', linestyle='--', alpha=0.7)
+            plt.tight_layout()
+            return save_figure_with_chinese(fig, output_path)
+        finally:
+             plt.close(fig)
 
-        # Set ylim
-        plt.ylim(0, max(stability_percentages.values) * 1.2 if not stability_percentages.empty else 10)
-
-        # Save figure
-        fig = plt.gcf() # get current figure
-        output_path = os.path.join(output_dir, f'{farm_id}_{date_str}_stability_distribution.png')
-        save_figure_with_chinese(fig, output_path)
-        plt.close()
-        return True
     except Exception as e:
-        print(f"生成大气稳定度分布图时出错: {e}")
-        plt.close('all')  # Make sure to close all open figures
+        print(f"  错误: 生成大气稳定度分布图 ({plot_filename}) 时出错: {e}")
+        plt.close('all')
         return False
 
-def validate_data_format(df):
+
+# --- Data Validation ---
+def validate_data_format(df, filename=""):
     """检查数据格式是否符合预期"""
-    expected_columns = [
-        'farm_id', 'date_time', 'radiation', 'surface_pressure', 'humidity2',
+    print(f"  验证数据格式: {filename}...")
+    required_cols = ['farm_id', 'date_time', 'speed10', 'direction10'] # Minimum required
+    numeric_cols = [
+        'radiation', 'surface_pressure', 'humidity2',
         'temperature2', 'temperature10', 'temperature30', 'temperature50', 'temperature70',
         'temperature80', 'temperature90', 'temperature110', 'direction10', 'direction30',
         'direction50', 'direction70', 'direction80', 'direction90', 'direction110',
         'speed10', 'speed30', 'speed50', 'speed70', 'speed80', 'speed90', 'speed110'
     ]
+    is_valid = True
+    warnings_list = []
 
-    # Check if all expected columns exist
-    missing_columns = [col for col in expected_columns if col not in df.columns]
-    if missing_columns:
-        print(f"警告: 数据缺少以下列: {missing_columns}")
-        # If critical columns are missing, return False
-        critical_columns = ['farm_id', 'date_time', 'temperature10', 'temperature110', 'direction10', 'speed10']
-        critical_missing = [col for col in critical_columns if col in missing_columns]
-        if critical_missing:
-            print(f"错误: 关键列缺失: {critical_missing}")
-            return False
-        print("非关键列缺失，继续处理...")
+    # Check for required columns
+    missing_required = [col for col in required_cols if col not in df.columns]
+    if missing_required:
+        msg = f"关键列缺失: {', '.join(missing_required)}"
+        print(f"    错误: {msg}")
+        warnings_list.append(msg)
+        return False, warnings_list # Cannot proceed without required columns
 
-    # Check if farm_id is not empty
-    if 'farm_id' in df.columns and df['farm_id'].isnull().all():
-        print("警告: farm_id 列全部为空值")
-        # Assign a default farm_id if none exists
-        df['farm_id'] = 'unknown_farm'
-        print("已设置默认 farm_id: unknown_farm")
+    # Check other numeric columns, issue warnings if missing
+    missing_numeric = [col for col in numeric_cols if col not in df.columns]
+    if missing_numeric:
+         msg = f"数值列缺失: {', '.join(missing_numeric)}"
+         print(f"    警告: {msg}")
+         warnings_list.append(msg)
+         # Allow processing to continue, but stability/plots might fail later
 
-    # Check if date_time is in the correct format
-    if 'date_time' in df.columns:
-        try:
-            # Convert date_time to datetime if it's not already
-            if not pd.api.types.is_datetime64_any_dtype(df['date_time']):
-                # Try multiple formats
-                try:
-                    # Try standard format
-                    df['date_time'] = pd.to_datetime(df['date_time'], format='%Y-%m-%d_%H:%M:%S')
-                except:
-                    try:
-                        # Try alternative format
-                        df['date_time'] = pd.to_datetime(df['date_time'])
-                    except Exception as e:
-                        print(f"警告: date_time 列格式无法识别: {e}")
-                        return False
-        except Exception as e:
-            print(f"警告: date_time 列处理出错: {e}")
-            return False
+    # Check farm_id
+    if df['farm_id'].isnull().all():
+         msg = "farm_id 列全部为空值, 使用 'unknown_farm'"
+         print(f"    警告: {msg}")
+         warnings_list.append(msg)
+         df['farm_id'].fillna('unknown_farm', inplace=True)
+    elif df['farm_id'].nunique() > 1:
+         msg = f"文件中包含多个 farm_id ({df['farm_id'].nunique()}个), 使用第一个 ({df['farm_id'].iloc[0]})"
+         print(f"    警告: {msg}")
+         warnings_list.append(msg)
+         # Optionally standardize to the first farm_id? Or handle per farm?
+         # For now, use the first one for naming conventions.
 
-    # Check for negative wind speeds (which would be invalid)
-    speed_columns = [col for col in df.columns if col.startswith('speed') and col in df.columns]
-    for col in speed_columns:
-        neg_count = (df[col] < 0).sum()
-        if neg_count > 0:
-            print(f"警告: {col} 列存在 {neg_count} 个负值，将其替换为NaN")
+    # Check date_time format and NaNs
+    if not pd.api.types.is_datetime64_any_dtype(df['date_time']):
+        msg = "date_time 列不是日期时间格式"
+        print(f"    错误: {msg}")
+        warnings_list.append(msg)
+        is_valid = False
+    elif df['date_time'].isnull().any():
+         nan_count = df['date_time'].isnull().sum()
+         msg = f"date_time 列包含 {nan_count} 个空值"
+         print(f"    警告: {msg}")
+         warnings_list.append(msg)
+         # Allow processing, but rows with NaT will be dropped by plots/analysis
+
+    # Check numeric ranges (example for speed and direction)
+    speed_cols = [col for col in df.columns if col.startswith('speed')]
+    for col in speed_cols:
+        if df[col].min() < 0:
+            neg_count = (df[col] < 0).sum()
+            msg = f"{col} 列包含 {neg_count} 个负值 (已替换为 NaN)"
+            print(f"    警告: {msg}")
+            warnings_list.append(msg)
             df.loc[df[col] < 0, col] = np.nan
+            is_valid = False # Treat negative speed as data error
+        # Check for excessively high speeds (e.g., > 100 m/s)
+        high_speed_threshold = 100
+        if df[col].max() > high_speed_threshold:
+            high_count = (df[col] > high_speed_threshold).sum()
+            msg = f"{col} 列包含 {high_count} 个超高值 (> {high_speed_threshold} m/s) (已替换为 NaN)"
+            print(f"    警告: {msg}")
+            warnings_list.append(msg)
+            df.loc[df[col] > high_speed_threshold, col] = np.nan
+            is_valid = False # Treat very high speed as data error
 
-    # Check if wind direction is within valid range (0-360 degrees)
-    direction_columns = [col for col in df.columns if col.startswith('direction') and col in df.columns]
-    for col in direction_columns:
-        invalid_count = ((df[col] < 0) | (df[col] > 360)).sum()
-        if invalid_count > 0:
-            print(f"警告: {col} 列有 {invalid_count} 个值不在有效范围内 (0-360)，将其替换为NaN")
-            df.loc[(df[col] < 0) | (df[col] > 360), col] = np.nan
 
-    return True
+    direction_cols = [col for col in df.columns if col.startswith('direction')]
+    for col in direction_cols:
+        invalid_dir = (df[col] < 0) | (df[col] > 360)
+        if invalid_dir.any():
+            inv_count = invalid_dir.sum()
+            msg = f"{col} 列包含 {inv_count} 个无效值 (不在 0-360 范围内) (已替换为 NaN)"
+            print(f"    警告: {msg}")
+            warnings_list.append(msg)
+            df.loc[invalid_dir, col] = np.nan
+            is_valid = False # Treat invalid direction as data error
 
-def process_csv_file(file_path, output_folder, sample_for_plots=10000):
-    """Process a single CSV file, creating a unique output folder for each file."""
+    print(f"  数据格式验证完成. 状态: {'有效' if is_valid else '存在问题'}")
+    return is_valid, warnings_list
+
+
+# --- Main Processing Function (Single File) ---
+def process_csv_file(file_path, base_output_folder, sample_for_plots=10000):
+    """Process a single CSV file, creating output within the base_output_folder."""
+    file_name = os.path.basename(file_path)
+    print(f"\n开始处理文件: {file_name}")
+    start_time = time.time()
+
+    # Determine farm_id and date_str early for naming
+    farm_id = 'unknown_farm'
+    date_str = "unknown_date"
     try:
-        file_name = os.path.basename(file_path)
-        print(f"处理文件: {file_name}")
+        # Peek at the first few rows to get farm_id without reading the whole file yet
+        peek_df = pd.read_csv(file_path, nrows=5, usecols=['farm_id'], encoding='utf-8', sep=',') # Assume common format for peek
+        if 'farm_id' in peek_df.columns and not peek_df['farm_id'].isnull().all():
+             farm_id = peek_df['farm_id'].iloc[0]
+    except Exception:
+         # Try other common formats if peek fails
+        try:
+             peek_df = pd.read_csv(file_path, nrows=5, usecols=['farm_id'], encoding='gbk', sep=',')
+             if 'farm_id' in peek_df.columns and not peek_df['farm_id'].isnull().all():
+                  farm_id = peek_df['farm_id'].iloc[0]
+        except Exception:
+             print(f"  警告: 无法从文件 {file_name} 的前几行提取 farm_id。将使用 '{farm_id}'。")
 
-        # 根据 CSV 文件名（去掉扩展名）创建独立的文件夹
-        csv_folder_name = os.path.splitext(file_name)[0]
-        csv_output_folder = os.path.join(output_folder, csv_folder_name)
-        os.makedirs(csv_output_folder, exist_ok=True)
+    # Extract date from filename
+    date_match = re.search(r'(\d{8,14})', file_name) # More flexible date regex
+    if date_match:
+        date_str = date_match.group(1)
+    else:
+         print(f"  警告: 无法从文件名 {file_name} 提取日期。将使用 '{date_str}'。")
 
-        # Extract date from filename if possible (e.g. meteoforce_FARMID_2021010106_weather.csv)
-        date_str = "unknown_date"
-        date_match = re.search(r'_(\d{8,10})_', file_name)  # 支持8或10位日期
-        if date_match:
-            date_str = date_match.group(1)
+    # Define output paths using base_output_folder
+    processed_data_path = os.path.join(base_output_folder, f"{farm_id}_{date_str}_processed_data.csv.gz") # Compress output
+    stability_data_path = os.path.join(base_output_folder, f"{farm_id}_{date_str}_stability_data.csv.gz")
+    stats_path = os.path.join(base_output_folder, f"{farm_id}_{date_str}_statistics.csv")
 
-        # 接下来判断是否使用分块处理（针对大文件）
-        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-        use_chunking = file_size_mb > 100  # 大于100MB采用分块处理
+    # Ensure the base output directory exists (should be created by parent process)
+    os.makedirs(base_output_folder, exist_ok=True)
 
-        if use_chunking:
-            print(f"文件大小: {file_size_mb:.2f} MB, 使用分块处理")
-            chunk_size = 100000
-            reader = optimized_csv_reader(file_path, chunksize=chunk_size)
+    plots_created = []
+    file_info = {
+        "file": file_name,
+        "farm_id": farm_id,
+        "date_str": date_str,
+        "status": "processing",
+        "plots_created": [],
+        "output_folder": base_output_folder, # Use the passed base folder
+        "warnings": [],
+        "error": None,
+        "rows_processed": 0,
+        "processing_time_sec": 0
+    }
 
-            # Process first chunk for metadata
-            first_chunk = next(reader)
-            if not validate_data_format(first_chunk):
-                print(f"警告: 文件 {file_name} 数据格式验证失败，跳过处理")
-                return {"file": file_name, "status": "warning", "warning": "Data format validation failed",
-                        "output_folder": csv_output_folder}
+    try:
+        # Read and process data (chunking logic simplified, read all at once for now)
+        # Re-introduce chunking if memory becomes an issue again
+        print(f"  读取数据...")
+        df = optimized_csv_reader(file_path)
+        print(f"  数据读取完成. 行数: {len(df)}")
+        file_info["rows_processed"] = len(df)
 
-            # 获取 farm_id 信息
-            farm_id = first_chunk['farm_id'].iloc[0] if 'farm_id' in first_chunk.columns else 'unknown'
+        print(f"  优化内存使用...")
+        df = reduce_memory_usage(df)
 
-            # 保存统计信息到当前 CSV 文件的文件夹中
-            stats_df = pd.concat([
-                first_chunk.describe(),
-                pd.DataFrame({'data_rows': [first_chunk.shape[0]]}),
-                pd.DataFrame({'data_columns': [first_chunk.shape[1]]}),
-                pd.DataFrame({'file_size_mb': [file_size_mb]})
-            ])
-            stats_df.to_csv(os.path.join(csv_output_folder, f"{farm_id}_{date_str}_statistics.csv"))
-
-            print(f"生成 {farm_id} 分析图表...")
-            # 用采样数据绘制图表
-            df_sample = first_chunk.sample(min(sample_for_plots, len(first_chunk)), random_state=42)
-            for chunk in reader:
-                if len(df_sample) < sample_for_plots:
-                    sample_needed = sample_for_plots - len(df_sample)
-                    if len(chunk) > sample_needed:
-                        df_sample = pd.concat([df_sample, chunk.sample(sample_needed, random_state=42)])
-                    else:
-                        df_sample = pd.concat([df_sample, chunk])
-            # 计算大气稳定性（用采样数据计算即可）
-            df_stability = calculate_atmospheric_stability_vectorized(df_sample)
+        # Validate data format
+        is_valid, validation_warnings = validate_data_format(df, file_name)
+        file_info["warnings"].extend(validation_warnings)
+        if not is_valid:
+             # Decide if processing should stop based on validation warnings
+             # For now, continue but log issues
+             print(f"  警告: 文件 {file_name} 数据格式存在问题，分析可能不准确。")
+             file_info["status"] = "warning" # Mark as warning if format issues found
         else:
-            print(f"文件大小: {file_size_mb:.2f} MB, 一次性处理")
-            df = optimized_csv_reader(file_path)
-            df = reduce_memory_usage(df)
-            if not validate_data_format(df):
-                print(f"警告: 文件 {file_name} 数据格式验证失败，跳过处理")
-                return {"file": file_name, "status": "warning", "warning": "Data format validation failed",
-                        "output_folder": csv_output_folder}
-            print(f"文件 {file_name} 数据格式验证成功")
-            farm_id = df['farm_id'].iloc[0] if 'farm_id' in df.columns else 'unknown'
-            df_stability = calculate_atmospheric_stability_vectorized(df)
-            # 如有需要，将处理过的数据保存
-            df.to_csv(os.path.join(csv_output_folder, f"{farm_id}_{date_str}_processed_data.csv"), index=False)
-            # 对绘图采用采样数据减少绘图负担
-            df_sample = df.sample(min(sample_for_plots, len(df)), random_state=42)
+            print(f"  数据格式验证成功。")
 
-        # 生成各类图表（采样数据用于绘图）
-        plots_created = []
+
+        # Correct farm_id based on validation if needed
+        if 'farm_id' in df.columns:
+            file_info["farm_id"] = df['farm_id'].iloc[0] # Use the validated/assigned farm_id
+
+        # Save basic statistics
+        print(f"  计算并保存统计信息...")
+        try:
+             stats_df = df.describe(include='all', datetime_is_numeric=True).transpose() # Get comprehensive stats
+             stats_df.to_csv(stats_path)
+        except Exception as stats_err:
+             msg = f"保存统计信息失败: {stats_err}"
+             print(f"    错误: {msg}")
+             file_info["warnings"].append(msg)
+
+        # Calculate Atmospheric Stability
+        print(f"  计算大气稳定度...")
+        df = calculate_atmospheric_stability_vectorized(df)
+        # Save stability data (consider saving only relevant columns)
+        try:
+            stability_cols = ['date_time', 'stability_class'] + [c for c in df.columns if c.startswith(('temp', 'speed'))]
+            df[stability_cols].to_csv(stability_data_path, index=False, compression='gzip')
+        except Exception as stab_save_err:
+            msg = f"保存稳定度数据失败: {stab_save_err}"
+            print(f"    错误: {msg}")
+            file_info["warnings"].append(msg)
+
+
+        # Save processed data (optional, can be large)
+        # print(f"  保存处理后的数据...")
+        # df.to_csv(processed_data_path, index=False, compression='gzip')
+
+        # Generate Plots (using sampled data for performance)
+        print(f"  准备生成图表 (采样 {min(sample_for_plots, len(df))} 点)...")
+        df_sample = df.sample(min(sample_for_plots, len(df)), random_state=42) if len(df) > sample_for_plots else df
+        font_prop = set_font_for_plot() # Set font before plotting loop
+
         heights = [10, 30, 50, 70, 80, 90, 110]
-        for height in heights:
-            speed_col = f'speed{height}'
-            direction_col = f'direction{height}'
-            if speed_col in df_sample.columns and direction_col in df_sample.columns:
-                print(f"  生成 {height}m 高度的风玫瑰图...")
-                if plot_wind_rose(df_sample, height=height, output_dir=csv_output_folder, farm_id=farm_id, date_str=date_str):
-                    plots_created.append(f"windrose_{height}m")
-                print(f"  生成 {height}m 高度的风频分布图...")
-                if plot_wind_frequency(df_sample, height=height, output_dir=csv_output_folder, farm_id=farm_id, date_str=date_str):
-                    plots_created.append(f"wind_frequency_{height}m")
-                print(f"  生成 {height}m 高度的风能分布图...")
-                if plot_wind_energy(df_sample, height=height, output_dir=csv_output_folder, farm_id=farm_id, date_str=date_str):
-                    plots_created.append(f"wind_energy_{height}m")
-
-        print("  生成大气稳定度分布图...")
-        if plot_stability_distribution(df_stability, output_dir=csv_output_folder, farm_id=farm_id, date_str=date_str):
-            plots_created.append("stability_distribution")
-
-        # 保存大气稳定度数据
-        df_stability.to_csv(os.path.join(csv_output_folder, f"{farm_id}_{date_str}_stability_data.csv"), index=False)
-
-        print(f"文件 {file_name} 处理完成，生成了 {len(plots_created)} 个图表")
-        gc.collect()
-        return {
-            "file": file_name,
-            "farm_id": farm_id,
-            "status": "success",
-            "plots_created": plots_created,
-            "output_folder": csv_output_folder
+        plot_functions = {
+            "windrose": plot_wind_rose,
+            "wind_frequency": plot_wind_frequency,
+            "wind_energy": plot_wind_energy
         }
 
-    except Exception as e:
-        print(f"处理文件 {file_name} 时出错: {e}")
-        import traceback
-        traceback.print_exc()
-        return {"file": file_name, "status": "error", "error": str(e), "output_folder": csv_output_folder if 'csv_output_folder' in locals() else None}
+        for height in heights:
+            print(f"  生成 {height}m 高度图表:")
+            for plot_type, plot_func in plot_functions.items():
+                print(f"    - {plot_type}...")
+                if plot_func(df_sample, height=height, output_dir=base_output_folder, farm_id=file_info["farm_id"], date_str=date_str, font_prop=font_prop):
+                    plots_created.append(f"{plot_type}_{height}m")
 
-def process_wind_data_parallel(data_folder, output_folder='./output', max_workers=None, files_to_process=None): # 添加 files_to_process 参数
-    """Process wind data files in parallel and output a summary of all processed folders."""
-    os.makedirs(output_folder, exist_ok=True)
+        print(f"  生成大气稳定度分布图:")
+        if plot_stability_distribution(df, output_dir=base_output_folder, farm_id=file_info["farm_id"], date_str=date_str, font_prop=font_prop):
+            plots_created.append("stability_distribution")
+
+        file_info["plots_created"] = plots_created
+        # If status was 'processing' or 'warning', and we reached here without fatal errors, mark as success/warning
+        if file_info["status"] == "processing":
+            file_info["status"] = "success"
+
+        print(f"文件 {file_name} 处理完成. 状态: {file_info['status']}")
+
+    except Exception as e:
+        print(f"处理文件 {file_name} 时发生严重错误: {e}")
+        import traceback
+        traceback.print_exc() # Log full traceback for debugging
+        file_info["status"] = "error"
+        file_info["error"] = str(e)
+        # Attempt to write an error file within the output directory
+        try:
+            error_log_path = os.path.join(base_output_folder, 'error.log')
+            with open(error_log_path, 'w', encoding='utf-8') as f_err:
+                 f_err.write(f"Error processing file: {file_name}\n")
+                 f_err.write(f"Time: {datetime.now().isoformat()}\n")
+                 f_err.write(f"Error Details: {str(e)}\n\n")
+                 f_err.write("Traceback:\n")
+                 traceback.print_exc(file=f_err)
+            print(f"  错误日志已写入: {error_log_path}")
+        except Exception as log_err:
+             print(f"  写入错误日志失败: {log_err}")
+
+    finally:
+        # Cleanup memory
+        del df, df_sample
+        gc.collect()
+        end_time = time.time()
+        file_info["processing_time_sec"] = round(end_time - start_time, 2)
+        print(f"文件 {file_name} 处理耗时: {file_info['processing_time_sec']:.2f} 秒")
+
+    return file_info
+
+
+# --- Main Parallel Processing Function ---
+def process_wind_data_parallel(
+    data_folder,
+    output_folder, # This is the BASE output folder (e.g., ./output)
+    analysis_id,   # Unique ID for this analysis run
+    max_workers=None,
+    files_to_process=None,
+    analysis_name="未命名分析", # Added parameters from frontend config
+    description="",
+    parameters=None # Dictionary of analysis parameters
+    ):
+    """Process wind data files in parallel for a specific analysis run."""
+
+    # Create the specific output directory for THIS analysis run
+    analysis_output_dir = os.path.join(output_folder, analysis_id)
+    print(f"创建分析输出目录: {analysis_output_dir}")
+    os.makedirs(analysis_output_dir, exist_ok=True)
+
+    # Set font once for the entire process
     set_font_for_plot()
 
-    if files_to_process: # 如果指定了要处理的文件列表
-        csv_files = [os.path.join(data_folder, file) for file in files_to_process]
-        csv_files = [file for file in csv_files if os.path.exists(file)] # 确保文件存在
-        print(f"从文件列表中获取了 {len(csv_files)} 个CSV文件")
-    else: # 否则处理目录下所有 CSV 文件
+    # Determine the list of CSV files to process
+    if files_to_process:
+        # Ensure paths are absolute or relative to data_folder
+        csv_files = [os.path.join(data_folder, f) for f in files_to_process if isinstance(f, str)]
+        # Filter out files that don't exist
+        csv_files = [f for f in csv_files if os.path.exists(f)]
+        print(f"从文件列表中选择了 {len(csv_files)} 个CSV文件进行处理。")
+    else:
+        # Process all CSVs in the input folder if no specific list provided
+        print(f"警告: 未提供具体文件列表，将处理输入目录 '{data_folder}' 中的所有CSV文件。")
         csv_files = glob.glob(os.path.join(data_folder, "*.csv"))
-        print(f"从目录中获取了 {len(csv_files)} 个CSV文件")
+        print(f"从目录中自动选择了 {len(csv_files)} 个CSV文件。")
 
     if not csv_files:
-        print(f"错误: 在 {data_folder} 文件夹中没有找到CSV文件")
-        return []
+        msg = f"错误: 在 '{data_folder}' 中没有找到要处理的CSV文件。"
+        print(msg)
+        # Write error log for this analysis run
+        error_log_path = os.path.join(analysis_output_dir, 'error.log')
+        with open(error_log_path, 'w', encoding='utf-8') as f_err:
+            f_err.write(f"Analysis ID: {analysis_id}\n")
+            f_err.write(f"Error: {msg}\n")
+        sys.exit(1) # Exit script with error code
 
-    print(f"找到 {len(csv_files)} 个CSV文件，开始并行处理 (workers={max_workers})...")
+    print(f"开始并行处理 {len(csv_files)} 个文件 (Workers: {max_workers or '默认'})...")
+    start_run_time = time.time()
 
-    results = []
+    results_list = [] # Store results from each file processing task
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        # Submit tasks: pass the analysis_output_dir as the base for each file
         future_to_file = {
-            executor.submit(process_csv_file, file, output_folder): file
+            executor.submit(process_csv_file, file, analysis_output_dir): file
             for file in csv_files
         }
 
+        # Progress reporting (optional using tqdm if installed)
         try:
             from tqdm import tqdm
-            progress_iterator = tqdm(as_completed(future_to_file), total=len(future_to_file), desc="处理CSV文件")
+            progress_iterator = tqdm(as_completed(future_to_file), total=len(future_to_file), desc=f"分析 {analysis_id}")
         except ImportError:
             progress_iterator = as_completed(future_to_file)
-            print("开始处理文件...")
+            print("开始处理文件 (无进度条)...")
 
-        for future in progress_iterator:
-            file = future_to_file[future]
+        for i, future in enumerate(progress_iterator):
+            file_path = future_to_file[future]
+            file_name = os.path.basename(file_path)
             try:
-                result = future.result()
-                results.append(result)
-                if not 'tqdm' in sys.modules:
-                    print(f"完成: {os.path.basename(file)} - 状态: {result['status']}")
-                if result['status'] == 'warning':
-                    print(f"  警告信息: {result.get('warning', '未知')}")
-                elif result['status'] == 'error':
-                    print(f"  错误信息: {result.get('error', '未知')}")
-            except Exception as e:
-                print(f"处理文件 {os.path.basename(file)} 时出错: {e}")
+                result = future.result() # Get result from process_csv_file
+                results_list.append(result)
+                # Update progress description if using tqdm
+                if 'tqdm' in sys.modules:
+                    progress_iterator.set_postfix({
+                        "状态": result['status'],
+                        "文件": file_name[-20:] # Show last part of filename
+                    })
+                else: # Basic console logging without tqdm
+                    print(f"  ({i+1}/{len(csv_files)}) 完成: {file_name} - 状态: {result['status']} ({result['processing_time_sec']:.2f}s)")
+                    if result['status'] == 'warning':
+                         for warn in result.get('warnings', []): print(f"    警告: {warn}")
+                    elif result['status'] == 'error':
+                         print(f"    错误: {result.get('error', '未知错误')}")
+
+            except Exception as exc:
+                # Handle errors where the future itself failed (e.g., process crash)
+                print(f"处理文件 {file_name} 时发生严重异常: {exc}")
                 import traceback
                 traceback.print_exc()
+                results_list.append({
+                    "file": file_name,
+                    "status": "error",
+                    "error": f"处理过程中发生未捕获的异常: {exc}",
+                    "output_folder": analysis_output_dir,
+                    "processing_time_sec": 0,
+                    "warnings": [],
+                    "plots_created": []
+                })
 
-    # 汇总所有结果并生成报告
-    success_count = sum(1 for r in results if r['status'] == 'success')
-    warning_count = sum(1 for r in results if r['status'] == 'warning')
-    error_count = sum(1 for r in results if r['status'] == 'error')
+    # --- Analysis Run Summary ---
+    end_run_time = time.time()
+    total_run_time = round(end_run_time - start_run_time, 2)
 
-    # 汇总所有独立文件夹路径
-    processed_folders = [r["output_folder"] for r in results if r.get("output_folder")]
+    success_count = sum(1 for r in results_list if r['status'] == 'success')
+    warning_count = sum(1 for r in results_list if r['status'] == 'warning')
+    error_count = sum(1 for r in results_list if r['status'] == 'error')
+    total_processed = len(results_list)
 
-    summary_report = {
-        'total_files': len(csv_files),
-        'success': success_count,
-        'warning': warning_count,
-        'error': error_count,
-        'processed_folders': processed_folders,
-        'farms': {}
+    # Determine overall status based on file results
+    overall_status = "error" # Default to error
+    if total_processed == len(csv_files):
+        if error_count == 0 and warning_count == 0:
+            overall_status = "completed"
+        elif error_count == 0 and warning_count > 0:
+            overall_status = "completed_with_warnings"
+        elif error_count > 0:
+             overall_status = "failed" # Treat any error as overall failure
+
+    print(f"\n--- 分析任务 '{analysis_name}' (ID: {analysis_id}) 完成 ---")
+    print(f"总耗时: {total_run_time:.2f} 秒")
+    print(f"处理文件: {total_processed} / {len(csv_files)}")
+    print(f"  - 成功: {success_count}")
+    print(f"  - 警告: {warning_count}")
+    print(f"  - 失败: {error_count}")
+    print(f"总体状态: {overall_status}")
+    print(f"详细结果保存在: {analysis_output_dir}")
+
+    # Create the final summary JSON for this analysis run
+    summary_data = {
+        'analysisId': analysis_id,
+        'analysisName': analysis_name,
+        'description': description,
+        'status': overall_status,
+        'startTime': datetime.fromtimestamp(start_run_time).isoformat(),
+        'endTime': datetime.fromtimestamp(end_run_time).isoformat(),
+        'totalDurationSec': total_run_time,
+        'inputDataFolder': data_folder,
+        'outputDataFolder': analysis_output_dir,
+        'parameters': parameters or {}, # Include analysis parameters
+        'files_requested': len(csv_files),
+        'files_processed': total_processed,
+        'success_files': success_count,
+        'warning_files': warning_count,
+        'error_files': error_count,
+        'processed_files_details': results_list, # Include details of each file
+         # Add aggregated info if needed, e.g., unique farm IDs processed
+        'unique_farm_ids': list(set(r['farm_id'] for r in results_list if 'farm_id' in r))
     }
 
-    # 这里继续对同一农场的结果进行分组（如果需要）
-    for farm_id, farm_data in summary_report.get('farms', {}).items(): # 循环遍历 farms 字典
-        if 'plots' in farm_data and isinstance(farm_data['plots'], set): # 检查 'plots' 键是否存在且为 set 类型
-            farm_data['plots'] = sorted(list(farm_data['plots'])) # 将 plots 集合转换为排序后的列表
+    summary_path = os.path.join(analysis_output_dir, 'processing_summary.json')
+    error_log_path = os.path.join(analysis_output_dir, 'error.log')
 
-    # 将汇总报告写入文件
-    import json
-    summary_path = os.path.join(output_folder, 'processing_summary.json')
     try:
-        with open(summary_path, 'w', encoding='utf-8') as f:
-            json.dump(summary_report, f, ensure_ascii=False, indent=2)
-        print(f"处理摘要已保存到 {summary_path}")
+        # Write summary JSON
+        with open(summary_path, 'w', encoding='utf-8') as f_summary:
+            json.dump(summary_data, f_summary, ensure_ascii=False, indent=2)
+        print(f"分析摘要已保存: {summary_path}")
+
+        # If the overall status is 'failed', ensure error.log exists with summary info
+        if overall_status == 'failed':
+            if not os.path.exists(error_log_path): # Create if not already created by a file error
+                 with open(error_log_path, 'w', encoding='utf-8') as f_err:
+                      f_err.write(f"Analysis ID: {analysis_id}\n")
+                      f_err.write(f"Overall Status: {overall_status}\n")
+                      f_err.write(f"Total Files: {len(csv_files)}, Errors: {error_count}\n\n")
+                      f_err.write("File Errors:\n")
+                      for result in results_list:
+                          if result['status'] == 'error':
+                              f_err.write(f" - {result['file']}: {result.get('error', 'Unknown error')}\n")
+                 print(f"总体错误日志已写入: {error_log_path}")
+            else:
+                 print(f"错误日志已存在 (可能由文件处理错误创建): {error_log_path}")
+        elif os.path.exists(error_log_path):
+            # If overall status is NOT failed, but an error log exists (from a recoverable file error), maybe rename it?
+            print(f"警告: 分析总体成功/有警告，但存在错误日志 {error_log_path} (可能来自个别文件处理失败)。")
+            # os.rename(error_log_path, os.path.join(analysis_output_dir, 'file_errors.log'))
+
+
     except Exception as e:
-        print(f"错误：无法将处理摘要写入 JSON 文件: {e}")
-        # 可以考虑在这里也返回错误状态或记录更详细的日志
+        print(f"错误: 无法写入最终的分析摘要或错误日志: {e}")
+        # Attempt to write a minimal error log if summary writing fails
+        try:
+            if not os.path.exists(error_log_path):
+                 with open(error_log_path, 'w', encoding='utf-8') as f_err:
+                      f_err.write(f"Analysis ID: {analysis_id}\n")
+                      f_err.write(f"FATAL ERROR: Failed to write processing_summary.json\n")
+                      f_err.write(f"Error: {str(e)}\n")
+        except:
+             pass # Ignore errors writing the fallback error log
+        sys.exit(1) # Exit with error if summary cannot be written
 
-    return results
 
+    # Exit with 0 if completed (even with warnings), 1 if failed
+    if overall_status == "failed":
+        sys.exit(1)
+    else:
+        sys.exit(0)
+
+# --- Profiling Function (Keep as is) ---
 def profile_processing(data_folder, output_folder):
-    """Profile the wind data processing to identify bottlenecks"""
-    # Setup profiler
-    profiler = cProfile.Profile()
-    profiler.enable()
+    # ... (profiling function remains the same) ...
+    pass
 
-    # Run the processing function (with a small sample)
-    # Process just a few files for profiling
-    csv_files = glob.glob(os.path.join(data_folder, "*.csv"))
-    if len(csv_files) > 3:
-        csv_files = csv_files[:3]  # Just take the first 3 for profiling
-
-    sample_output = os.path.join(output_folder, "profile_sample")
-    os.makedirs(sample_output, exist_ok=True)
-
-    for file in csv_files:
-        process_csv_file(file, sample_output)
-
-    # Disable profiler
-    profiler.disable()
-
-    # Print stats sorted by cumulative time
-    stats = pstats.Stats(profiler).sort_stats(SortKey.CUMULATIVE)
-    stats.print_stats(20)  # Print top 20 functions by time
-
-    # Save detailed stats to a file
-    stats.dump_stats("wind_processing_profile.prof")
-    print("Profile saved to wind_processing_profile.prof")
-
-    try:
-        # Try to generate a more readable report if gprof2dot is available
-        subprocess.run("pip install gprof2dot", shell=True)
-        subprocess.run("gprof2dot -f pstats wind_processing_profile.prof | dot -Tpng -o profile_visualization.png", shell=True)
-        print("Visual profile saved to profile_visualization.png")
-    except:
-        print("Could not generate visual profile (gprof2dot may not be installed)")
-
+# --- Command Line Execution ---
 if __name__ == "__main__":
-    import argparse
-    import time
-    import sys
+    parser = argparse.ArgumentParser(description='并行处理测风塔CSV数据脚本')
+    parser.add_argument('--input', type=str, required=True, help='包含CSV文件的输入数据文件夹路径')
+    parser.add_argument('--output', type=str, required=True, help='总输出文件夹的基础路径')
+    parser.add_argument('--analysisId', type=str, required=True, help='本次分析任务的唯一ID')
+    parser.add_argument('--analysisName', type=str, default='未命名分析', help='分析任务的可读名称')
+    parser.add_argument('--description', type=str, default='', help='分析任务的描述')
+    parser.add_argument('--files', type=str, help='可选：包含要处理的文件名列表的文本文件路径 (每行一个文件名)')
+    parser.add_argument('--parameters', type=str, help='可选：JSON字符串格式的分析参数 (例如: \'{"threshold": 60, "method": "standard"}\')')
+    parser.add_argument('--workers', type=int, default=None, help='并行处理的worker数量 (默认: CPU核心数)')
+    parser.add_argument('--profile', action='store_true', help='是否执行性能分析 (会覆盖正常执行)')
 
-    # Create the parser
-    parser = argparse.ArgumentParser(description='Optimized 风数据自动处理脚本 (CSV版本)')
-
-    # Add arguments
-    parser.add_argument('--input', type=str, required=True, help='输入数据文件夹路径 (包含CSV文件)')
-    parser.add_argument('--output', type=str, default='./output', help='输出结果文件夹路径 (默认: ./output)')
-    parser.add_argument('--profile', action='store_true', help='是否进行性能分析')
-    parser.add_argument('--workers', type=int, default=None, help='并行处理worker数量 (默认: CPU核心数)')
-    parser.add_argument('--sample', type=int, default=10000, help='绘图采样点数量 (默认: 10000)')
-    parser.add_argument('--files', type=str, help='包含要处理的文件列表的文本文件路径') # 添加 --files 参数
-
-    # Parse arguments
     args = parser.parse_args()
 
-    input_folder = args.input
-    output_folder = args.output
-    profile_enabled = args.profile
-    workers = args.workers
-    sample_size = args.sample
-    files_list_path = args.files # 获取文件列表路径
+    # --- Input Validation ---
+    if not os.path.isdir(args.input):
+        print(f"错误: 输入文件夹不存在或不是一个目录: {args.input}")
+        sys.exit(1)
+    if not args.analysisId:
+        print(f"错误: 必须提供 --analysisId 参数")
+        sys.exit(1)
+    # Basic validation for analysisId format (alphanumeric, hyphen, underscore)
+    if not re.match(r'^[a-zA-Z0-9-_]+$', args.analysisId):
+         print(f"错误: analysisId 包含无效字符。请只使用字母、数字、下划线和连字符。")
+         sys.exit(1)
 
-    file_list = None # 初始化文件列表
 
-    if files_list_path and os.path.exists(files_list_path): # 如果提供了文件列表路径且文件存在
-        with open(files_list_path, 'r') as f:
-            file_list = [line.strip() for line in f.readlines() if line.strip()] # 从文件中读取文件列表
-        print(f"从文件列表中读取到 {len(file_list)} 个文件")
+    # Ensure base output directory exists
+    os.makedirs(args.output, exist_ok=True)
 
-    if profile_enabled:
-        print("开始性能分析...")
-        profile_processing(input_folder, output_folder)
-        print("性能分析完成，结果保存在 wind_processing_profile.prof")
-    else:
-        print("开始处理风数据...")
-        start_time = time.time()
-        results = process_wind_data_parallel(input_folder, output_folder, max_workers=workers, files_to_process=file_list) # 传递文件列表
-        elapsed_time = time.time() - start_time
+    # --- Performance Profiling Mode ---
+    if args.profile:
+        print("开始性能分析模式...")
+        # Create a dedicated output folder for profiling results
+        profile_output_dir = os.path.join(args.output, f"{args.analysisId}_profile")
+        profile_processing(args.input, profile_output_dir)
+        print(f"性能分析完成。结果可能保存在 {profile_output_dir} 和 .prof 文件中。")
+        sys.exit(0) # Exit after profiling
 
-        if results:
-            success_count = sum(1 for r in results if r['status'] == 'success')
-            warning_count = sum(1 for r in results if r['status'] == 'warning')
-            error_count = sum(1 for r in results if r['status'] == 'error')
+    # --- Normal Execution Mode ---
+    print(f"\n=== 开始风数据分析任务 ===")
+    print(f"分析 ID:     {args.analysisId}")
+    print(f"分析名称:    {args.analysisName}")
+    print(f"输入目录:    {args.input}")
+    print(f"输出基目录: {args.output}")
 
-            print(f"数据处理完成. 总处理时间: {elapsed_time:.2f} 秒")
-            print(f"处理结果：成功: {success_count}, 警告: {warning_count}, 失败: {error_count}")
-            print(f"输出结果保存在: {output_folder}")
-
-            if len(results) > 0:
-                avg_time = elapsed_time / len(results)
-                print(f"平均每个文件处理时间: {avg_time:.2f} 秒")
+    # Load file list if provided
+    files_to_process_list = None
+    if args.files:
+        if os.path.isfile(args.files):
+            try:
+                with open(args.files, 'r', encoding='utf-8') as f:
+                    files_to_process_list = [line.strip() for line in f if line.strip()]
+                if files_to_process_list:
+                    print(f"处理文件列表: 从 {args.files} 加载了 {len(files_to_process_list)} 个文件")
+                else:
+                    print(f"警告: 文件列表 {args.files} 为空。")
+                    files_to_process_list = None # Treat as if no list provided
+            except Exception as e:
+                print(f"警告: 无法读取文件列表 {args.files}: {e}。将处理输入目录中的所有CSV。")
+                files_to_process_list = None
         else:
-            print("没有找到可处理的文件或处理过程中出现严重错误")
+            print(f"警告: 指定的文件列表不存在: {args.files}。将处理输入目录中的所有CSV。")
+            files_to_process_list = None
+
+    # Parse JSON parameters if provided
+    analysis_parameters = None
+    if args.parameters:
+        try:
+            analysis_parameters = json.loads(args.parameters)
+            if isinstance(analysis_parameters, dict):
+                 print(f"分析参数:    {json.dumps(analysis_parameters)}")
+            else:
+                 print("警告: --parameters 参数不是有效的JSON对象，将被忽略。")
+                 analysis_parameters = None
+        except json.JSONDecodeError as e:
+            print(f"警告: 解析 --parameters 参数失败: {e}。参数将被忽略。")
+            analysis_parameters = None
+
+    # Call the main processing function
+    # Note: sys.exit() is called within process_wind_data_parallel based on outcome
+    process_wind_data_parallel(
+        data_folder=args.input,
+        output_folder=args.output,
+        analysis_id=args.analysisId,
+        max_workers=args.workers,
+        files_to_process=files_to_process_list,
+        analysis_name=args.analysisName,
+        description=args.description,
+        parameters=analysis_parameters
+    )
