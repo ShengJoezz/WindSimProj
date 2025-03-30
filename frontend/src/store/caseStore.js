@@ -2,18 +2,19 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2024-12-30 10:58:27
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-02-23 17:24:16
- * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\store\caseStore.js
+ * @LastEditTime: 2025-03-30 17:46:49
+ * @FilePath: frontend/src/store/caseStore.js
  * @Description: Pinia 状态管理，包含工况初始化、参数管理、计算状态和持久化同步
  *
- * Copyright (c) 2025 by joe, All Rights Reserved.
+ * Copyright (c) 2024 by joe, All Rights Reserved.
  */
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import axios from 'axios';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElNotification } from 'element-plus'; // Import ElNotification
 import { knownTasks } from '../utils/tasks.js';
 import { io } from 'socket.io-client';
+import { useWindMastStore } from './windMastStore'; // *** IMPORT the new store ***
 
 export const useCaseStore = defineStore('caseStore', () => {
   // State
@@ -89,6 +90,16 @@ export const useCaseStore = defineStore('caseStore', () => {
         const infoResponse = await axios.get(`/api/cases/${caseId.value}/info-exists`);
         infoExists.value = infoResponse.data.exists;
         await fetchCalculationStatus(); // Await fetchCalculationStatus
+
+           // Connect or rejoin socket room *after* setting the ID
+           connectSocket(id); // Ensure socket is connected/rejoined for this case
+
+        // Reset wind mast store for the new case
+        const windMastStore = useWindMastStore();
+        windMastStore.resetState();
+        // Fetch initial wind mast results if any exist
+        windMastStore.fetchResults(id);
+
         resolve(); // Resolve promise after all async operations
       } catch (error) {
         console.error('Failed to initialize case:', error);
@@ -355,57 +366,120 @@ export const useCaseStore = defineStore('caseStore', () => {
     }
   };
 
+
   const connectSocket = (id) => {
-    if (!socket.value) {
-      socket.value = io('http://localhost:5000', {
-        transports: ['websocket'],
-        reconnectionAttempts: 5,
-        timeout: 10000,
-      });
-      caseId.value = id;
-      socket.value.emit('joinCase', id);
-      socket.value.on('calculationStarted', () => {
-        calculationStatus.value = 'running';
-        calculationOutputs.value.push({ type: 'info', message: 'Calculation started.' });
-      });
-      socket.value.on('calculationProgress', (data) => {
-        overallProgress.value = data.progress;
-        if (data.taskId) {
-          tasks.value[data.taskId] = 'running';
+    if (socket.value) { // Avoid reconnecting if already connected
+        // If switching cases, potentially just rejoin the room
+        if (caseId.value && caseId.value !== id) {
+            socket.value.emit('leaveCase', caseId.value);
+            console.log(`Socket left old case room: ${caseId.value}`);
         }
-        calculationOutputs.value.push({ type: 'progress', message: `Calculation progress: ${data.progress}%` });
-      });
-      socket.value.on('calculationCompleted', () => {
-        calculationStatus.value = 'completed';
-        overallProgress.value = 100;
-        calculationOutputs.value.push({ type: 'success', message: 'Calculation completed successfully!' });
-      });
-      socket.value.on('calculationError', (error) => {
-        calculationStatus.value = 'error';
-        calculationOutputs.value.push({ type: 'error', message: `Calculation error: ${error.message}` });
-      });
-      socket.value.on('taskStarted', (taskId) => {
-        tasks.value[taskId] = 'running';
-      });
-      socket.value.on('taskUpdate', (taskStatuses) => {
-        Object.keys(tasks.value).forEach(taskId => {
-          if (taskStatuses[taskId]) {
-            tasks.value[taskId] = taskStatuses[taskId];
-          }
-        });
-      });
-      socket.value.on('calculationOutput', (output) => {
-        calculationOutputs.value.push({ type: 'output', message: output });
-      });
+         if (!caseId.value || caseId.value !== id) {
+             socket.value.emit('joinCase', id);
+             console.log(`Socket joined new case room: ${id}`);
+         }
+         caseId.value = id; // Update the store's caseId
+         return; // Already connected
     }
+
+    // Establish new connection
+    socket.value = io('http://localhost:5000', { // Your backend URL
+      transports: ['websocket'],
+      reconnectionAttempts: 5,
+      timeout: 10000,
+    });
+
+    caseId.value = id; // Set initial caseId
+
+    // --- Generic Socket Event Listeners ---
+    socket.value.on('connect', () => {
+      console.log('Socket connected:', socket.value.id);
+      if (caseId.value) {
+          socket.value.emit('joinCase', caseId.value); // Join room on connect/reconnect
+      }
+    });
+
+    socket.value.on('disconnect', (reason) => {
+      console.log('Socket disconnected:', reason);
+      // Handle potential cleanup or UI updates on disconnect
+    });
+
+    socket.value.on('connect_error', error => console.error('Socket connection error:', error));
+    socket.value.on('connect_timeout', timeout => console.error('Socket connection timeout:', timeout));
+    socket.value.on('reconnect_error', error => console.error('Socket reconnection error:', error));
+    socket.value.on('reconnect_failed', () => console.error('Socket reconnection failed'));
+
+
+    // --- Calculation Specific Listeners (Keep Existing) ---
+    socket.value.on('calculationStarted', () => {
+      calculationStatus.value = 'running';
+      calculationOutputs.value.push({ type: 'info', message: 'Calculation started.' });
+    });
+    socket.value.on('calculationProgress', (data) => {
+      overallProgress.value = data.progress;
+      if (data.taskId) {
+        tasks.value[data.taskId] = 'running';
+      }
+      calculationOutputs.value.push({ type: 'progress', message: `Calculation progress: ${data.progress}%` });
+    });
+    socket.value.on('calculationCompleted', () => {
+      calculationStatus.value = 'completed';
+      overallProgress.value = 100;
+      calculationOutputs.value.push({ type: 'success', message: 'Calculation completed successfully!' });
+    });
+    socket.value.on('calculationError', (error) => {
+      calculationStatus.value = 'error';
+      calculationOutputs.value.push({ type: 'error', message: `Calculation error: ${error.message}` });
+    });
+    socket.value.on('taskStarted', (taskId) => {
+      tasks.value[taskId] = 'running';
+    });
+    socket.value.on('taskUpdate', (taskStatuses) => {
+      Object.keys(tasks.value).forEach(taskId => {
+        if (taskStatuses[taskId]) {
+          tasks.value[taskId] = taskStatuses[taskId];
+        }
+      });
+    });
+    socket.value.on('calculationOutput', (output) => {
+      calculationOutputs.value.push({ type: 'output', message: output });
+    });
+
+
+    // --- *** Wind Mast Analysis Listeners (NEW) *** ---
+    const windMastStore = useWindMastStore(); // Get instance of the other store
+
+    socket.value.on('windmast_analysis_progress', (message) => {
+      // console.log('Socket received windmast_analysis_progress:', message);
+      windMastStore.addProgressMessage(message);
+    });
+
+    socket.value.on('windmast_analysis_error', (errorMessage) => {
+      console.error('Socket received windmast_analysis_error:', errorMessage);
+      // Add to progress log, actual status set by 'complete' event
+       windMastStore.addProgressMessage(`后台错误: ${errorMessage}`);
+    });
+
+    socket.value.on('windmast_analysis_complete', (data) => {
+      console.log('Socket received windmast_analysis_complete:', data);
+      if (data.success) {
+        windMastStore.setAnalysisStatus('success'); // Set status
+        ElNotification({ title: '成功', message: '测风塔数据分析完成', type: 'success', duration: 4000 });
+        windMastStore.fetchResults(caseId.value); // Fetch results now
+      } else {
+        // Pass message and potential error details
+        windMastStore.setAnalysisStatus('error', data.message || '分析失败', data.error || '');
+        ElNotification({ title: '失败', message: `测风塔分析失败: ${data.message || ''}`, type: 'error', duration: 0 }); // Show persistent error
+      }
+    });
+
+    console.log("Socket connected and all event listeners attached for case:", id);
   };
 
   const disconnectSocket = () => {
     if (socket.value) {
-      socket.value.off('connect_error');
-      socket.value.off('connect_timeout');
-      socket.value.off('reconnect_error');
-      socket.value.off('reconnect_failed');
+      console.log("Disconnecting socket and removing listeners...");
+      // Remove calculation listeners
       socket.value.off("calculationStarted");
       socket.value.off("calculationProgress");
       socket.value.off("calculationCompleted");
@@ -413,12 +487,31 @@ export const useCaseStore = defineStore('caseStore', () => {
       socket.value.off("taskStarted");
       socket.value.off("taskUpdate");
       socket.value.off("calculationOutput");
-      socket.value.emit('leaveCase', caseId.value);
+
+      // *** Remove Wind Mast listeners ***
+      socket.value.off("windmast_analysis_progress");
+      socket.value.off("windmast_analysis_error");
+      socket.value.off("windmast_analysis_complete");
+
+      // Remove generic listeners
+      socket.value.off('connect');
+      socket.value.off('disconnect');
+      socket.value.off('connect_error');
+      socket.value.off('connect_timeout');
+      socket.value.off('reconnect_error');
+      socket.value.off('reconnect_failed');
+
+
+      if (caseId.value) {
+          socket.value.emit('leaveCase', caseId.value); // Leave room before disconnecting
+      }
       socket.value.disconnect();
-      console.log("Socket disconnected and event listeners removed.");
       socket.value = null;
-      calculationStatus.value = 'not_started';
-      calculationOutputs.value = [];
+      caseId.value = null; // Reset caseId on disconnect
+      console.log("Socket disconnected and event listeners removed.");
+
+      // Optionally reset parts of the caseStore state here if needed
+      // resetCalculationProgress(); // Example
     }
   };
 

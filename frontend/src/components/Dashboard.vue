@@ -1,3 +1,14 @@
+<!--
+ * @Author: joe 847304926@qq.com
+ * @Date: 2025-03-19 19:43:55
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-03-30 17:47:20
+ * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\Dashboard.vue
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+-->
+
 <!-- /frontend/src/components/Dashboard.vue -->
 <template>
   <div class="dashboard-container" role="navigation">
@@ -118,8 +129,9 @@ const menuItems = computed(() => {
 }else {
       return [
         { index: "/", icon: House, title: "首页" },
+        { index: `/windmast`, icon: Files, title: "测风塔分析" },
         { index: "/new", icon: Plus, title: "新建工况" },
-        { index: "/cases", icon: Files, title: "工况列表" },
+        { index: "/cases", icon: Files, title: "工况列表" }
       ];
     }
   });

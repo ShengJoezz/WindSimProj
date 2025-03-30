@@ -1,3 +1,14 @@
+<!--
+ * @Author: joe 847304926@qq.com
+ * @Date: 2025-03-18 19:09:25
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-03-30 15:20:48
+ * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\WindTurbineManagement.vue
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+-->
+
 <template>
   <div class="wind-performance">
     <header class="header">
@@ -222,6 +233,7 @@ const speedComparisonChart = ref(null);
 const powerComparisonChart = ref(null);
 const ctComparisonChart = ref(null);
 const fnComparisonChart = ref(null);
+const config=ref(null);
 
 // 图表实例
 let charts = {
