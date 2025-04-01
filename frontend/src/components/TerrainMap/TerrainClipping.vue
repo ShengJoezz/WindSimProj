@@ -1,4 +1,14 @@
-<!-- frontend/src/components/TerrainMap/TerrainClipping.vue -->
+<!--
+ * @Author: joe 847304926@qq.com
+ * @Date: 2025-03-19 22:26:46
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-04-02 15:25:41
+ * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\TerrainClipping.vue
+ * @Description:
+ *
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+-->
+
 <template>
   <div v-show="visible" class="terrain-clipping-panel" :class="{ visible }">
     <div class="panel-header">
@@ -22,8 +32,29 @@
           </div>
         </el-form-item>
 
+        <!-- 添加拖拽裁剪模式切换 -->
+        <div class="clipping-mode-selector">
+          <el-radio-group v-model="clippingMode">
+            <el-radio-button label="manual">手动输入</el-radio-button>
+            <el-radio-button label="drag">拖拽选择</el-radio-button>
+          </el-radio-group>
+        </div>
+
+        <!-- 拖拽提示 -->
+        <div v-if="clippingMode === 'drag'" class="drag-instructions">
+          <div class="instruction-icon">
+            <i class="el-icon-mouse"></i>
+          </div>
+          <div class="instruction-text">
+            <p>点击并拖拽地图以选择裁剪区域</p>
+            <p>将自动保持正方形比例</p>
+            <el-button type="primary" size="small" @click="startDragSelection">开始选择</el-button>
+            <el-button v-if="isDragSelectionActive" type="danger" size="small" @click="cancelDragSelection">取消选择</el-button>
+          </div>
+        </div>
+
         <!-- Synchronization info display -->
-        <div class="synchronization-info" v-if="isAdjusting">
+        <div class="synchronization-info" v-if="isAdjusting && clippingMode === 'manual'">
           <div class="sync-animation">
             <span class="sync-icon">⟲</span>
             <span>同步调整中</span>
@@ -45,7 +76,7 @@
         </div>
 
         <!-- Decimal format coordinates -->
-        <template v-if="coordFormat === 'decimal'">
+        <template v-if="coordFormat === 'decimal' && clippingMode === 'manual'">
           <el-form-item :label="`最小纬度 (范围: ${formatDEMBound('minLat')})`">
             <div class="input-with-controls">
               <el-input-number
@@ -120,7 +151,7 @@
         </template>
 
         <!-- DMS format coordinates - Completely restructured to fix occlusion -->
-        <template v-else>
+        <template v-else-if="coordFormat === 'dms' && clippingMode === 'manual'">
           <div class="coordinate-section">
             <h4 class="section-heading">纬度坐标 (北纬)</h4>
 
@@ -340,10 +371,12 @@ const props = defineProps({
   geographicBounds: Object,
 });
 
-const emit = defineEmits(['update:visible', 'preview-crop', 'apply-crop', 'save-terrain']);
+const emit = defineEmits(['update:visible', 'preview-crop', 'apply-crop', 'save-terrain', 'start-drag-selection', 'cancel-drag-selection']);
 
 // Data
 const coordFormat = ref('decimal');
+const clippingMode = ref('manual'); // 'manual' 或 'drag'
+const isDragSelectionActive = ref(false);
 const minLat = ref(null);
 const minLon = ref(null);
 const maxLat = ref(null);
@@ -456,126 +489,40 @@ const enforceDataBoundaries = () => {
 
 // Improved enforceSquareRatio function that always runs after any coordinate change
 const enforceSquareRatio = () => {
-  // First, ensure we have valid values to work with
+  // 确保有有效值
   if (!minLat.value || !maxLat.value || !minLon.value || !maxLon.value) return;
 
-  // Calculate center point of the current selection
+  // 计算中心点
   const centerLat = (minLat.value + maxLat.value) / 2;
   const centerLon = (minLon.value + maxLon.value) / 2;
 
-  // Get the current dimensions in degrees
-  const latDiff = maxLat.value - minLat.value;
-  const lonDiff = maxLon.value - minLon.value;
+  // 当前尺寸
+  const latSpan = maxLat.value - minLat.value;
+  const lonSpan = maxLon.value - minLon.value;
 
-  // Convert to approximate distances in km
-  // A degree of latitude is approximately 111.32 km everywhere
-  const latDistanceKm = latDiff * 111.32;
-
-  // A degree of longitude varies with latitude (cosine law)
+  // 计算实际距离 (使用Haversine公式更准确)
   const cosLat = Math.cos(centerLat * Math.PI / 180);
-  const lonDistanceKm = lonDiff * 111.32 * cosLat;
+  const latDistanceKm = latSpan * 111.32;
+  const lonDistanceKm = lonSpan * 111.32 * cosLat;
 
-  // Always adjust based on which value was changed last
-  let newLatDiff, newLonDiff;
+  // 确定目标尺寸 (取两者的最大值确保不超出原始选区)
+  const targetSpanKm = Math.max(latDistanceKm, lonDistanceKm);
+  const targetLatSpan = targetSpanKm / 111.32;
+  const targetLonSpan = targetSpanKm / (111.32 * cosLat);
 
-  if (lastChangedValue.value && lastChangedValue.value.includes('Lat')) {
-    // Latitude was changed last, adjust longitude to match
-    newLatDiff = latDiff;
-    newLonDiff = latDistanceKm / (111.32 * cosLat); // Convert km back to degrees of longitude
-  } else {
-    // Longitude was changed last or unknown, adjust latitude to match
-    newLonDiff = lonDiff;
-    newLatDiff = lonDistanceKm / 111.32; // Convert km back to degrees of latitude
-  }
+  // 计算新坐标，保持中心点不变
+  let newMinLat = centerLat - (targetLatSpan / 2);
+  let newMaxLat = centerLat + (targetLatSpan / 2);
+  let newMinLon = centerLon - (targetLonSpan / 2);
+  let newMaxLon = centerLon + (targetLonSpan / 2);
 
-  // Apply the adjustments, maintaining the center point
-  let newMinLat = centerLat - (newLatDiff / 2);
-  let newMaxLat = centerLat + (newLatDiff / 2);
-  let newMinLon = centerLon - (newLonDiff / 2);
-  let newMaxLon = centerLon + (newLonDiff / 2);
+  // 确保新坐标在DEM范围内
+  newMinLat = Math.max(newMinLat, demMinLat.value);
+  newMaxLat = Math.min(newMaxLat, demMaxLat.value);
+  newMinLon = Math.max(newMinLon, demMinLon.value);
+  newMaxLon = Math.min(newMaxLon, demMaxLon.value);
 
-  // Apply boundary constraints
-  const applyBoundaryConstraints = () => {
-    // Check DEM boundaries
-    if (newMinLat < demMinLat.value) {
-      const diff = demMinLat.value - newMinLat;
-      newMinLat = demMinLat.value;
-      newMaxLat += diff;
-    }
-
-    if (newMaxLat > demMaxLat.value) {
-      const diff = newMaxLat - demMaxLat.value;
-      newMaxLat = demMaxLat.value;
-      newMinLat -= diff;
-    }
-
-    if (newMinLon < demMinLon.value) {
-      const diff = demMinLon.value - newMinLon;
-      newMinLon = demMinLon.value;
-      newMaxLon += diff;
-    }
-
-    if (newMaxLon > demMaxLon.value) {
-      const diff = newMaxLon - demMaxLon.value;
-      newMaxLon = demMaxLon.value;
-      newMinLon -= diff;
-    }
-
-    // Check min/max relationship constraints
-    if (newMinLat >= newMaxLat) {
-      const mid = (newMinLat + newMaxLat) / 2;
-      newMinLat = mid - 0.0005;
-      newMaxLat = mid + 0.0005;
-    }
-
-    if (newMinLon >= newMaxLon) {
-      const mid = (newMinLon + newMaxLon) / 2;
-      newMinLon = mid - 0.0005;
-      newMaxLon = mid + 0.0005;
-    }
-  };
-
-  // Apply constraints
-  applyBoundaryConstraints();
-
-  // Recalculate after constraints to make sure we still have a square
-  // This might require multiple iterations to get the best approximation
-  for (let i = 0; i < 3; i++) {
-    // Recalculate dimensions after constraints
-    const newLatDiff = newMaxLat - newMinLat;
-    const newLonDiff = newMaxLon - newMinLon;
-
-    // Convert to km again
-    const newLatDistanceKm = newLatDiff * 111.32;
-    const newCenterLat = (newMinLat + newMaxLat) / 2;
-    const newCosLat = Math.cos(newCenterLat * Math.PI / 180);
-    const newLonDistanceKm = newLonDiff * 111.32 * newCosLat;
-
-    // If distances are almost equal (within 1%), we're done
-    if (Math.abs(newLatDistanceKm - newLonDistanceKm) / newLatDistanceKm < 0.01) {
-      break;
-    }
-
-    // Adjust to make square again
-    if (newLatDistanceKm > newLonDistanceKm) {
-      // Latitude distance is larger, need to expand longitude
-      const targetLonDiff = newLatDistanceKm / (111.32 * newCosLat);
-      const diff = (targetLonDiff - newLonDiff) / 2;
-      newMinLon -= diff;
-      newMaxLon += diff;
-    } else {
-      // Longitude distance is larger, need to expand latitude
-      const targetLatDiff = newLonDistanceKm / 111.32;
-      const diff = (targetLatDiff - newLatDiff) / 2;
-      newMinLat -= diff;
-      newMaxLat += diff;
-    }
-
-    // Re-apply constraints
-    applyBoundaryConstraints();
-  }
-
-  // Apply the final adjusted values
+  // 应用最终值
   minLat.value = newMinLat;
   maxLat.value = newMaxLat;
   minLon.value = newMinLon;
@@ -762,6 +709,35 @@ const saveClippedTerrain = () => {
   });
 };
 
+// 拖拽选择相关方法
+const startDragSelection = () => {
+  isDragSelectionActive.value = true;
+  emit('start-drag-selection');
+}
+
+const cancelDragSelection = () => {
+  isDragSelectionActive.value = false;
+  emit('cancel-drag-selection');
+}
+
+// 当接收到拖拽选择的坐标时更新输入框
+const updateCoordsFromDragSelection = (bounds) => {
+  if (!bounds) return;
+
+  minLat.value = bounds.minLat;
+  minLon.value = bounds.minLon;
+  maxLat.value = bounds.maxLat;
+  maxLon.value = bounds.maxLon;
+
+  // 更新DMS显示
+  if (coordFormat.value === 'dms') {
+    updateDMSFromDecimal();
+  }
+
+  // 预览裁剪区域
+  previewCrop();
+}
+
 // Watchers
 watch(() => props.geographicBounds, (bounds) => {
   if (bounds) {
@@ -782,6 +758,11 @@ watch(coordFormat, (newFormat) => {
   } else {
     updateDMSFromDecimal();
   }
+});
+
+// 将方法暴露给父组件
+defineExpose({
+  updateCoordsFromDragSelection
 });
 </script>
 
@@ -1043,5 +1024,37 @@ watch(coordFormat, (newFormat) => {
 
 :deep(.el-checkbox__label) {
   font-size: 14px;
+}
+
+/* 添加新样式 */
+.clipping-mode-selector {
+  margin: 16px 0;
+}
+
+.drag-instructions {
+  display: flex;
+  padding: 12px;
+  background-color: #f0f9ff;
+  border-radius: 8px;
+  margin: 12px 0;
+  border-left: 3px solid #409EFF;
+}
+
+.instruction-icon {
+  font-size: 24px;
+  color: #409EFF;
+  margin-right: 12px;
+  display: flex;
+  align-items: center;
+}
+
+.instruction-text p {
+  margin: 4px 0;
+  font-size: 14px;
+  color: #606266;
+}
+
+.instruction-text .el-button {
+  margin-top: 8px;
 }
 </style>

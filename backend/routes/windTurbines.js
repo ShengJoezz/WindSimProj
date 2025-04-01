@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2024-11-04 11:32:52
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-02-15 15:24:12
+ * @LastEditTime: 2025-04-01 11:07:19
  * @FilePath: \\wsl.localhost\Ubuntu-18.04\home\joe\wind_project\WindSimProj\backend\routes\windTurbines.js
  * @Description:
  *
@@ -16,7 +16,7 @@ const fs = require('fs')
 const router = express.Router()
 
 const upload = multer({
-  dest: path.join(__dirname, '../uploads/temp'),
+  dest: path.join(__dirname, '../uploads'),
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname)
     if (ext !== '.csv' && ext !== '.txt') {

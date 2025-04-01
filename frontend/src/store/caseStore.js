@@ -1,13 +1,14 @@
 /*
  * @Author: joe 847304926@qq.com
- * @Date: 2024-12-30 10:58:27
+ * @Date: 2025-04-01 12:10:40
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-03-30 17:46:49
- * @FilePath: frontend/src/store/caseStore.js
- * @Description: Pinia 状态管理，包含工况初始化、参数管理、计算状态和持久化同步
- *
- * Copyright (c) 2024 by joe, All Rights Reserved.
+ * @LastEditTime: 2025-04-01 12:27:03
+ * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\store\caseStore.js
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
  */
+
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import axios from 'axios';
@@ -86,7 +87,11 @@ export const useCaseStore = defineStore('caseStore', () => {
         } else {
           ElMessage.warning('未找到工况参数，使用默认值');
         }
-        await loadSavedState(); // Await loadSavedState
+        // REMOVE: await loadSavedState(); // Remove call to deprecated function
+
+        // ADD: Fetch turbines using the primary endpoint
+        await fetchWindTurbines(); // Fetch data from /wind-turbines endpoint
+
         const infoResponse = await axios.get(`/api/cases/${caseId.value}/info-exists`);
         infoExists.value = infoResponse.data.exists;
         await fetchCalculationStatus(); // Await fetchCalculationStatus
@@ -97,8 +102,16 @@ export const useCaseStore = defineStore('caseStore', () => {
         // Reset wind mast store for the new case
         const windMastStore = useWindMastStore();
         windMastStore.resetState();
-        // Fetch initial wind mast results if any exist
-        windMastStore.fetchResults(id);
+
+// 只在特定路径下才加载测风塔分析结果
+if (window.location.pathname.includes('/windmast')) {
+  try {
+    await windMastStore.fetchResults(id);
+  } catch (error) {
+    console.warn('预加载测风塔分析数据失败，可能分析尚未完成', error);
+    // 错误处理，但不影响正常功能
+  }
+}
 
         resolve(); // Resolve promise after all async operations
       } catch (error) {
@@ -194,38 +207,88 @@ export const useCaseStore = defineStore('caseStore', () => {
   };
 
   const addBulkWindTurbines = async (turbines) => {
+    console.log("caseStore.addBulkWindTurbines被调用，turbines数量:", turbines.length);
+    console.log("当前工况ID:", currentCaseId.value);
+
     try {
-      if (!currentCaseId.value) throw new Error('No case ID available');
-      const response = await axios.post(`/api/cases/${currentCaseId.value}/wind-turbines/bulk`, turbines, {
-        headers: { 'Content-Type': 'application/json' }
-      });
+      if (!currentCaseId.value) {
+        console.error("没有有效的工况ID");
+        throw new Error('没有选择工况，请先创建或选择一个工况');
+      }
+
+      console.log("开始API请求...");
+      const response = await axios.post(
+        `/api/cases/${currentCaseId.value}/wind-turbines/bulk`,
+        turbines,
+        {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 30000 // 增加超时时间
+        }
+      );
+
+      console.log("API响应:", response.data);
+
       if (response.data.success) {
-        windTurbines.value.push(...response.data.turbines);
+        // 注意：确保这里正确处理响应中的turbines数据
+        // 有些API会返回新创建的风机对象，带有服务器生成的ID
+        const newTurbines = response.data.turbines || turbines;
+
+        console.log("收到的新风机数据:", newTurbines);
+        console.log("更新store前，当前风机数量:", windTurbines.value.length);
+
+        // 更新store状态，使用新数据替换或追加
+        windTurbines.value = [...windTurbines.value, ...newTurbines];
+
+        console.log("更新store后，当前风机数量:", windTurbines.value.length);
+
+        // 标记info.json需要重新生成
         infoExists.value = false;
-        ElMessage.success(`成功导入 ${response.data.turbines.length} 个风机`);
-        return response.data.turbines;
+
+        // 返回新添加的风机数据
+        return newTurbines;
       } else {
         throw new Error(response.data.message || '批量导入风机失败');
       }
     } catch (error) {
-      console.error('Error importing bulk wind turbines:', error);
-      ElMessage.error('批量导入风机失败: ' + (error.message || '未知错误'));
+      console.error("caseStore.addBulkWindTurbines出错:", error);
+
+      // 检查是否为网络或服务器错误
+      if (error.response) {
+        // 服务器返回非2xx响应
+        console.error("服务器错误:", error.response.status, error.response.data);
+        throw new Error(`服务器返回错误: ${error.response.status} - ${error.response.data.message || '未知错误'}`);
+      } else if (error.request) {
+        // 请求发出但没有收到响应
+        console.error("无响应错误:", error.request);
+        throw new Error('服务器没有响应，请检查网络连接');
+      }
+
       throw error;
     }
   };
 
+  // MODIFY: fetchWindTurbines logic
   const fetchWindTurbines = async () => {
+    if (!currentCaseId.value) {
+      console.warn("fetchWindTurbines: No current case ID.");
+      windTurbines.value = []; // Set to empty if no ID
+      return;
+    }
     try {
-      const response = await axios.get(`/api/cases/${caseId.value}/wind-turbines`);
-      if (response.data.success) {
+      console.log(`Fetching turbines for case: ${currentCaseId.value}`);
+      const response = await axios.get(`/api/cases/${currentCaseId.value}/wind-turbines`);
+      if (response.data && Array.isArray(response.data.turbines)) {
+        console.log(`Received ${response.data.turbines.length} turbines from API.`);
+        // FIX: Directly assign the array from the backend
         windTurbines.value = response.data.turbines;
       } else {
-        throw new Error(response.data.message || '获取风机数据失败');
+        console.warn("API response for turbines was invalid or not an array:", response.data);
+        windTurbines.value = []; // Set to empty on invalid response
       }
     } catch (error) {
-      console.error('Error fetching wind turbines:', error);
-      ElMessage.error('获取风机数据失败: ' + error.message);
-      throw error;
+      console.error("Failed to fetch wind turbines:", error);
+      // Consider setting to empty or keeping old value based on desired behavior on error
+      windTurbines.value = []; // Or keep existing: // windTurbines.value = windTurbines.value;
     }
   };
 
@@ -526,27 +589,13 @@ export const useCaseStore = defineStore('caseStore', () => {
     socket.value.on('reconnect_failed', () => console.error('Socket reconnection failed'));
   };
 
-  const saveCurrentState = async () => {
-    if (!currentCaseId.value) return;
-    try {
-      await axios.post(`/api/cases/${currentCaseId.value}/state`, { windTurbines: windTurbines.value });
-    } catch (error) {
-      console.error('Failed to save state:', error);
-    }
-  };
 
-  const loadSavedState = async () => {
-    if (!currentCaseId.value) return;
-    try {
-      const response = await axios.get(`/api/cases/${currentCaseId.value}/state`);
-      if (response.data.windTurbines) {
-        windTurbines.value = response.data.windTurbines;
-      }
-    } catch (error) {
-      console.error('Failed to load state:', error);
-    }
-  };
+  // REMOVE: Deprecated state functions
+  // const saveCurrentState = async () => { ... };
+  // const loadSavedState = async () => { ... };
 
+
+  // MODIFY: Return statement at the end
   return {
     caseId,
     caseName,
@@ -583,7 +632,9 @@ export const useCaseStore = defineStore('caseStore', () => {
     disconnectSocket,
     startCalculation,
     listenToSocketEvents,
-    saveCurrentState,
-    loadSavedState
+    // REMOVE: saveCurrentState,  // Remove from exported methods
+    // REMOVE: loadSavedState    // Remove from exported methods
+    fetchWindTurbines,  // Ensure fetchWindTurbines is exported if needed elsewhere, though initializeCase calls it
+    // ... rest of the returned object ...
   };
 });

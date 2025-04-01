@@ -2,10 +2,10 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-01-12 21:52:31
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-03-16 19:02:47
+ * @LastEditTime: 2025-04-01 12:25:25
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\WindTurbineManagement.vue
- * @Description: 
- * 
+ * @Description:
+ *
  * Copyright (c) 2025 by joe, All Rights Reserved.
 -->
 
@@ -62,7 +62,7 @@ import { ref, watch } from "vue";
 import WindTurbineForm from "./WindTurbineForm.vue";
 import WindTurbineList from "./WindTurbineList.vue";
 import UploadComponent from "./UploadComponent.vue";
-import { useCaseStore } from "../../store/caseStore";
+// REMOVE: import { useCaseStore } from "../../store/caseStore"; // No longer needed here for adding
 
 const props = defineProps({
   visible: {
@@ -79,15 +79,16 @@ const props = defineProps({
   },
 });
 
+// MODIFY: Ensure 'add-turbine' and 'import-turbines' are defined
 const emit = defineEmits([
   "update:visible",
   "focus-turbine",
   "delete-turbine",
-  "add-turbine",
-  "import-turbines",
+  "add-turbine",       // Keep this
+  "import-turbines",   // Keep this
 ]);
 
-const store = useCaseStore();
+// REMOVE: const store = useCaseStore(); // Remove this line
 
 const localVisible = ref(props.visible);
 const activeSections = ref(["windTurbineManagement"]);
@@ -113,14 +114,18 @@ const handleClose = () => {
   emit("update:visible", false);
 };
 
-// Handle adding a new turbine
+// MODIFY: handleAddTurbine function
 const handleAddTurbine = (turbine) => {
-  store.addWindTurbine(turbine);
+  // REMOVE: store.addWindTurbine(turbine); // Don't call store directly
+  console.log('[WindTurbineManagement] Emitting add-turbine:', turbine);
+  emit("add-turbine", turbine); // Emit event to parent
 };
 
-// Handle bulk import
+// MODIFY: handleBulkImport function
 const handleBulkImport = (turbines) => {
-    store.addBulkWindTurbines(turbines);
+  // REMOVE: store.addBulkWindTurbines(turbines); // Don't call store directly
+  console.log('[WindTurbineManagement] Emitting import-turbines:', turbines?.length);
+  emit("import-turbines", turbines); // Emit event to parent
 };
 
 // Handle focusing on a turbine

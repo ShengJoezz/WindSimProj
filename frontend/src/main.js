@@ -1,3 +1,14 @@
+/*
+ * @Author: joe 847304926@qq.com
+ * @Date: 2024-12-29 19:37:26
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-04-01 12:02:36
+ * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\main.js
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+ */
+
 // frontend/src/main.js
 // 这个文件是Vue.js前端项目的入口文件。
 // 它负责初始化Vue应用，并挂载到DOM元素上。
@@ -42,8 +53,8 @@ app.use(createPinia());
 
 // 使用之前导入的router实例，将其添加到Vue应用中。
 // 这使得应用能够响应路由的变化。
-app.use(router);
 
+app.use(router);
 
 // 将Vue应用实例挂载到id为'app'的DOM元素上。
 // 这是应用渲染的起点。

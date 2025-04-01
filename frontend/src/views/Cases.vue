@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-03-16 19:11:25
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-03-16 19:15:42
+ * @LastEditTime: 2025-03-31 10:21:36
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\views\Cases.vue
  * @Description: 
  * 
@@ -126,11 +126,7 @@ const deleteCase = async (caseName) => {
 };
 
 const showCaseDetails = (caseName) => {
-  router.push({
-    name: 'CaseDetails',
-    params: { caseId: caseName },
-    query: { caseName: caseName }
-  });
+  router.push(`/cases/${caseName}/terrain`);
 };
 
 onMounted(loadCases);

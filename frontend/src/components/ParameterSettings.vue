@@ -1,9 +1,20 @@
+<!--
+ * @Author: joe 847304926@qq.com
+ * @Date: 2025-03-16 17:23:12
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-04-01 12:09:05
+ * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\ParameterSettings.vue
+ * @Description:
+ *
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+-->
+
 <template>
   <div class="parameter-settings">
     <div class="header">
       <h2>参数设置</h2>
     </div>
-    
+
     <!-- 工况信息展示区域 -->
     <div class="case-info-container">
       <div class="case-info">
@@ -14,365 +25,371 @@
         </el-descriptions>
       </div>
     </div>
-    
+
     <el-divider />
-    
-    <el-form
-      :model="caseStore.parameters"
-      :rules="rules"
-      ref="formRef"
-      label-width="200px"
-      class="parameter-form"
-    >
-      <!-- 计算域 -->
-      <el-form-item label="计算域" class="parent-form-item">
-        <el-form-item
-          label="宽度 (m)"
-          prop="calculationDomain.width"
-          :inline="true"
-          class="child-form-item"
-        >
-          <el-input-number
-            v-model="caseStore.parameters.calculationDomain.width"
-            :min="0"
-            class="input-number"
-            :disabled="caseStore.infoExists"
-          />
-        </el-form-item>
-        <el-form-item
-          label="高度 (m)"
-          prop="calculationDomain.height"
-          :inline="true"
-          class="child-form-item"
-        >
-          <el-input-number
-            v-model="caseStore.parameters.calculationDomain.height"
-            :min="0"
-            class="input-number"
-            :disabled="caseStore.infoExists"
-          />
-        </el-form-item>
-      </el-form-item>
-      
-      <!-- 工况 -->
-      <el-form-item label="工况" class="parent-form-item">
-        <el-form-item
-          label="风向角 (°)"
-          prop="conditions.windDirection"
-          :inline="true"
-          class="child-form-item"
-        >
-          <el-input-number
-            v-model="caseStore.parameters.conditions.windDirection"
-            :min="0"
-            :max="360"
-            class="input-number"
-            :disabled="caseStore.infoExists"
-          />
-        </el-form-item>
-        <el-form-item
-          label="入口风速 (m/s)"
-          prop="conditions.inletWindSpeed"
-          :inline="true"
-          class="child-form-item"
-        >
-          <el-input-number
-            v-model="caseStore.parameters.conditions.inletWindSpeed"
-            :min="0"
-            class="input-number"
-            :disabled="caseStore.infoExists"
-          />
-        </el-form-item>
-      </el-form-item>
-      
-      <!-- 网格 -->
-      <el-form-item label="网格" class="parent-form-item">
-        <div class="grid-section">
-          <el-form-item
-            label="加密区高度 (m)"
-            prop="grid.encryptionHeight"
-            :inline="true"
-            class="child-form-item"
-          >
-            <el-input-number
-              v-model="caseStore.parameters.grid.encryptionHeight"
-              :min="0"
-              class="input-number"
-              :disabled="caseStore.infoExists"
-            />
-          </el-form-item>
-          <el-form-item
-            label="加密层数"
-            prop="grid.encryptionLayers"
-            :inline="true"
-            class="child-form-item"
-          >
-            <el-input-number
-              v-model="caseStore.parameters.grid.encryptionLayers"
-              :min="0"
-              class="input-number"
-              :disabled="caseStore.infoExists"
-            />
-          </el-form-item>
-          <el-form-item
-            label="空间网格生长率"
-            prop="grid.gridGrowthRate"
-            :inline="true"
-            class="child-form-item"
-          >
-            <el-input-number
-              v-model="caseStore.parameters.grid.gridGrowthRate"
-              step="0.1"
-              :min="0"
-              class="input-number"
-              :disabled="caseStore.infoExists"
-            />
-          </el-form-item>
-          <el-form-item
-            label="最大特征长度 (m)"
-            prop="grid.maxExtensionLength"
-            :inline="true"
-            class="child-form-item"
-          >
-            <el-input-number
-              v-model="caseStore.parameters.grid.maxExtensionLength"
-              :min="0"
-              class="input-number"
-              :disabled="caseStore.infoExists"
-            />
-          </el-form-item>
-          <el-form-item
-            label="加密区径向长度 (m)"
-            prop="grid.encryptionRadialLength"
-            :inline="true"
-            class="child-form-item"
-          >
-            <el-input-number
-              v-model="caseStore.parameters.grid.encryptionRadialLength"
-              :min="0"
-              class="input-number"
-              :disabled="caseStore.infoExists"
-            />
-          </el-form-item>
-          <el-form-item
-            label="尾流区径向长度 (m)"
-            prop="grid.downstreamRadialLength"
-            :inline="true"
-            class="child-form-item"
-          >
-            <el-input-number
-              v-model="caseStore.parameters.grid.downstreamRadialLength"
-              :min="0"
-              class="input-number"
-              :disabled="caseStore.infoExists"
-            />
-          </el-form-item>
-          <el-form-item
-            label="加密半径 (m)"
-            prop="grid.encryptionRadius"
-            :inline="true"
-            class="child-form-item"
-          >
-            <el-input-number
-              v-model="caseStore.parameters.grid.encryptionRadius"
-              :min="0"
-              class="input-number"
-              :disabled="caseStore.infoExists"
-            />
-          </el-form-item>
-          <el-form-item
-            label="加密过渡半径 (m)"
-            prop="grid.encryptionTransitionRadius"
-            :inline="true"
-            class="child-form-item"
-          >
-            <el-input-number
-              v-model="caseStore.parameters.grid.encryptionTransitionRadius"
-              :min="0"
-              class="input-number"
-              :disabled="caseStore.infoExists"
-            />
-          </el-form-item>
-          <el-form-item
-            label="地形半径 (m)"
-            prop="grid.terrainRadius"
-            :inline="true"
-            class="child-form-item"
-          >
-            <el-input-number
-              v-model="caseStore.parameters.grid.terrainRadius"
-              :min="0"
-              class="input-number"
-              :disabled="caseStore.infoExists"
-            />
-          </el-form-item>
-          <el-form-item
-            label="地形过渡半径 (m)"
-            prop="grid.terrainTransitionRadius"
-            :inline="true"
-            class="child-form-item"
-          >
-            <el-input-number
-              v-model="caseStore.parameters.grid.terrainTransitionRadius"
-              :min="0"
-              class="input-number"
-              :disabled="caseStore.infoExists"
-            />
-          </el-form-item>
-          <el-form-item
-            label="尾流区长度 (m)"
-            prop="grid.downstreamLength"
-            :inline="true"
-            class="child-form-item"
-          >
-            <el-input-number
-              v-model="caseStore.parameters.grid.downstreamLength"
-              :min="0"
-              class="input-number"
-              :disabled="caseStore.infoExists"
-            />
-          </el-form-item>
-          <el-form-item
-            label="尾流区宽度 (m)"
-            prop="grid.downstreamWidth"
-            :inline="true"
-            class="child-form-item"
-          >
-            <el-input-number
-              v-model="caseStore.parameters.grid.downstreamWidth"
-              :min="0"
-              class="input-number"
-              :disabled="caseStore.infoExists"
-            />
-          </el-form-item>
-          <el-form-item 
-            label="缩放比" 
-            prop="grid.scale" 
-            :inline="true"
-            class="child-form-item"
-          >
-            <el-input-number
-              v-model="caseStore.parameters.grid.scale"
-              step="0.001"
-              :min="0"
-              :max="1"
-              class="input-number"
-              :disabled="caseStore.infoExists"
-            />
-          </el-form-item>
-        </div>
-      </el-form-item>
-      
-      <!-- 仿真 -->
-      <el-form-item label="仿真" class="parent-form-item">
-        <el-form-item 
-          label="核" 
-          prop="simulation.cores" 
-          :inline="true"
-          class="child-form-item"
-        >
-          <el-input-number
-            v-model="caseStore.parameters.simulation.cores"
-            :min="1"
-            class="input-number"
-          />
-        </el-form-item>
-        <el-form-item 
-          label="步数" 
-          prop="simulation.steps" 
-          :inline="true"
-          class="child-form-item"
-        >
-          <el-input-number
-            v-model="caseStore.parameters.simulation.steps"
-            :min="1"
-            class="input-number"
-          />
-        </el-form-item>
-        <el-form-item 
-          label="时间步长" 
-          prop="simulation.deltaT" 
-          :inline="true"
-          class="child-form-item"
-        >
-          <el-input-number
-            v-model="caseStore.parameters.simulation.deltaT"
-            :min="0.001"
-            class="input-number"
-          />
-        </el-form-item>
-      </el-form-item>
-      
-      <!-- 后处理 -->
-      <el-form-item label="后处理" class="parent-form-item">
-        <el-form-item 
-          label="结果层数" 
-          prop="postProcessing.resultLayers" 
-          :inline="true"
-          class="child-form-item"
-        >
-          <el-input-number
-            v-model="caseStore.parameters.postProcessing.resultLayers"
-            :min="1"
-            class="input-number"
-            :disabled="caseStore.infoExists"
-          />
-        </el-form-item>
-        <el-form-item 
-          label="层数间距 (m)" 
-          prop="postProcessing.layerSpacing" 
-          :inline="true"
-          class="child-form-item"
-        >
-          <el-input-number
-            v-model="caseStore.parameters.postProcessing.layerSpacing"
-            :min="0"
-            class="input-number"
-            :disabled="caseStore.infoExists"
-          />
-        </el-form-item>
-      </el-form-item>
-      
-      <!-- 添加中心经纬度展示（只读） -->
-      <el-form-item label="中心经纬度" class="parent-form-item">
-        <el-input readonly :value="centerCoordinates" clearable class="location-input" />
-      </el-form-item>
-      
-      <!-- 按钮区域 -->
-      <el-form-item class="form-actions">
-        <el-button
-          type="primary"
-          @click="handleGenerateClick"
-          :disabled="isSubmitting || caseStore.infoExists || caseStore.windTurbines.length === 0"
-          class="submit-button"
-        >
-          <template v-if="isSubmitting">
-            <el-icon><Loading /></el-icon>
-            提交中...
-          </template>
-          <span v-else>提交参数</span>
-        </el-button>
-        <el-button
-          type="success"
-          @click="handleDownloadClick"
-          v-if="caseStore.infoExists"
-          class="download-button"
-        >
-          下载 info.json
-        </el-button>
-      </el-form-item>
-      
-      <div
-        v-if="submissionMessage"
-        :class="{
-          'message-box': true,
-          'success-message': submissionSuccess,
-          'error-message': !submissionSuccess,
-        }"
+
+    <div v-if="isLoading" class="loading-placeholder">
+      <el-skeleton :rows="15" animated />
+    </div>
+    <div v-else>
+      <el-form
+        :model="caseStore.parameters"
+        :rules="rules"
+        ref="formRef"
+        label-width="200px"
+        class="parameter-form"
       >
-        {{ submissionMessage }}
-      </div>
-    </el-form>
+        <!-- 计算域 -->
+        <el-form-item label="计算域" class="parent-form-item">
+          <el-form-item
+            label="宽度 (m)"
+            prop="calculationDomain.width"
+            :inline="true"
+            class="child-form-item"
+          >
+            <el-input-number
+              v-model="caseStore.parameters.calculationDomain.width"
+              :min="0"
+              class="input-number"
+              :disabled="caseStore.infoExists"
+            />
+          </el-form-item>
+          <el-form-item
+            label="高度 (m)"
+            prop="calculationDomain.height"
+            :inline="true"
+            class="child-form-item"
+          >
+            <el-input-number
+              v-model="caseStore.parameters.calculationDomain.height"
+              :min="0"
+              class="input-number"
+              :disabled="caseStore.infoExists"
+            />
+          </el-form-item>
+        </el-form-item>
+
+        <!-- 工况 -->
+        <el-form-item label="工况" class="parent-form-item">
+          <el-form-item
+            label="风向角 (°)"
+            prop="conditions.windDirection"
+            :inline="true"
+            class="child-form-item"
+          >
+            <el-input-number
+              v-model="caseStore.parameters.conditions.windDirection"
+              :min="0"
+              :max="360"
+              class="input-number"
+              :disabled="caseStore.infoExists"
+            />
+          </el-form-item>
+          <el-form-item
+            label="入口风速 (m/s)"
+            prop="conditions.inletWindSpeed"
+            :inline="true"
+            class="child-form-item"
+          >
+            <el-input-number
+              v-model="caseStore.parameters.conditions.inletWindSpeed"
+              :min="0"
+              class="input-number"
+              :disabled="caseStore.infoExists"
+            />
+          </el-form-item>
+        </el-form-item>
+
+        <!-- 网格 -->
+        <el-form-item label="网格" class="parent-form-item">
+          <div class="grid-section">
+            <el-form-item
+              label="加密区高度 (m)"
+              prop="grid.encryptionHeight"
+              :inline="true"
+              class="child-form-item"
+            >
+              <el-input-number
+                v-model="caseStore.parameters.grid.encryptionHeight"
+                :min="0"
+                class="input-number"
+                :disabled="caseStore.infoExists"
+              />
+            </el-form-item>
+            <el-form-item
+              label="加密层数"
+              prop="grid.encryptionLayers"
+              :inline="true"
+              class="child-form-item"
+            >
+              <el-input-number
+                v-model="caseStore.parameters.grid.encryptionLayers"
+                :min="0"
+                class="input-number"
+                :disabled="caseStore.infoExists"
+              />
+            </el-form-item>
+            <el-form-item
+              label="空间网格生长率"
+              prop="grid.gridGrowthRate"
+              :inline="true"
+              class="child-form-item"
+            >
+              <el-input-number
+                v-model="caseStore.parameters.grid.gridGrowthRate"
+                step="0.1"
+                :min="0"
+                class="input-number"
+                :disabled="caseStore.infoExists"
+              />
+            </el-form-item>
+            <el-form-item
+              label="最大待证长度 (m)"
+              prop="grid.maxExtensionLength"
+              :inline="true"
+              class="child-form-item"
+            >
+              <el-input-number
+                v-model="caseStore.parameters.grid.maxExtensionLength"
+                :min="0"
+                class="input-number"
+                :disabled="caseStore.infoExists"
+              />
+            </el-form-item>
+            <el-form-item
+              label="加密区径向长度 (m)"
+              prop="grid.encryptionRadialLength"
+              :inline="true"
+              class="child-form-item"
+            >
+              <el-input-number
+                v-model="caseStore.parameters.grid.encryptionRadialLength"
+                :min="0"
+                class="input-number"
+                :disabled="caseStore.infoExists"
+              />
+            </el-form-item>
+            <el-form-item
+              label="尾流区径向长度 (m)"
+              prop="grid.downstreamRadialLength"
+              :inline="true"
+              class="child-form-item"
+            >
+              <el-input-number
+                v-model="caseStore.parameters.grid.downstreamRadialLength"
+                :min="0"
+                class="input-number"
+                :disabled="caseStore.infoExists"
+              />
+            </el-form-item>
+            <el-form-item
+              label="加密半径 (m)"
+              prop="grid.encryptionRadius"
+              :inline="true"
+              class="child-form-item"
+            >
+              <el-input-number
+                v-model="caseStore.parameters.grid.encryptionRadius"
+                :min="0"
+                class="input-number"
+                :disabled="caseStore.infoExists"
+              />
+            </el-form-item>
+            <el-form-item
+              label="加密过渡半径 (m)"
+              prop="grid.encryptionTransitionRadius"
+              :inline="true"
+              class="child-form-item"
+            >
+              <el-input-number
+                v-model="caseStore.parameters.grid.encryptionTransitionRadius"
+                :min="0"
+                class="input-number"
+                :disabled="caseStore.infoExists"
+              />
+            </el-form-item>
+            <el-form-item
+              label="地形半径 (m)"
+              prop="grid.terrainRadius"
+              :inline="true"
+              class="child-form-item"
+            >
+              <el-input-number
+                v-model="caseStore.parameters.grid.terrainRadius"
+                :min="0"
+                class="input-number"
+                :disabled="caseStore.infoExists"
+              />
+            </el-form-item>
+            <el-form-item
+              label="地形过渡半径 (m)"
+              prop="grid.terrainTransitionRadius"
+              :inline="true"
+              class="child-form-item"
+            >
+              <el-input-number
+                v-model="caseStore.parameters.grid.terrainTransitionRadius"
+                :min="0"
+                class="input-number"
+                :disabled="caseStore.infoExists"
+              />
+            </el-form-item>
+            <el-form-item
+              label="尾流区长度 (m)"
+              prop="grid.downstreamLength"
+              :inline="true"
+              class="child-form-item"
+            >
+              <el-input-number
+                v-model="caseStore.parameters.grid.downstreamLength"
+                :min="0"
+                class="input-number"
+                :disabled="caseStore.infoExists"
+              />
+            </el-form-item>
+            <el-form-item
+              label="尾流区宽度 (m)"
+              prop="grid.downstreamWidth"
+              :inline="true"
+              class="child-form-item"
+            >
+              <el-input-number
+                v-model="caseStore.parameters.grid.downstreamWidth"
+                :min="0"
+                class="input-number"
+                :disabled="caseStore.infoExists"
+              />
+            </el-form-item>
+            <el-form-item
+              label="缩放比"
+              prop="grid.scale"
+              :inline="true"
+              class="child-form-item"
+            >
+              <el-input-number
+                v-model="caseStore.parameters.grid.scale"
+                step="0.001"
+                :min="0"
+                :max="1"
+                class="input-number"
+                :disabled="caseStore.infoExists"
+              />
+            </el-form-item>
+          </div>
+        </el-form-item>
+
+        <!-- 仿真 -->
+        <el-form-item label="仿真" class="parent-form-item">
+          <el-form-item
+            label="核"
+            prop="simulation.cores"
+            :inline="true"
+            class="child-form-item"
+          >
+            <el-input-number
+              v-model="caseStore.parameters.simulation.cores"
+              :min="1"
+              class="input-number"
+            />
+          </el-form-item>
+          <el-form-item
+            label="步数"
+            prop="simulation.steps"
+            :inline="true"
+            class="child-form-item"
+          >
+            <el-input-number
+              v-model="caseStore.parameters.simulation.steps"
+              :min="1"
+              class="input-number"
+            />
+          </el-form-item>
+          <el-form-item
+            label="时间步长"
+            prop="simulation.deltaT"
+            :inline="true"
+            class="child-form-item"
+          >
+            <el-input-number
+              v-model="caseStore.parameters.simulation.deltaT"
+              :min="0.001"
+              class="input-number"
+            />
+          </el-form-item>
+        </el-form-item>
+
+        <!-- 后处理 -->
+        <el-form-item label="后处理" class="parent-form-item">
+          <el-form-item
+            label="结果层数"
+            prop="postProcessing.resultLayers"
+            :inline="true"
+            class="child-form-item"
+          >
+            <el-input-number
+              v-model="caseStore.parameters.postProcessing.resultLayers"
+              :min="1"
+              class="input-number"
+              :disabled="caseStore.infoExists"
+            />
+          </el-form-item>
+          <el-form-item
+            label="层数间距 (m)"
+            prop="postProcessing.layerSpacing"
+            :inline="true"
+            class="child-form-item"
+          >
+            <el-input-number
+              v-model="caseStore.parameters.postProcessing.layerSpacing"
+              :min="0"
+              class="input-number"
+              :disabled="caseStore.infoExists"
+            />
+          </el-form-item>
+        </el-form-item>
+
+        <!-- 添加中心经纬度展示（只读） -->
+        <el-form-item label="中心经纬度" class="parent-form-item">
+          <el-input readonly :value="centerCoordinates" clearable class="location-input" />
+        </el-form-item>
+
+        <!-- 按钮区域 -->
+        <el-form-item class="form-actions">
+          <el-button
+            type="primary"
+            @click="handleGenerateClick"
+            :disabled="isSubmitting || caseStore.infoExists || !hasTurbines"
+            class="submit-button"
+          >
+            <template v-if="isSubmitting">
+              <el-icon><Loading /></el-icon>
+              提交中...
+            </template>
+            <span v-else>提交参数</span>
+          </el-button>
+          <el-button
+            type="success"
+            @click="handleDownloadClick"
+            v-if="caseStore.infoExists"
+            class="download-button"
+          >
+            下载 info.json
+          </el-button>
+          <el-button @click="forceRefresh" type="warning" size="small">刷新数据</el-button>
+        </el-form-item>
+
+        <div
+          v-if="submissionMessage"
+          :class="{
+            'message-box': true,
+            'success-message': submissionSuccess,
+            'error-message': !submissionSuccess,
+          }"
+        >
+          {{ submissionMessage }}
+        </div>
+      </el-form>
+    </div>
   </div>
 </template>
 
@@ -383,50 +400,101 @@
   import { useRoute } from "vue-router";
   import { useCaseStore } from "../store/caseStore";
   import { knownTasks } from '../utils/tasks.js';
-  
+  import { isRef, isReactive } from 'vue'; // 修改导入
+  import { storeToRefs } from 'pinia'; 
+
   const route = useRoute();
   const caseStore = useCaseStore();
-  
+  const { windTurbines, infoExists } = storeToRefs(caseStore); // 使用 storeToRefs 解构
+
   const caseId = route.params.caseId;
   const formRef = ref(null);
   const submissionMessage = ref("");
   const submissionSuccess = ref(true);
   const isSubmitting = ref(false);
-  
+  const isLoading = ref(true); // Loading 状态
+
   // 直接使用 caseStore 中的 caseName
   const caseName = computed(() => caseStore.caseName);
-  
+
   // 计算中心经纬度
   const centerCoordinates = computed(() => {
-    if (caseStore.windTurbines.length > 0) {
-      const longitudes = caseStore.windTurbines.map(
-        (turbine) => turbine.longitude
-      ); // Use longitude
-      const latitudes = caseStore.windTurbines.map(
-        (turbine) => turbine.latitude
-      ); // Use latitude
+    console.log("计算centerCoordinates，风机数量:", caseStore.windTurbines?.length || 0);
+
+    if (caseStore.windTurbines && caseStore.windTurbines.length > 0) {
+      // 验证第一个风机数据有效性
+      const firstTurbine = caseStore.windTurbines[0];
+      if (!firstTurbine.longitude || !firstTurbine.latitude) {
+        console.warn("风机数据不完整:", firstTurbine);
+        return "经度: N/A, 纬度: N/A";
+      }
+
+      // 原有的计算逻辑
+      const longitudes = caseStore.windTurbines.map(turbine => turbine.longitude);
+      const latitudes = caseStore.windTurbines.map(turbine => turbine.latitude);
+
+      // 添加检查，确保数组不为空
+      if (longitudes.length === 0 || latitudes.length === 0) {
+        return "经度: N/A, 纬度: N/A";
+      }
+
       const minLon = Math.min(...longitudes);
       const maxLon = Math.max(...longitudes);
       const minLat = Math.min(...latitudes);
       const maxLat = Math.max(...latitudes);
       const centerLon = (minLon + maxLon) / 2;
       const centerLat = (minLat + maxLat) / 2;
-  
+
       return `经度: ${centerLon.toFixed(6)}, 纬度: ${centerLat.toFixed(6)}`;
     }
     return "经度: N/A, 纬度: N/A";
   });
-  
+
   // Initialize case in the store
   const initialize = async () => {
     await caseStore.initializeCase(caseId);
   };
-  
+
+  const forceRefresh = () => {
+    console.log("强制刷新，当前风机数量:", caseStore.windTurbines.length);
+    caseStore.windTurbines.forEach(turbine => {
+      console.log(turbine.id, turbine.name);
+    });
+  };
+
   onMounted(async () => {
-    await initialize();
-    console.log("参数:", caseStore.parameters);
-  });
+  const routeCaseId = route.params.caseId;
+  console.log("组件挂载，从路由获取的caseId:", routeCaseId);
   
+  if (!routeCaseId) {
+    ElMessage.error('无效的工况ID');
+    return;
+  }
+  
+  try {
+    // 确保调用initializeCase来更新store中的caseId
+    await caseStore.initializeCase(routeCaseId);
+    console.log("store初始化后的caseId:", caseStore.caseId);
+    
+    // 现在store.caseId应该已经设置为routeCaseId
+    if (caseStore.caseId !== routeCaseId) {
+      console.error("初始化失败，store中的caseId未更新:", caseStore.caseId);
+      ElMessage.error("初始化工况失败");
+      return;
+    }
+    
+    // 初始化成功后再加载其他数据
+    if (caseStore.windTurbines.length === 0) {
+      await caseStore.fetchWindTurbines();
+    }
+  } catch (error) {
+    console.error("初始化store失败:", error);
+    ElMessage.error("初始化工况失败");
+  } finally {
+    isLoading.value = false;
+  }
+});
+
   // Validation rules
   const rules = {
     "calculationDomain.width": [
@@ -532,7 +600,7 @@
       { type: "number", min: 0, message: "高度必须大于0", trigger: "blur" },
     ],
   };
-  
+
   // Handle parameter submission
   const handleGenerateClick = async () => {
     if (caseStore.windTurbines.length === 0) {
@@ -545,7 +613,7 @@
       await caseStore.submitParameters();
       // 添加这一行，确保生成 info.json
       await caseStore.generateInfoJson();
-      
+
       submissionSuccess.value = true;
       submissionMessage.value = "参数提交成功，info.json 已生成";
       ElMessage.success("参数提交成功，info.json 已生成");
@@ -557,11 +625,16 @@
       isSubmitting.value = false;
     }
   };
-  
+
   // Handle info.json download
   const handleDownloadClick = async () => {
     await caseStore.downloadInfoJson();
   };
+
+  // 添加额外的计算属性，增强稳定性
+  const hasTurbines = computed(() => {
+    return caseStore.windTurbines && caseStore.windTurbines.length > 0;
+  });
 </script>
 
 <style scoped>
@@ -727,30 +800,34 @@
   border: 1px solid #fbc4c4;
 }
 
+.loading-placeholder {
+  padding: 24px;
+}
+
 /* 响应式调整 */
 @media (max-width: 768px) {
   .parameter-settings {
     padding: 16px;
   }
-  
+
   .child-form-item {
     min-width: 100%;
     margin-right: 0;
   }
-  
+
   .grid-section {
     flex-direction: column;
   }
-  
+
   .form-actions {
     flex-direction: column;
   }
-  
+
   .download-button {
     margin-left: 0;
     margin-top: 12px;
   }
-  
+
   .parent-form-item {
     padding: 15px;
   }

@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-03-19 22:25:10
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-03-30 15:41:38
+ * @LastEditTime: 2025-04-01 12:28:06
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\TerrainMap.vue
  * @Description:
  *
@@ -56,11 +56,14 @@
 
     <!-- Terrain Clipping Panel -->
     <TerrainClipping
+      ref="terrainClipping"
       v-model:visible="sidebars.terrainClipping"
       :geographic-bounds="formattedGeoBounds"
       @preview-crop="previewCropArea"
       @apply-crop="applyCropArea"
       @save-terrain="saveClippedTerrain"
+      @start-drag-selection="startDragSelection"
+      @cancel-drag-selection="cancelDragSelection"
     />
 
     <!-- Crop Preview Overlay -->
@@ -84,6 +87,14 @@
       :turbine="hoveredTurbine"
       :position="tooltipPos"
     />
+
+    <!-- 添加拖拽选择模式的提示 -->
+    <div v-if="isDragSelectionActive" class="drag-selection-active-indicator">
+      <div class="indicator-content">
+        <i class="el-icon-crop"></i>
+        <span>正在选择裁剪区域 - 点击并拖拽</span>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -155,6 +166,9 @@ const cropPreviewActive = ref(false);
 const cropPreviewBounds = ref(null);
 let cropPreviewMesh = null;
 const queuedTurbines = ref([]); // Queue turbines to add after scene is ready
+const isDragSelectionActive = ref(false); // Ensure this ref is defined if used
+const terrainClipping = ref(null); // Ensure ref is defined for TerrainClipping
+
 
 // GLTF Model references  // Step 3: Add Model Variables
 let windTurbineModel = null;
@@ -439,10 +453,10 @@ else if (child.name === 'Main_Unit_WindTurbine_PBR_0') {
   if (child.isMesh && child.material) {
     // Clone the material to avoid affecting other instances
     child.material = child.material.clone();
-    
+
     // 设置为浅灰色
     child.material.color.set(0xEEEEEE);
-    
+
     if (child.material.metalness !== undefined) {
       child.material.metalness = 0.2;
       child.material.roughness = 0.5;
@@ -457,10 +471,10 @@ else if (child.name === 'Main_Unit_WindTurbine_PBR_0') {
 else if (child.name.includes('Tower') || child.name.includes('Base')) {
   if (child.isMesh && child.material) {
     child.material = child.material.clone();
-    
+
     // 设置为灰色
     child.material.color.set(0xDDDDDD);
-    
+
     if (child.material.metalness !== undefined) {
       child.material.metalness = 0.4;
       child.material.roughness = 0.6;
@@ -554,10 +568,18 @@ const handleAddTurbineClick = () => {
   sidebars.value.management = true;
 };
 
-// 修改 WindTurbineManagement 组件传递过来的事件处理函数
-const handleAddTurbineFromManagement = (turbineData) => {
-  log(2, '[handleAddTurbineFromManagement] Adding turbine from management panel:', turbineData);
-  addWindTurbineToScene(turbineData); // 直接调用 addWindTurbineToScene
+// MODIFY: handleAddTurbineFromManagement (now triggers store update)
+const handleAddTurbineFromManagement = async (turbineData) => {
+  log(2, '[TerrainMap] handleAddTurbineFromManagement received event with:', turbineData);
+  try {
+    // Call the store action to add the turbine
+    await caseStore.addWindTurbine(turbineData); // Let the store handle backend interaction
+    log(2, '[TerrainMap] Turbine add requested to store. Watcher will update scene.');
+    // The watcher below will handle adding the mesh to the scene
+  } catch (error) {
+    log(3, '[TerrainMap] Error requesting turbine add to store:', error);
+    ElMessage.error('添加风机到 Store 失败');
+  }
 };
 
 
@@ -945,7 +967,7 @@ const toggleTerrainClipping = () => {
   }
 };
 
-// 将经纬度映射到 XZ 坐标
+// 改进的经纬度到XZ坐标的映射
 const mapLatLonToXZ = (latitude, longitude) => {
   if (
     typeof caseStore.minLatitude !== "number" ||
@@ -957,23 +979,22 @@ const mapLatLonToXZ = (latitude, longitude) => {
     return { x: 0, z: 0 };
   }
 
-  const longitudeRatio =
-    (longitude - caseStore.minLongitude) /
-    (caseStore.maxLongitude - caseStore.minLongitude);
-  const latitudeRatio =
-    (latitude - caseStore.minLatitude) /
-    (caseStore.maxLatitude - caseStore.minLatitude);
+  // 使用球面墨卡托投影或等距圆柱投影进行更准确的坐标转换
+  const terrainSize = 1000; // 场景大小
 
-  const clampedLongitudeRatio = Math.min(Math.max(longitudeRatio, 0), 1);
-  const clampedLatitudeRatio = Math.min(Math.max(latitudeRatio, 0), 1);
+  // 将经纬度规范化到[0,1]范围
+  const normalizedLon = (longitude - caseStore.minLongitude) /
+                        (caseStore.maxLongitude - caseStore.minLongitude);
+  const normalizedLat = (latitude - caseStore.minLatitude) /
+                        (caseStore.maxLatitude - caseStore.minLatitude);
 
-  const terrainSize = 1000;
-
-  const x = (clampedLongitudeRatio - 0.5) * terrainSize;
-  const z = (clampedLatitudeRatio - 0.5) * terrainSize;
+  // 应用到场景坐标
+  const x = (normalizedLon - 0.5) * terrainSize;
+  const z = (normalizedLat - 0.5) * terrainSize;
 
   return { x, z };
 };
+
 
 // 获取指定 XZ 坐标的地形高度
 const getTerrainHeight = (x, z) => {
@@ -1443,11 +1464,32 @@ const animate = () => {
 };
 
 // 处理批量导入风机
-const handleBulkImport = (turbines) => {
-  turbines.forEach((turbine) => {
-    caseStore.addWindTurbine(turbine);
-    addWindTurbineToScene(turbine);
-  });
+// MODIFY: handleBulkImport (now triggers store update)
+const handleBulkImport = async (turbines) => {
+  log(2, "[TerrainMap] handleBulkImport received event with turbines:", turbines?.length);
+
+  if (!turbines || !Array.isArray(turbines) || turbines.length === 0) {
+    log(3, "[TerrainMap] Invalid bulk import data received.");
+    ElMessage.error("导入失败: 无效的风机数据");
+    return;
+  }
+
+  // Optional: Show loading indicator
+  const loading = ElLoading.service({ lock: true, text: '正在导入风机...' });
+
+  try {
+    log(2, "[TerrainMap] Requesting bulk add to store...");
+    // Call the store action to add turbines
+    await caseStore.addBulkWindTurbines(turbines); // Let the store handle backend interaction
+    log(2, `[TerrainMap] Bulk add requested to store. Watcher will update scene.`);
+    ElMessage.success(`请求导入 ${turbines.length} 个风机`);
+    // The watcher below will handle adding meshes to the scene
+  } catch (error) {
+    log(3, "[TerrainMap] Error requesting bulk add to store:", error);
+    ElMessage.error(`批量导入请求失败: ${error.message || '未知错误'}`);
+  } finally {
+    loading?.close(); // Close loading indicator
+  }
 };
 
 // 窗口大小变化处理
@@ -1530,9 +1572,19 @@ const disposeThreeResources = () => {
 // --- Terrain Cropping Functionality ---
 
 const previewCropArea = (bounds) => {
-  // Remove previous preview if exists
+  // 首先清除旧的预览
   if (cropPreviewMesh) {
     scene.remove(cropPreviewMesh);
+    cropPreviewMesh.traverse(child => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) {
+        if (Array.isArray(child.material)) {
+          child.material.forEach(m => m.dispose());
+        } else {
+          child.material.dispose();
+        }
+      }
+    });
     cropPreviewMesh = null;
   }
 
@@ -1544,40 +1596,41 @@ const previewCropArea = (bounds) => {
   cropPreviewActive.value = true;
   cropPreviewBounds.value = bounds;
 
-  // Create a more visually appealing preview
+  // 创建预览组
+  cropPreviewMesh = new THREE.Group();
+
+  // 从地形获取高度信息
   const { minLat, minLon, maxLat, maxLon } = bounds;
   const minXZ = mapLatLonToXZ(minLat, minLon);
   const maxXZ = mapLatLonToXZ(maxLat, maxLon);
 
-  // Create the group for all preview elements
-  cropPreviewMesh = new THREE.Group();
+  // 采样多个点以获取更准确的地形高度范围
+  const samplePoints = 5; // 每边采样点数
+  const heights = [];
 
-  // Sample terrain heights at corners and center
-  const corners = [
-    { x: minXZ.x, z: minXZ.z },
-    { x: maxXZ.x, z: minXZ.z },
-    { x: maxXZ.x, z: maxXZ.z },
-    { x: minXZ.x, z: maxXZ.z },
-    { x: (minXZ.x + maxXZ.x) / 2, z: (minXZ.z + maxXZ.z) / 2 } // center
-  ];
+  for (let i = 0; i <= samplePoints; i++) {
+    for (let j = 0; j <= samplePoints; j++) {
+      const x = minXZ.x + (maxXZ.x - minXZ.x) * (i / samplePoints);
+      const z = minXZ.z + (maxXZ.z - minXZ.z) * (j / samplePoints);
+      const height = getTerrainHeight(x, z);
+      if (height !== null) heights.push(height);
+    }
+  }
 
-  const heights = corners.map(({x, z}) => getTerrainHeight(x, z) || 0);
   const minHeight = Math.min(...heights);
   const maxHeight = Math.max(...heights);
+  const verticalPadding = 50; // 添加额外的垂直空间
+  const boxHeight = maxHeight - minHeight + verticalPadding;
 
-  // Create box shape with height to cover from min to max terrain height plus padding
+  // 创建半透明盒子
   const width = Math.abs(maxXZ.x - minXZ.x);
   const depth = Math.abs(maxXZ.z - minXZ.z);
-  const heightPadding = 100; // Add some padding above and below the terrain
-  const boxHeight = Math.max(maxHeight - minHeight + heightPadding, 20); // Ensure minimum height
-
-  // Create semi-transparent box
   const boxGeometry = new THREE.BoxGeometry(width, boxHeight, depth);
   const boxMaterial = new THREE.MeshBasicMaterial({
     color: 0x22cc88,
     transparent: true,
     opacity: 0.15,
-    depthWrite: false // Prevent z-fighting
+    depthWrite: false // 防止 Z 冲突
   });
 
   const boxMesh = new THREE.Mesh(boxGeometry, boxMaterial);
@@ -1588,7 +1641,7 @@ const previewCropArea = (bounds) => {
   );
   cropPreviewMesh.add(boxMesh);
 
-  // Add wireframe edges
+  // 添加线框边缘
   const edgeGeometry = new THREE.EdgesGeometry(boxGeometry);
   const edgeMaterial = new THREE.LineBasicMaterial({
     color: 0x00aa66,
@@ -1598,18 +1651,18 @@ const previewCropArea = (bounds) => {
   const edgeMesh = new THREE.LineSegments(edgeGeometry, edgeMaterial);
   cropPreviewMesh.add(edgeMesh);
 
-  // Add corner posts to the ground
+  // 添加角柱到地面
   const postRadius = 1.5;
-  const postHeight = boxHeight + 20; // Extend posts slightly beyond box
+  const postHeight = boxHeight + 20; // 将柱子稍微延伸超过盒子
   const postGeometry = new THREE.CylinderGeometry(postRadius, postRadius, postHeight, 8);
   const postMaterial = new THREE.MeshBasicMaterial({ color: 0x22cc88 });
 
-  // Create four corner posts
+  // 创建四个角柱
   [
     { x: minXZ.x, z: minXZ.z },
     { x: maxXZ.x, z: minXZ.z },
     { x: maxXZ.x, z: maxXZ.z },
-    { x: minXZ.x, z: maxXZ.z }
+    { x: minXZ.x, z: minXZ.z }
   ].forEach(({x, z}) => {
     const height = getTerrainHeight(x, z) || 0;
     const post = new THREE.Mesh(postGeometry, postMaterial);
@@ -1623,6 +1676,16 @@ const previewCropArea = (bounds) => {
 const cancelCropPreview = () => {
   if (cropPreviewMesh) {
     scene.remove(cropPreviewMesh);
+    cropPreviewMesh.traverse(child => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) {
+        if (Array.isArray(child.material)) {
+          child.material.forEach(m => m.dispose());
+        } else {
+          child.material.dispose();
+        }
+      }
+    });
     cropPreviewMesh = null;
   }
   cropPreviewActive.value = false;
@@ -1692,7 +1755,296 @@ const saveClippedTerrain = async (saveOptions) => {
   }
 };
 
-// --- End Terrain Cropping Functionality ---
+// --- Terrain Drag Selection Functionality ---
+// 拖拽选择状态
+const dragStartPos = ref(null);
+const dragCurrentPos = ref(null);
+const dragSelectionMesh = ref(null);
+
+// 拖拽选择方法
+const startDragSelection = () => {
+  isDragSelectionActive.value = true;
+
+  // 添加视觉提示
+  const element = document.createElement('div');
+  element.className = 'drag-selection-cursor';
+  element.innerHTML = '<i class="el-icon-crop"></i>';
+  document.body.appendChild(element);
+
+  // 添加事件监听器
+  renderer.domElement.addEventListener('mousedown', onDragSelectionStart);
+
+  // 更改鼠标光标
+  renderer.domElement.style.cursor = 'crosshair';
+};
+
+const cancelDragSelection = () => {
+  isDragSelectionActive.value = false;
+
+  // 移除拖拽选择的视觉指示
+  if (dragSelectionMesh.value) {
+    scene.remove(dragSelectionMesh.value);
+    dragSelectionMesh.value = null;
+  }
+
+  // 移除事件监听器
+  renderer.domElement.removeEventListener('mousedown', onDragSelectionStart);
+  document.removeEventListener('mousemove', onDragSelectionMove);
+  document.removeEventListener('mouseup', onDragSelectionEnd);
+
+  // 恢复鼠标光标
+  renderer.domElement.style.cursor = '';
+
+  // 移除视觉提示
+  const element = document.querySelector('.drag-selection-cursor');
+  if (element) {
+    document.body.removeChild(element);
+  }
+};
+
+const onDragSelectionStart = (event) => {
+  // 记录起始点
+  const { clientX, clientY } = event;
+
+  // 使用射线检测获取起始点在地形上的坐标
+  const rect = renderer.domElement.getBoundingClientRect();
+  const x = ((clientX - rect.left) / rect.width) * 2 - 1;
+  const y = -((clientY - rect.top) / rect.height) * 2 + 1;
+
+  // 创建射线
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
+
+  // 检测与地形的交点
+  const intersects = raycaster.intersectObject(terrainMesh);
+  if (intersects.length > 0) {
+    // 获取交点位置
+    const intersectionPoint = intersects[0].point;
+
+    // 将三维坐标转换为地理坐标
+    const geoCoords = xzToLatLon(intersectionPoint.x, intersectionPoint.z);
+    dragStartPos.value = geoCoords;
+
+    // 添加拖拽事件监听器
+    document.addEventListener('mousemove', onDragSelectionMove);
+    document.addEventListener('mouseup', onDragSelectionEnd);
+
+    // 创建选择框可视化
+    createDragSelectionBox(geoCoords, geoCoords);
+  }
+};
+
+const onDragSelectionMove = (event) => {
+  if (!dragStartPos.value) return;
+
+  const { clientX, clientY } = event;
+
+  // 使用射线检测获取当前点在地形上的坐标
+  const rect = renderer.domElement.getBoundingClientRect();
+  const x = ((clientX - rect.left) / rect.width) * 2 - 1;
+  const y = -((clientY - rect.top) / rect.height) * 2 + 1;
+
+  // 创建射线
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
+
+  // 检测与地形的交点
+  const intersects = raycaster.intersectObject(terrainMesh);
+  if (intersects.length > 0) {
+    // 获取交点位置
+    const intersectionPoint = intersects[0].point;
+
+    // 将三维坐标转换为地理坐标
+    const geoCoords = xzToLatLon(intersectionPoint.x, intersectionPoint.z);
+    dragCurrentPos.value = geoCoords;
+
+    // 更新选择框
+    updateDragSelectionBox();
+  }
+};
+
+const onDragSelectionEnd = () => {
+  if (!dragStartPos.value || !dragCurrentPos.value) return;
+
+  // 移除事件监听器
+  document.removeEventListener('mousemove', onDragSelectionMove);
+  document.removeEventListener('mouseup', onDragSelectionEnd);
+
+  // 计算最终的选择区域（确保为正方形）
+  const bounds = calculateSquareBounds(dragStartPos.value, dragCurrentPos.value);
+
+    // 更新裁剪面板中的坐标
+    if (bounds && sidebars.value.terrainClipping) {
+    // 正确访问引用
+    if (terrainClipping.value) {
+      terrainClipping.value.updateCoordsFromDragSelection(bounds);
+    }
+  }
+
+  // 重置状态
+  dragStartPos.value = null;
+  dragCurrentPos.value = null;
+
+  // 取消拖拽选择模式
+  cancelDragSelection();
+};
+
+// 创建选择框可视化
+const createDragSelectionBox = (startCoords, endCoords) => {
+  // 移除现有选择框
+  if (dragSelectionMesh.value) {
+    scene.remove(dragSelectionMesh.value);
+  }
+
+  // 计算正方形边界
+  const bounds = calculateSquareBounds(startCoords, endCoords);
+  if (!bounds) return;
+
+  // 创建一个新的选择框
+  const { minLat, minLon, maxLat, maxLon } = bounds;
+
+  // 将地理坐标转换为场景坐标
+  const minXZ = mapLatLonToXZ(minLat, minLon);
+  const maxXZ = mapLatLonToXZ(maxLat, maxLon);
+
+  // 创建选择框网格
+  const width = Math.abs(maxXZ.x - minXZ.x);
+  const depth = Math.abs(maxXZ.z - minXZ.z);
+
+  // 获取地形高度
+  const minHeight = getTerrainHeight(minXZ.x, minXZ.z) || 0;
+  const maxHeight = getTerrainHeight(maxXZ.x, maxXZ.z) || 0;
+  const height = Math.max(maxHeight - minHeight, 20) + 50; // 添加一些额外高度
+
+  // 创建选择框组
+  const selectionGroup = new THREE.Group();
+
+  // 创建半透明框
+  const boxGeometry = new THREE.BoxGeometry(width, height, depth);
+  const boxMaterial = new THREE.MeshBasicMaterial({
+    color: 0x4a90e2,
+    transparent: true,
+    opacity: 0.2,
+    depthWrite: false
+  });
+
+  const boxMesh = new THREE.Mesh(boxGeometry, boxMaterial);
+  boxMesh.position.set(
+    (minXZ.x + maxXZ.x) / 2,
+    minHeight + height / 2,
+    (minXZ.z + maxXZ.z) / 2
+  );
+  selectionGroup.add(boxMesh);
+
+  // 添加边框
+  const edgeGeometry = new THREE.EdgesGeometry(boxGeometry);
+  const edgeMaterial = new THREE.LineBasicMaterial({
+    color: 0x2c7be5,
+    linewidth: 2
+  });
+
+  const edgeMesh = new THREE.LineSegments(edgeGeometry, edgeMaterial);
+  edgeMesh.position.copy(boxMesh.position);
+  selectionGroup.add(edgeMesh);
+
+  // 添加角标记
+  const cornerMarkerGeometry = new THREE.SphereGeometry(2, 8, 8);
+  const cornerMarkerMaterial = new THREE.MeshBasicMaterial({ color: 0x2c7be5 });
+
+  const corners = [
+    { x: minXZ.x, z: minXZ.z },
+    { x: maxXZ.x, z: minXZ.z },
+    { x: maxXZ.x, z: maxXZ.z },
+    { x: minXZ.x, z: maxXZ.z }
+  ];
+
+  corners.forEach(({ x, z }) => {
+    const height = getTerrainHeight(x, z) || 0;
+    const marker = new THREE.Mesh(cornerMarkerGeometry, cornerMarkerMaterial);
+    marker.position.set(x, height + 2, z);
+    selectionGroup.add(marker);
+  });
+
+  // 存储选择框引用
+  dragSelectionMesh.value = selectionGroup;
+  scene.add(selectionGroup);
+};
+
+// 更新选择框
+const updateDragSelectionBox = () => {
+  if (!dragStartPos.value || !dragCurrentPos.value) return;
+
+  // 重新创建选择框
+  createDragSelectionBox(dragStartPos.value, dragCurrentPos.value);
+};
+
+// 计算确保为正方形的边界
+const calculateSquareBounds = (startCoords, endCoords) => {
+  if (!startCoords || !endCoords) return null;
+
+  // 初始边界
+  let minLat = Math.min(startCoords.lat, endCoords.lat);
+  let maxLat = Math.max(startCoords.lat, endCoords.lat);
+  let minLon = Math.min(startCoords.lon, endCoords.lon);
+  let maxLon = Math.max(startCoords.lon, endCoords.lon);
+
+  // 计算中心点
+  const centerLat = (minLat + maxLat) / 2;
+  const centerLon = (minLon + maxLon) / 2;
+
+  // 计算距离并调整为正方形
+  const cosLat = Math.cos(centerLat * Math.PI / 180);
+
+  // 计算以km为单位的尺寸
+  const latDistanceKm = (maxLat - minLat) * 111.32;
+  const lonDistanceKm = (maxLon - minLon) * 111.32 * cosLat;
+
+  // 使用较大的尺寸以保持正方形
+  const squareSizeKm = Math.max(latDistanceKm, lonDistanceKm);
+
+  // 计算对应的经纬度跨度
+  const latSpan = squareSizeKm / 111.32;
+  const lonSpan = squareSizeKm / (111.32 * cosLat);
+
+  // 应用新的经纬度范围，保持中心点
+  minLat = centerLat - (latSpan / 2);
+  maxLat = centerLat + (latSpan / 2);
+  minLon = centerLon - (lonSpan / 2);
+  maxLon = centerLon + (lonSpan / 2);
+
+  // 确保在DEM边界内
+  minLat = Math.max(minLat, parseFloat(formattedGeoBounds.value.minLat));
+  maxLat = Math.min(maxLat, parseFloat(formattedGeoBounds.value.maxLat));
+  minLon = Math.max(minLon, parseFloat(formattedGeoBounds.value.minLon));
+  maxLon = Math.min(maxLon, parseFloat(formattedGeoBounds.value.maxLon));
+
+  return { minLat, minLon, maxLat, maxLon };
+};
+
+// 改进的XZ坐标到经纬度的映射
+const xzToLatLon = (x, z) => {
+  if (
+    typeof caseStore.minLatitude !== "number" ||
+    typeof caseStore.maxLatitude !== "number" ||
+    typeof caseStore.minLongitude !== "number" ||
+    typeof caseStore.maxLongitude !== "number"
+  ) {
+    console.warn("GeoTIFF bounds are not set.");
+    return { lat: 0, lon: 0 };
+  }
+    // 类似的改进逻辑
+  const terrainSize = 1000;
+
+  const longitudeRatio = (x / terrainSize) + 0.5;
+  const latitudeRatio = (z / terrainSize) + 0.5;
+
+  const lon = caseStore.minLongitude + (caseStore.maxLongitude - caseStore.minLongitude) * longitudeRatio;
+  const lat = caseStore.minLatitude + (caseStore.maxLatitude - caseStore.minLatitude) * latitudeRatio;
+
+  return { lat, lon };
+};
+
+// --- End Terrain Drag Selection Functionality ---
 
 // --- Debugging Tools ---
 // Add this function to your global scope for debugging
@@ -2035,43 +2387,36 @@ watch(() => hoveredTurbine.value, (newTurbine, oldTurbine) => {
   }
 });
 
+// REVIEW and KEEP: Watcher for store changes (Handles scene updates)
 watch(
   () => caseStore.windTurbines,
   (newTurbines, oldTurbines) => {
-    log(2, '[WATCH_TURBINES_STORE] Wind turbines in store updated.');
+    log(2, `[WATCH_TURBINES_STORE] Store turbines changed. New: ${newTurbines?.length}, Old: ${oldTurbines?.length}`);
 
-    // Optimization: Diff and update turbines
-    if (oldTurbines) {
-      const oldTurbineIds = oldTurbines.map(t => t.id);
-      const newTurbineIds = newTurbines.map(t => t.id);
+    const newTurbineMap = new Map(newTurbines?.map(t => [t.id, t]) ?? []);
+    const oldTurbineMap = new Map(oldTurbines?.map(t => [t.id, t]) ?? []);
 
-      // Identify turbines to remove
-      const turbinesToRemove = oldTurbineIds.filter(id => !newTurbineIds.includes(id));
-      turbinesToRemove.forEach(id => {
-        deleteWindTurbineFromScene(id);
-      });
-      log(2, `[WATCH_TURBINES_STORE] Turbines to remove: ${turbinesToRemove.length}`);
+    // Find turbines to remove from scene
+    oldTurbineMap.forEach((_, id) => {
+      if (!newTurbineMap.has(id)) {
+        log(2, `[WATCH_TURBINES_STORE] Deleting turbine from scene: ${id}`);
+        deleteWindTurbineFromScene(id); // Function to remove from Three.js
+      }
+    });
 
+    // Find turbines to add to scene
+    newTurbineMap.forEach((turbine, id) => {
+      if (!oldTurbineMap.has(id)) {
+        log(2, `[WATCH_TURBINES_STORE] Adding turbine to scene: ${turbine.name} (ID: ${id})`);
+        addWindTurbineToScene(turbine); // Function to add to Three.js
+      }
+      // Optional: Handle updates if properties change
+      // else { const oldTurbine = oldTurbineMap.get(id); /* Compare and update mesh if needed */ }
+    });
 
-      // Identify turbines to add
-      const turbinesToAdd = newTurbines.filter(turbine => !oldTurbineIds.includes(turbine.id));
-      turbinesToAdd.forEach(turbine => {
-        addWindTurbineToScene(turbine);
-      });
-      log(2, `[WATCH_TURBINES_STORE] Turbines to add: ${turbinesToAdd.length}`);
-
-    } else {
-      // Initial load: Add all turbines
-      log(2, '[WATCH_TURBINES_STORE] Initial load, adding all turbines.');
-      newTurbines.forEach((turbine) => {
-        addWindTurbineToScene(turbine);
-      });
-      log(2, '[WATCH_TURBINES_STORE] Initial turbines added: ' + String(newTurbines.length));
-    }
-    log(2, '[WATCH_TURBINES_STORE] Wind turbines update process finished.');
-
+    log(2, '[WATCH_TURBINES_STORE] Scene sync based on store changes finished.');
   },
-  { deep: true }
+  { deep: true } // Deep watch is crucial here
 );
 </script>
 
@@ -2134,5 +2479,40 @@ watch(
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+/* 添加拖拽选择模式的提示 */
+.drag-selection-active-indicator {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(24, 144, 255, 0.9);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 4px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.indicator-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.drag-selection-cursor {
+  position: fixed;
+  width: 32px;
+  height: 32px;
+  pointer-events: none;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #409EFF;
+  font-size: 24px;
 }
 </style>
