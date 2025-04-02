@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-02-27 11:23:29
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-02-27 11:24:14
+ * @LastEditTime: 2025-04-02 16:26:01
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\views\CaseDetails.vue
  * @Description: 
  * 

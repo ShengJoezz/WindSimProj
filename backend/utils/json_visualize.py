@@ -1,3 +1,12 @@
+# @Author: joe 847304926@qq.com
+# @Date: 2025-04-02 10:28:50
+# @LastEditors: joe 847304926@qq.com
+# @LastEditTime: 2025-04-02 18:43:55
+# @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\backend\utils\precompute_visualization.py
+# @Description:
+#
+# Copyright (c) 2025 by joe, All Rights Reserved.
+
 # precompute_visualization.py
 import os
 import json
@@ -11,9 +20,9 @@ import time
 
 def numpy_to_python(obj):
     """Convert numpy types to Python native types for JSON serialization."""
-    if isinstance(obj, (np.int_, np.intc, np.intp, np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64)): # 更全面的整数类型
+    if isinstance(obj, (np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64)):
         return int(obj)
-    elif isinstance(obj, (np.float_, np.float16, np.float32, np.float64)): # 更全面的浮点类型
+    elif isinstance(obj, (np.float16, np.float32, np.float64)):
         # 处理 NaN 和 Inf，JSON不支持它们
         if np.isnan(obj):
             return None # 或者返回 "NaN" 字符串，取决于前端如何处理
@@ -61,6 +70,9 @@ def load_speed_data(binfile, meta):
     except IOError as e:
         raise IOError(f"Error reading speed data file {binfile}: {e}") from e
 
+    # **Explicitly cast 'data' to float32 to ensure it's the correct type**
+    data = data.astype(np.float32)
+
     expected_size = post_width * post_height * num_layers
     if data.size != expected_size:
         rel_binfile = os.path.relpath(binfile)
@@ -70,9 +82,12 @@ def load_speed_data(binfile, meta):
             f"but found {data.size}. Check 'size' in output.json or the binary file itself."
         )
     data = data.reshape((num_layers, post_height, post_width))
-    # 处理 NaN 和 Inf 值，替换为 None，以便 JSON 序列化
+    
+    # First handle Inf values with np.isinf while the array is still all numeric
+    data = np.where(np.isinf(data), np.nan, data)
+    # Then replace all NaN values with None
     data = np.where(np.isnan(data), None, data)
-    data = np.where(np.isinf(data), None, data)
+    
     return data, post_width, post_height, num_layers
 
 
@@ -163,20 +178,24 @@ def precompute_all_data(case_id):
                 })
 
         metadata_content = {
-            "heightLevels": [float(h) for h in H_levels_m],
-            "turbines": frontend_turbines,
-            "vmin": float(meta.get("range", [0, 15])[0]),
-            "vmax": float(meta.get("range", [0, 15])[1]),
-            "windAngle": float(wind_angle),
-            "windDirectionVector": wind_dir_vector,
-            "scaleFactor": float(scale_factor),
-            "xCoordsKm": [float(x) for x in x_coords_km], # Also store base coords
-            "yCoordsKm": [float(y) for y in y_coords_km],
-            "extentKm": extent_km
-        }
+        "heightLevels": [float(h) for h in H_levels_m],
+        "turbines": frontend_turbines,
+        "vmin": float(meta.get("range", [0, 15])[0]),
+        "vmax": float(meta.get("range", [0, 15])[1]),
+        "windAngle": float(wind_angle),
+        "windDirectionVector": wind_dir_vector,
+        "scaleFactor": float(scale_factor),
+        "xCoordsKm": [float(x) for x in x_coords_km],
+        "yCoordsKm": [float(y) for y in y_coords_km],
+        "extentKm": extent_km,
+    # 添加前端期望的属性名
+        "extent": extent_km,
+        "xCoords": [float(x) for x in x_coords_km],
+        "yCoords": [float(y) for y in y_coords_km]
+}
         metadata_filepath = os.path.join(cache_base_path, 'metadata.json')
         with open(metadata_filepath, 'w', encoding='utf-8') as f:
-            json.dump(metadata_content, f, default=numpy_to_python, indent=2) # 添加 indent=2
+            json.dump(metadata_content, f, default=numpy_to_python, indent=2) # 使用 indent=2 方便查看
         print(f"Metadata saved to {metadata_filepath}")
 
         # --- 5. 预计算并保存风廓线 ---
@@ -191,12 +210,12 @@ def precompute_all_data(case_id):
             vp_speed = f_interp(pts_vp)
             profile_data = {
                 "id": t["id"],
-                "heights": h_eval_m, # Let numpy_to_python handle conversion
-                "speeds": vp_speed  # Let numpy_to_python handle conversion (incl. NaN)
+                "heights": h_eval_m.tolist(), # Convert to Python list directly
+                "speeds": vp_speed.tolist()  # Convert to Python list directly
             }
             profile_filepath = os.path.join(profiles_path, f'turbine_{t["id"]}.json')
             with open(profile_filepath, 'w', encoding='utf-8') as f:
-                json.dump(profile_data, f, default=numpy_to_python, indent=2) # 添加 indent=2
+                json.dump(profile_data, f, default=numpy_to_python) # Use the helper
             print(f"  Profile {t_idx+1}/{len(frontend_turbines)} saved: {profile_filepath}")
 
 
@@ -224,22 +243,35 @@ def precompute_all_data(case_id):
             wake_data = {
                 "id": turbine_id,
                 "hubHeightUsed": sample_height_m,
-                "distances": s_vals_km, # Let numpy_to_python handle conversion
-                "speeds": hp_speed    # Let numpy_to_python handle conversion (incl. NaN)
+                "distances": s_vals_km.tolist(), # Convert to Python list directly
+                "speeds": hp_speed.tolist()    # Convert to Python list directly
             }
             wake_filepath = os.path.join(wakes_path, f'turbine_{t["id"]}.json')
             with open(wake_filepath, 'w', encoding='utf-8') as f:
-                json.dump(wake_data, f, default=numpy_to_python, indent=2) # 添加 indent=2
+                json.dump(wake_data, f, default=numpy_to_python) # Use the helper
             print(f"  Wake {t_idx+1}/{len(frontend_turbines)} saved: {wake_filepath}")
 
         # --- 7. 预计算并保存速度切片 ---
+        total_slices = len(H_levels_m)
         print(f"Precomputing {total_slices} height slices...")
         for i, height_m in enumerate(H_levels_m):
-            # ... (准备 slice_content) ...
+            print(f"Processing slice {i+1}/{total_slices} for height {height_m:.1f}m...")
             slice_data = data[i, :, :] # Shape (post_height, post_width)
+            
+            # Convert to Python list with proper None handling
+            values_list = []
+            for row in slice_data:
+                row_list = []
+                for v in row:
+                    if v is None:
+                        row_list.append(None)
+                    else:
+                        row_list.append(float(v))
+                values_list.append(row_list)
+                
             slice_content = {
                 "height": float(height_m),
-                "values": [[float(v) if not np.isnan(v) else None for v in row] for row in slice_data],
+                "values": values_list,
                 # Store references or basic info, actual coords are in metadata.json
                 "xCoordRef": "metadata.json",
                 "yCoordRef": "metadata.json",
@@ -248,7 +280,7 @@ def precompute_all_data(case_id):
             slice_filepath = os.path.join(slices_path, f'height_{height_m:.1f}.json')
             with open(slice_filepath, 'w', encoding='utf-8') as f:
                  # 使用 numpy_to_python 处理嵌套列表和可能的 NaN/Inf
-                json.dump(slice_content, f, default=numpy_to_python, indent=2) # 添加 indent=2
+                json.dump(slice_content, f, default=numpy_to_python)
             print(f"  Slice {i+1}/{total_slices} saved: {slice_filepath}")
 
         end_time = time.time()
