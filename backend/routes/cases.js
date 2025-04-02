@@ -2,14 +2,14 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-04-01 11:28:56
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-04-01 13:02:10
+ * @LastEditTime: 2025-04-01 22:01:33
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\backend\routes\cases.js
- * @Description: 
- * 
+ * @Description:
+ *
  * Copyright (c) 2025 by joe, All Rights Reserved.
  */
 
- /**
+/**
   • @Author: joe 847304926@qq.com
   • @Date: 2024-12-30 10:58:27
   • @LastEditors: joe 您的名字
@@ -34,7 +34,7 @@
   const windTurbinesRouter = require('./windTurbines');
   const archiver = require('archiver');
   const pdfDataService = require('../services/pdfDataService'); // 引入 PDF 数据服务
- 
+  
   // 辅助函数
   const calculateXY = (lon, lat, centerLon, centerLat) => {
     console.log('calculateXY - Input:', { lon, lat, centerLon, centerLat });
@@ -50,7 +50,7 @@
     console.log('calculateXY - Output:', { x: projx, y: projy });
     return { x: projx, y: projy };
   };
- 
+  
   const ensureVTKDirectories = (caseId) => {
     const dirs = [
       path.join(__dirname, '..', 'uploads'),
@@ -65,7 +65,7 @@
       }
     });
   };
- 
+  
   const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15分钟
     max: 1000, // 将最大请求数提高到1000
@@ -73,7 +73,7 @@
     skip: (req) => process.env.NODE_ENV !== 'production' // 开发环境跳过限制
   });
   router.use(limiter);
- 
+  
   // 验证 caseId 的 schema
   const caseIdSchema = Joi.string()
     .alphanum()
@@ -86,7 +86,7 @@
       "string.max": "Case ID must be at most 50 characters long",
       "any.required": "Case ID is required",
     });
- 
+  
   router.use("/:caseId", (req, res, next) => {
     const { error, value } = caseIdSchema.validate(req.params.caseId);
     if (error) {
@@ -98,7 +98,7 @@
     req.params.caseId = value;
     next();
   });
- 
+  
   // Multer 配置
   const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -118,7 +118,7 @@
       }
     },
   });
- 
+  
   const upload = multer({
     storage: storage,
     fileFilter: (req, file, cb) => {
@@ -132,7 +132,7 @@
       cb(null, true);
     },
   }).fields([{ name: 'terrainFile', maxCount: 1 }]);
- 
+  
   // 1. 创建新工况
   router.post('/', async (req, res) => {
     try {
@@ -158,7 +158,7 @@
       res.status(500).json({ success: false, message: err.message || '文件处理失败' });
     }
   });
- 
+  
   // 2. 获取所有工况
   router.get("/", async (req, res) => {
     try {
@@ -174,42 +174,42 @@
       res.status(500).json({ success: false, message: "获取工况列表失败" });
     }
   });
- 
+  
   // 3. 获取特定工况的地形文件
   // cases.js - GET /:caseId/terrain - 确保使用这个版本
-router.get("/:caseId/terrain", (req, res) => {
-  const { caseId } = req.params;
-  if (!caseId || caseId === "undefined" || caseId === "null") {
-    return res.status(400).json({ success: false, message: "请先选择工况" });
-  }
-  const casePath = path.join(__dirname, "../uploads", caseId);
-  if (!fs.existsSync(casePath)) {
-     return res.status(404).json({ success: false, message: "工况目录不存在" });
-  }
-  const terrainFilePath = path.join(casePath, "terrain.tif");
-  if (!fs.existsSync(terrainFilePath)) {
-    return res.status(404).json({ success: false, message: "未找到地形数据" });
-  }
-
-  res.setHeader('Content-Type', 'image/tiff');
-  const stream = fs.createReadStream(terrainFilePath);
-
-  stream.on('error', (err) => {
-    console.error(`读取地形文件流时出错 (${terrainFilePath}):`, err);
-    if (!res.headersSent) {
-      res.status(500).json({ success: false, message: "读取地形文件失败" });
-    } else {
-      res.end();
+  router.get("/:caseId/terrain", (req, res) => {
+    const { caseId } = req.params;
+    if (!caseId || caseId === "undefined" || caseId === "null") {
+      return res.status(400).json({ success: false, message: "请先选择工况" });
     }
-  });
-
-  stream.pipe(res);
-
-  req.on('close', () => {
-      console.log(`客户端断开了地形文件请求 (${terrainFilePath})`);
-      stream.destroy();
-  });
-}); // <--- 确保这个结尾括号和花括号都在
+    const casePath = path.join(__dirname, "../uploads", caseId);
+    if (!fs.existsSync(casePath)) {
+       return res.status(404).json({ success: false, message: "工况目录不存在" });
+    }
+    const terrainFilePath = path.join(casePath, "terrain.tif");
+    if (!fs.existsSync(terrainFilePath)) {
+      return res.status(404).json({ success: false, message: "未找到地形数据" });
+    }
+  
+    res.setHeader('Content-Type', 'image/tiff');
+    const stream = fs.createReadStream(terrainFilePath);
+  
+    stream.on('error', (err) => {
+      console.error(`读取地形文件流时出错 (${terrainFilePath}):`, err);
+      if (!res.headersSent) {
+        res.status(500).json({ success: false, message: "读取地形文件失败" });
+      } else {
+        res.end();
+      }
+    });
+  
+    stream.pipe(res);
+  
+    req.on('close', () => {
+        console.log(`客户端断开了地形文件请求 (${terrainFilePath})`);
+        stream.destroy();
+    });
+  }); // <--- 确保这个结尾括号和花括号都在
   // 4. 删除工况
   router.delete("/:caseId", async (req, res) => {
     const { caseId } = req.params;
@@ -230,7 +230,7 @@ router.get("/:caseId/terrain", (req, res) => {
       res.status(500).json({ success: false, message: "删除工况失败", error: error.message });
     }
   });
- 
+  
   // 5. 获取特定工况的参数
   router.get("/:caseId/parameters", async (req, res) => {
     const { caseId } = req.params;
@@ -289,7 +289,7 @@ router.get("/:caseId/terrain", (req, res) => {
       res.status(500).json({ success: false, message: "获取参数失败" });
     }
   });
- 
+  
   // 6. 保存特定工况的参数
   router.post("/:caseId/parameters", async (req, res) => {
     const { caseId } = req.params;
@@ -307,7 +307,7 @@ router.get("/:caseId/terrain", (req, res) => {
       res.status(500).json({ success: false, message: "保存参数失败" });
     }
   });
- 
+  
   // 7. 获取特定工况的仿真结果
   router.get("/:caseId/results", async (req, res) => {
     const { caseId } = req.params;
@@ -325,14 +325,14 @@ router.get("/:caseId/terrain", (req, res) => {
       res.status(500).json({ success: false, message: "获取结果失败" });
     }
   });
- 
+  
   // 8. 启动特定工况的计算（含持久化进度机制）
   router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
     const { caseId } = req.params;
     const scriptPath = path.join(__dirname, "../base/run.sh");
     const casePath = path.join(__dirname, "../uploads", caseId);
     const progressPath = path.join(__dirname, `../uploads/${caseId}/calculation_progress.json`);
- 
+  
     if (!fs.existsSync(scriptPath)) {
       return res.status(404).json({ success: false, message: "run.sh 脚本未找到" });
     }
@@ -342,15 +342,15 @@ router.get("/:caseId/terrain", (req, res) => {
     if (req.calculationStatus === "completed") {
       return res.status(400).json({ success: false, message: "该工况已完成计算，无法重新计算" });
     }
- 
+  
     const io = req.app.get("socketio");
- 
+  
     // 初始化任务状态（使用对象）
     const taskStatuses = {};
     knownTasks.forEach(task => {
       taskStatuses[task.id] = "pending";
     });
- 
+  
     // 更新 info.json 状态
     const infoJsonPath = path.join(casePath, "info.json");
     if (fs.existsSync(infoJsonPath)) {
@@ -365,135 +365,135 @@ router.get("/:caseId/terrain", (req, res) => {
     } else {
       console.warn("info.json not found. Cannot update calculation status.");
     }
- 
+  
     try {
       // 使用 stdbuf -oL 保证行缓冲，进程内立即输出
       const child = spawn("bash", [scriptPath], { cwd: casePath, shell: false });
       const logFilePath = path.join(casePath, `calculation_log_${Date.now()}.txt`);
       const logStream = fs.createWriteStream(logFilePath, { flags: "a" });
       console.log(`Executing run.sh for case: ${caseId}`);
- 
+  
       child.stdout.on("data", async (data) => {
         const lines = data.toString().split("\n").filter(line => line.trim() !== "");
         for (const line of lines) {
-          if (line.startsWith('{')) { // Check if line *might* be JSON
-            try {
-              const msg = JSON.parse(line);
-              if (msg.action === "taskStart") {
-                const taskId = msg.taskId;
-                if (knownTasks.some(task => task.id === taskId)) {
-                  taskStatuses[taskId] = "running";
-                  io.to(caseId).emit("taskStarted", taskId);
-                  console.log(`Task started: ${taskId}`);
-                }
-              } else if (msg.action === "progress") {
-                if (msg.progress === "ERROR") {
-                  const taskId = msg.taskId;
-                  taskStatuses[taskId] = "error";
-                  io.to(caseId).emit("calculationError", { message: "脚本错误", taskId });
-                  console.error(`Task error: ${taskId}`);
-                } else {
-                  const percent = parseInt(msg.progress, 10);
-                  const taskId = msg.taskId;
-                  if (!isNaN(percent) && knownTasks.some(task => task.id === taskId)) {
-                    if (percent === 100) {
-                      taskStatuses[taskId] = "completed";
-                      console.log(`Task completed: ${taskId}`);
+            if (line.startsWith('{')) { // Check if line *might* be JSON
+                try {
+                    const msg = JSON.parse(line);
+                    if (msg.action === "taskStart") {
+                        const taskId = msg.taskId;
+                        if (knownTasks.some(task => task.id === taskId)) {
+                            taskStatuses[taskId] = "running";
+                            io.to(caseId).emit("taskStarted", taskId);
+                            console.log(`Task started: ${taskId}`);
+                        }
+                    } else if (msg.action === "progress") {
+                        if (msg.progress === "ERROR") {
+                            const taskId = msg.taskId;
+                            taskStatuses[taskId] = "error";
+                            io.to(caseId).emit("calculationError", { message: "脚本错误", taskId });
+                            console.error(`Task error: ${taskId}`);
+                        } else {
+                            const percent = parseInt(msg.progress, 10);
+                            const taskId = msg.taskId;
+                            if (!isNaN(percent) && knownTasks.some(task => task.id === taskId)) {
+                                if (percent === 100) {
+                                    taskStatuses[taskId] = "completed";
+                                    console.log(`Task completed: ${taskId}`);
+                                }
+                                io.to(caseId).emit("calculationProgress", { progress: percent, taskId });
+                                const progressData = {
+                                    isCalculating: true,
+                                    progress: percent,
+                                    tasks: taskStatuses,
+                                    outputs: [],
+                                    timestamp: Date.now(),
+                                    completed: false,
+                                };
+                                try {
+                                    await fsPromises.writeFile(progressPath, JSON.stringify(progressData, null, 2));
+                                } catch (err) {
+                                    console.error("写入计算进度文件失败:", err);
+                                    return res.status(500).json({ success: false, message: "Failed to save calculation progress", error: err.message });
+                                }
+                            }
+                        }
+                    } else if (msg.action === "info") {
+                        io.to(caseId).emit("calculationOutput", msg.message);
                     }
-                    io.to(caseId).emit("calculationProgress", { progress: percent, taskId });
-                    const progressData = {
-                      isCalculating: true,
-                      progress: percent,
-                      tasks: taskStatuses,
-                      outputs: [], // 可根据需要累加输出
-                      timestamp: Date.now(),
-                      completed: false,
-                    };
-                    try {
-                      await fsPromises.writeFile(progressPath, JSON.stringify(progressData, null, 2));
-                    } catch (err) {
-                      console.error("写入计算进度文件失败:", err);
-                      return res.status(500).json({ success: false, message: "Failed to save calculation progress", error: err.message });
-                    }
-                  }
+                } catch (e) {
+                    io.to(caseId).emit("calculationOutput", line);
                 }
-              } else if (msg.action === "info") {
-                io.to(caseId).emit("calculationOutput", msg.message); // Handle 'info' action as before
-              }
-            } catch (e) {
-              io.to(caseId).emit("calculationOutput", line); // Emit the line as plain text
+            } else {
+                // Treat lines that don't start with '{' as plain text output
+                io.to(caseId).emit("calculationOutput", line);
             }
-          } else {
-            // Treat lines that don't start with '{' as plain text output
-            io.to(caseId).emit("calculationOutput", line); // Emit as plain text
-          }
         }
         io.to(caseId).emit("taskUpdate", taskStatuses);
-      });
- 
-      child.stderr.on("data", (data) => {
-        const errorOutput = data.toString();
-        logStream.write(`ERROR: ${errorOutput}`);
-        console.error(`run.sh stderr: ${errorOutput}`);
-        io.to(caseId).emit("calculationError", { message: "脚本错误", details: errorOutput });
-      });
- 
-      child.on("close", async (code) => {
-        logStream.end();
-        if (code === 0) {
-          console.log("run.sh completed successfully");
-          const finalProgressData = {
-            isCalculating: false,
-            progress: 100,
-            tasks: taskStatuses,
-            outputs: [],
-            completed: true,
-            timestamp: Date.now(),
-          };
-          try {
-            await fsPromises.writeFile(progressPath, JSON.stringify(finalProgressData, null, 2));
-          } catch (err) {
-            console.error("写入最终计算进度失败:", err);
-            return res.status(500).json({ success: false, message: "Failed to save final calculation progress", error: err.message });
-          }
-          if (fs.existsSync(infoJsonPath)) {
+    });
+  
+        child.stderr.on("data", (data) => {
+          const errorOutput = data.toString();
+          logStream.write(`ERROR: ${errorOutput}`);
+          console.error(`run.sh stderr: ${errorOutput}`);
+          io.to(caseId).emit("calculationError", { message: "脚本错误", details: errorOutput });
+        });
+  
+        child.on("close", async (code) => {
+          logStream.end();
+          if (code === 0) {
+            console.log("run.sh completed successfully");
+            const finalProgressData = {
+              isCalculating: false,
+              progress: 100,
+              tasks: taskStatuses,
+              outputs: [],
+              completed: true,
+              timestamp: Date.now(),
+            };
             try {
-              const info = JSON.parse(await fsPromises.readFile(infoJsonPath, "utf-8"));
-              info.calculationStatus = "completed";
-              await fsPromises.writeFile(infoJsonPath, JSON.stringify(info, null, 2), "utf-8");
-              console.log("Updated info.json to mark calculation as completed");
-            } catch (error) {
-              console.error("Failed to update info.json:", error);
-              io.to(caseId).emit("calculationError", { message: "Failed to update calculation status", details: error.message });
-              return res.status(500).json({ success: false, message: "Failed to update calculation status" });
+              await fsPromises.writeFile(progressPath, JSON.stringify(finalProgressData, null, 2));
+            } catch (err) {
+              console.error("写入最终计算进度失败:", err);
+              return res.status(500).json({ success: false, message: "Failed to save final calculation progress", error: err.message });
             }
+            if (fs.existsSync(infoJsonPath)) {
+              try {
+                const info = JSON.parse(await fsPromises.readFile(infoJsonPath, "utf-8"));
+                info.calculationStatus = "completed";
+                await fsPromises.writeFile(infoJsonPath, JSON.stringify(info, null, 2), "utf-8");
+                console.log("Updated info.json to mark calculation as completed");
+              } catch (error) {
+                console.error("Failed to update info.json:", error);
+                io.to(caseId).emit("calculationError", { message: "Failed to update calculation status", details: error.message });
+                return res.status(500).json({ success: false, message: "Failed to update calculation status" });
+              }
+            } else {
+              console.warn("info.json not found. Cannot update calculation status.");
+              io.to(caseId).emit("calculationError", { message: "info.json not found" });
+              return res.status(500).json({ success: false, message: "info.json not found" });
+            }
+            io.to(caseId).emit("calculationCompleted", { message: "Calculation completed, results are ready" });
+            res.json({ success: true, message: "Calculation completed" });
           } else {
-            console.warn("info.json not found. Cannot update calculation status.");
-            io.to(caseId).emit("calculationError", { message: "info.json not found" });
-            return res.status(500).json({ success: false, message: "info.json not found" });
+            console.error(`run.sh exited with code ${code}`);
+            io.to(caseId).emit("calculationFailed", { message: `Calculation failed with code ${code}` });
+            res.status(500).json({ success: false, message: `Calculation failed with code ${code}` });
           }
-          io.to(caseId).emit("calculationCompleted", { message: "Calculation completed, results are ready" });
-          res.json({ success: true, message: "Calculation completed" });
-        } else {
-          console.error(`run.sh exited with code ${code}`);
-          io.to(caseId).emit("calculationFailed", { message: `Calculation failed with code ${code}` });
-          res.status(500).json({ success: false, message: `Calculation failed with code ${code}` });
-        }
-      });
- 
-      child.on("error", (error) => {
-        logStream.end();
-        console.error(`Error executing run.sh: ${error.message}`);
-        io.to(caseId).emit("calculationError", { message: "Error executing run.sh", details: error.message });
-        res.status(500).json({ success: false, message: "Error executing run.sh" });
-      });
-    } catch (error) {
-      console.error("计算设置过程中出错:", error);
-      io.to(caseId).emit("calculationError", { message: "计算设置过程中出错", details: error.message });
-      res.status(500).json({ success: false, message: "计算设置过程中出错" });
-    }
-  });
- 
+        });
+  
+        child.on("error", (error) => {
+          logStream.end();
+          console.error(`Error executing run.sh: ${error.message}`);
+          io.to(caseId).emit("calculationError", { message: "Error executing run.sh", details: error.message });
+          res.status(500).json({ success: false, message: "Error executing run.sh" });
+        });
+      } catch (error) {
+        console.error("计算设置过程中出错:", error);
+        io.to(caseId).emit("calculationError", { message: "计算设置过程中出错", details: error.message });
+        res.status(500).json({ success: false, message: "计算设置过程中出错" });
+      }
+    });
+  
   // 11. 检查特定工况的 info.json 是否存在
   router.get('/:caseId/info-exists', (req, res) => {
     const { caseId } = req.params;
@@ -506,7 +506,7 @@ router.get("/:caseId/terrain", (req, res) => {
       res.status(500).json({ error: '服务器错误' });
     }
   });
- 
+  
   // 12. 下载特定工况的 info.json
   router.get('/:caseId/info-download', (req, res) => {
     const { caseId } = req.params;
@@ -521,7 +521,7 @@ router.get("/:caseId/terrain", (req, res) => {
       }
     });
   });
- 
+  
   // 13. 生成并保存特定工况的 info.json
   router.post('/:caseId/info', async (req, res) => {
     try {
@@ -605,7 +605,7 @@ router.get("/:caseId/terrain", (req, res) => {
       return res.status(500).json({ success: false, message: '生成和保存 info.json 失败' });
     }
   });
- 
+  
   // 14. 获取特定工况的计算状态
   router.get('/:caseId/calculation-status', (req, res) => {
     const { caseId } = req.params;
@@ -622,7 +622,7 @@ router.get("/:caseId/terrain", (req, res) => {
       res.json({ calculationStatus: 'not_started' });
     }
   });
- 
+  
   // 存储计算进度
   router.post('/:caseId/calculation-progress', async (req, res) => {
     const { caseId } = req.params;
@@ -635,7 +635,7 @@ router.get("/:caseId/terrain", (req, res) => {
       res.status(500).json({ success: false, error: error.message });
     }
   });
- 
+  
   // 获取计算进度
   router.get('/:caseId/calculation-progress', async (req, res) => {
     const { caseId } = req.params;
@@ -652,7 +652,7 @@ router.get("/:caseId/terrain", (req, res) => {
       res.status(500).json({ success: false, error: error.message });
     }
   });
- 
+  
   // 删除计算进度
   router.delete('/:caseId/calculation-progress', async (req, res) => {
     const { caseId } = req.params;
@@ -669,7 +669,7 @@ router.get("/:caseId/terrain", (req, res) => {
       res.status(500).json({ success: false, message: '删除计算进度失败', error: error.message });
     }
   });
- 
+  
   // 获取 OpenFOAM 输出
   router.get('/:caseId/openfoam-output', async (req, res) => {
     const { caseId } = req.params;
@@ -686,7 +686,7 @@ router.get("/:caseId/terrain", (req, res) => {
       res.status(500).json({ success: false, error: error.message });
     }
   });
- 
+  
   // 保存风机状态
   router.post('/:caseId/state', async (req, res) => {
     const { caseId } = req.params;
@@ -699,7 +699,7 @@ router.get("/:caseId/terrain", (req, res) => {
       res.status(500).json({ success: false, message: '保存风机状态失败', error: error.message });
     }
   });
- 
+  
   // 获取风机状态
   router.get('/:caseId/state', async (req, res) => {
     const { caseId } = req.params;
@@ -717,7 +717,7 @@ router.get("/:caseId/terrain", (req, res) => {
       res.status(500).json({ success: false, message: '获取风机状态失败', error: error.message });
     }
   });
- 
+  
   // 修改获取VTK文件列表的路由
   router.get('/:caseId/vtk-files', async (req, res) => {
     const { caseId } = req.params;
@@ -736,12 +736,12 @@ router.get("/:caseId/terrain", (req, res) => {
       res.status(500).json({ success: false, error: 'Error reading VTK directory', message: error.message });
     }
   });
- 
+  
   router.use('/:caseId', (req, res, next) => {
     ensureVTKDirectories(req.params.caseId);
     next();
   });
- 
+  
   // 主要的VTK文件处理路由
   router.get('/:caseId/VTK/*', async (req, res) => {
     const { caseId } = req.params;
@@ -767,7 +767,7 @@ router.get("/:caseId/terrain", (req, res) => {
       res.status(500).json({ success: false, error: error.message });
     }
   });
- 
+  
   // 列出可用的VTK文件
   router.get('/:caseId/list-vtk-files', async (req, res) => {
     const { caseId } = req.params;
@@ -800,7 +800,7 @@ router.get("/:caseId/terrain", (req, res) => {
       res.status(500).json({ success: false, error: 'Failed to list VTK files', details: error.message });
     }
   });
- 
+  
   router.post('/:caseId/process-vtk', async (req, res) => {
     const { caseId } = req.params;
     const inputPath = path.join(__dirname, '../uploads', caseId, 'run/VTK/run_0/internal.vtu');
@@ -828,7 +828,7 @@ router.get("/:caseId/terrain", (req, res) => {
       res.status(500).json({ success: false, error: error.message });
     }
   });
- 
+  
   /**
    • 新增接口：获取特定工况的速度场 vtp 文件列表
    • 目录位置：uploads/{caseId}/run/postProcessing/Data
@@ -858,7 +858,7 @@ router.get("/:caseId/terrain", (req, res) => {
       });
     }
   });
- 
+  
   // 列出当前工况 Output 目录下的指定三个文件
   router.get('/:caseId/list-output-files', async (req, res) => {
     const { caseId } = req.params;
@@ -877,7 +877,7 @@ router.get("/:caseId/terrain", (req, res) => {
       res.status(500).json({ success: false, message: error.message });
     }
   });
- 
+  
   // 读取指定文件内容
   router.get('/:caseId/output-file/:fileName', async (req, res) => {
     const { caseId, fileName } = req.params;
@@ -893,38 +893,38 @@ router.get("/:caseId/terrain", (req, res) => {
       res.status(500).json({ success: false, message: error.message });
     }
   });
- 
+  
   // 导出所有速度场文件为ZIP
   router.get('/:caseId/export-velocity-layers', async (req, res) => {
     const { caseId } = req.params;
     const dataPath = path.join(__dirname, '../uploads', caseId, 'run', 'postProcessing', 'Data');
- 
+  
     if (!fs.existsSync(dataPath)) {
       return res.status(404).json({ success: false, message: '数据目录不存在' });
     }
- 
+  
     try {
       // 获取所有VTP文件
       const files = fs.readdirSync(dataPath).filter(file => file.endsWith('.vtp'));
- 
+  
       if (files.length === 0) {
         return res.status(404).json({ success: false, message: '未找到VTP文件' });
       }
- 
+  
       // 设置响应头
       res.setHeader('Content-Type', 'application/zip');
       res.setHeader('Content-Disposition', `attachment; filename=${caseId}_velocity_layers.zip`);
- 
+  
       // 创建ZIP归档
       const archive = archiver('zip', { zlib: { level: 9 } });
       archive.pipe(res);
- 
+  
       // 添加所有文件到ZIP
       for (const file of files) {
         const filePath = path.join(dataPath, file);
         archive.file(filePath, { name: `${file}` });
       }
- 
+  
       // 完成ZIP并发送
       await archive.finalize();
     } catch (error) {
@@ -935,13 +935,13 @@ router.get("/:caseId/terrain", (req, res) => {
       }
     }
   });
- 
- 
+  
+  
   // 服务器端PDF报告生成路由 (更新)
   router.post('/:caseId/generate-pdf-report', async (req, res) => {
    const { caseId } = req.params;
    console.log(`PDF generation request for case ${caseId}`);
- 
+  
    try {
        // Log received chart data
        console.log('Received chart data from frontend:');
@@ -956,13 +956,13 @@ router.get("/:caseId/terrain", (req, res) => {
        } else {
            console.log('No chart data provided from frontend');
        }
- 
+  
        // Get frontend chart data if available
        const frontendCharts = req.body.charts || {};
- 
+  
        // Prepare data for PDF
        const pdfData = await pdfDataService.prepareDataForPDF(caseId);
- 
+  
        // Merge server-generated charts with frontend charts
        const charts = {
            ...pdfData.charts,  // Server-generated charts
@@ -971,10 +971,10 @@ router.get("/:caseId/terrain", (req, res) => {
            powerComparison: pdfData.charts.powerComparison || frontendCharts.powerComparison,
            performanceChange: frontendCharts.performanceChange // Currently only from frontend
        };
- 
+  
        // Update the data with merged charts
        pdfData.charts = charts;
- 
+  
        // Debug and ensure data URIs are correctly formatted before template
        console.log("Final charts data passed to template:");
        Object.keys(pdfData.charts).forEach(key => {
@@ -992,11 +992,11 @@ router.get("/:caseId/terrain", (req, res) => {
                console.log(`- ${key}: Chart data is null/undefined.`);
            }
        });
- 
- 
+  
+  
        // Generate PDF with combined data
        const pdfBuffer = await pdfDataService.generatePDF(caseId, pdfData);
- 
+  
        // Send response
        res.writeHead(200, {
            'Content-Type': 'application/pdf',
@@ -1004,7 +1004,7 @@ router.get("/:caseId/terrain", (req, res) => {
            'Content-Disposition': `attachment; filename="${encodeURIComponent(pdfData.caseName || caseId)}_report.pdf"`
        });
        res.end(pdfBuffer);
- 
+  
    } catch (error) {
        console.error('Error generating PDF report:', error);
        res.status(500).json({
@@ -1013,26 +1013,26 @@ router.get("/:caseId/terrain", (req, res) => {
            error: error.message
        });
    }
- });
- 
-   // 解析 Output02-realHigh 内容（保持与您现有的函数一致）
-   function parseRealHigh(content) {
+  });
+  
+  // 解析 Output02-realHigh 内容（保持与您现有的函数一致）
+  function parseRealHigh(content) {
     const lines = content.trim().split('\n').filter(line => line.trim());
     const data = [];
- 
+  
     lines.forEach(line => {
       const tokens = line.trim().split(/\s+/);
       let id, node, dxy, x, y, z, height;
- 
+  
       if (tokens.length >= 7) {
         // 尝试匹配格式: "WT-1 on Node-0 0.5 10.0 100.0 0.2 100.2"
         const idNodeMatch = line.match(/^([\w-]+)\s+on\s+([\w-]+)/);
- 
+  
         if (idNodeMatch) {
           // 格式匹配成功，提取ID和Node
           id = idNodeMatch[1];
           node = idNodeMatch[2];
- 
+  
           // 提取后面的数值
           const values = line.replace(idNodeMatch[0], '').trim().split(/\s+/);
           if (values.length >= 5) {
@@ -1052,7 +1052,7 @@ router.get("/:caseId/terrain", (req, res) => {
           z = parseFloat(tokens[5]).toFixed(2);
           height = parseFloat(tokens[6]).toFixed(1);
         }
- 
+  
         // 确保所有数值都是有效的
         if (!isNaN(parseFloat(dxy)) && !isNaN(parseFloat(x)) && !isNaN(parseFloat(y))
           && !isNaN(parseFloat(z)) && !isNaN(parseFloat(height))) {
@@ -1060,10 +1060,10 @@ router.get("/:caseId/terrain", (req, res) => {
         }
       }
     });
- 
+  
     return data;
   }
- 
+  
   // 解析性能数据（保持与您现有的函数一致）
   function parsePerformance(content) {
     const lines = content.trim().split('\n').filter(line => line.trim());
@@ -1077,7 +1077,341 @@ router.get("/:caseId/terrain", (req, res) => {
       };
     });
   }
- 
+  
+  // Add a data cache for speed visualization
+  const speedDataCache = {
+    // caseId -> { metadata, heightData }
+    data: {},
+    // Track loading status to avoid duplicate concurrent requests
+    loading: new Set()
+  };
+  
+  // Helper to clear old cache entries (call this periodically or when cases are deleted)
+  const cleanupCache = () => {
+    const now = Date.now();
+    const MAX_AGE = 30 * 60 * 1000; // 30 minutes
+  
+    Object.keys(speedDataCache.data).forEach(caseId => {
+      const cacheEntry = speedDataCache.data[caseId];
+      if (cacheEntry.lastAccessed && (now - cacheEntry.lastAccessed > MAX_AGE)) {
+        console.log(`Clearing cached speed data for case ${caseId} due to inactivity`);
+        delete speedDataCache.data[caseId];
+      }
+    });
+  };
+  
+  // Schedule periodic cleanup
+  setInterval(cleanupCache, 15 * 60 * 1000); // every 15 minutes
+  
+  // Modified route with caching
+  router.get('/:caseId/speed-visualization-data', async (req, res) => {
+    const { caseId } = req.params;
+    const { height, selectedTurbineId } = req.query;
+  
+    // Validate required parameters
+    if (!height) {
+      return res.status(400).json({ success: false, message: 'Missing required query parameter: height' });
+    }
+  
+    // Create cache key
+    const cacheKey = `${caseId}_${height}_${selectedTurbineId || 'none'}`;
+  
+    // Check if this exact request is already cached
+    if (speedDataCache.data[caseId] &&
+        speedDataCache.data[caseId].heightData &&
+        speedDataCache.data[caseId].heightData[height] &&
+        speedDataCache.data[caseId].heightData[height][selectedTurbineId || 'none']) {
+  
+      console.log(`Cache hit for speed data: ${cacheKey}`);
+  
+      // Update last accessed time
+      speedDataCache.data[caseId].lastAccessed = Date.now();
+  
+      // Return cached data
+      return res.json(speedDataCache.data[caseId].heightData[height][selectedTurbineId || 'none']);
+    }
+  
+    // Check if this caseId is currently being processed
+    if (speedDataCache.loading.has(cacheKey)) {
+      console.log(`Request for ${cacheKey} is already in progress, waiting...`);
+  
+      // Wait for the ongoing request to complete
+      let retryCount = 0;
+      const maxRetries = 10;
+      const checkCache = async () => {
+        if (retryCount >= maxRetries) {
+          return res.status(503).json({
+            success: false,
+            message: 'Data processing is taking too long, please try again later.'
+          });
+        }
+  
+        if (speedDataCache.data[caseId] &&
+            speedDataCache.data[caseId].heightData &&
+            speedDataCache.data[caseId].heightData[height] &&
+            speedDataCache.data[caseId].heightData[height][selectedTurbineId || 'none']) {
+  
+          console.log(`Cache now available for ${cacheKey}`);
+          speedDataCache.data[caseId].lastAccessed = Date.now();
+          return res.json(speedDataCache.data[caseId].heightData[height][selectedTurbineId || 'none']);
+        }
+  
+        // Still not ready, wait and retry
+        retryCount++;
+        console.log(`Retry ${retryCount}/${maxRetries} for ${cacheKey}`);
+        setTimeout(checkCache, 500);
+      };
+  
+      setTimeout(checkCache, 500);
+      return;
+    }
+  
+    // Initialize cache entry for this case if needed
+    if (!speedDataCache.data[caseId]) {
+      speedDataCache.data[caseId] = {
+        metadata: null,
+        heightData: {},
+        lastAccessed: Date.now()
+      };
+    }
+  
+    // Initialize height data if needed
+    if (!speedDataCache.data[caseId].heightData[height]) {
+      speedDataCache.data[caseId].heightData[height] = {};
+    }
+  
+    // Mark as loading
+    speedDataCache.loading.add(cacheKey);
+  
+    const pythonScriptPath = path.join(__dirname, '../utils/process_speed_data.py');
+  
+    if (!fs.existsSync(pythonScriptPath)) {
+      speedDataCache.loading.delete(cacheKey);
+      return res.status(500).json({ success: false, message: 'Python processing script not found.' });
+    }
+  
+    const args = [
+      pythonScriptPath,
+      '--caseId', caseId,
+      '--height', height,
+    ];
+    if (selectedTurbineId) {
+      args.push('--turbineId', selectedTurbineId);
+    }
+  
+    console.log(`Spawning Python: python3 ${args.join(' ')}`);
+  
+    try {
+      const pythonProcess = spawn('python3', args);
+  
+      let jsonData = '';
+      let errorData = '';
+  
+      pythonProcess.stdout.on('data', (data) => {
+        jsonData += data.toString();
+      });
+  
+      pythonProcess.stderr.on('data', (data) => {
+        errorData += data.toString();
+        console.error(`Python stderr: ${data}`);
+      });
+  
+      pythonProcess.on('close', (code) => {
+        console.log(`Python process exited with code ${code}`);
+  
+        // Remove from loading list
+        speedDataCache.loading.delete(cacheKey);
+  
+        if (code === 0) {
+          try {
+            const result = JSON.parse(jsonData);
+  
+            if (result.success) {
+              // Cache the result
+              speedDataCache.data[caseId].heightData[height][selectedTurbineId || 'none'] = result;
+              speedDataCache.data[caseId].lastAccessed = Date.now();
+  
+              // Also cache the metadata from the first successful request
+              if (!speedDataCache.data[caseId].metadata && result.meta) {
+                speedDataCache.data[caseId].metadata = result.meta;
+              }
+  
+              res.json(result);
+            } else {
+              console.error("Python script returned error:", result.message);
+              res.status(500).json({
+                success: false,
+                message: result.message || 'Python script failed to process data.'
+              });
+            }
+          } catch (parseError) {
+            console.error('Error parsing Python JSON output:', parseError);
+            console.error('Raw Python output:', jsonData);
+            console.error('Python stderr was:', errorData);
+            res.status(500).json({
+              success: false,
+              message: 'Failed to parse response from processing script.',
+              details: jsonData
+            });
+          }
+        } else {
+          console.error(`Python script execution failed (code ${code}). Stderr: ${errorData}`);
+          res.status(500).json({
+            success: false,
+            message: `Data processing script failed with code ${code}.`,
+            details: errorData
+          });
+        }
+      });
+  
+      pythonProcess.on('error', (err) => {
+        console.error('Failed to start Python process:', err);
+        speedDataCache.loading.delete(cacheKey);
+        res.status(500).json({
+          success: false,
+          message: 'Failed to start data processing script.',
+          details: err.message
+        });
+      });
+  
+    } catch (error) {
+      console.error('Error setting up Python process:', error);
+      speedDataCache.loading.delete(cacheKey);
+      res.status(500).json({
+        success: false,
+        message: 'Server error during data processing setup.',
+        details: error.message
+      });
+    }
+  });
+  
+  // NEW API endpoint to get all heights for a case at once (for preloading)
+  router.get('/:caseId/available-heights', async (req, res) => {
+    const { caseId } = req.params;
+  
+    // Check if we have cached metadata
+    if (speedDataCache.data[caseId] && speedDataCache.data[caseId].metadata) {
+      console.log(`Using cached metadata for case ${caseId}`);
+      return res.json({
+        success: true,
+        meta: speedDataCache.data[caseId].metadata,
+        availableHeights: speedDataCache.data[caseId].metadata.heightLevels || []
+      });
+    }
+  
+    // If not in cache, we need to run the Python script to get the metadata
+    const pythonScriptPath = path.join(__dirname, '../utils/process_speed_data.py');
+    if (!fs.existsSync(pythonScriptPath)) {
+      return res.status(500).json({ success: false, message: 'Python processing script not found.' });
+    }
+  
+    // Default to first height to get metadata
+    const args = [
+      pythonScriptPath,
+      '--caseId', caseId,
+      '--height', '10', // Default height to get metadata
+    ];
+  
+    console.log(`Getting metadata: python3 ${args.join(' ')}`);
+  
+    try {
+      const pythonProcess = spawn('python3', args);
+  
+      let jsonData = '';
+      let errorData = '';
+  
+      pythonProcess.stdout.on('data', (data) => {
+        jsonData += data.toString();
+      });
+  
+      pythonProcess.stderr.on('data', (data) => {
+        errorData += data.toString();
+        console.error(`Python stderr: ${data}`);
+      });
+  
+      pythonProcess.on('close', (code) => {
+        if (code === 0) {
+          try {
+            const result = JSON.parse(jsonData);
+  
+            if (result.success && result.meta) {
+              // Initialize cache if needed
+              if (!speedDataCache.data[caseId]) {
+                speedDataCache.data[caseId] = {
+                  metadata: null,
+                  heightData: {},
+                  lastAccessed: Date.now()
+                };
+              }
+  
+              // Cache the metadata
+              speedDataCache.data[caseId].metadata = result.meta;
+              speedDataCache.data[caseId].lastAccessed = Date.now();
+  
+              // Also cache this first height result
+              if (!speedDataCache.data[caseId].heightData['10']) {
+                speedDataCache.data[caseId].heightData['10'] = {};
+              }
+              speedDataCache.data[caseId].heightData['10']['none'] = result;
+  
+              res.json({
+                success: true,
+                meta: result.meta,
+                availableHeights: result.meta.heightLevels || []
+              });
+            } else {
+              res.status(500).json({
+                success: false,
+                message: result.message || 'Failed to get metadata from Python script.'
+              });
+            }
+          } catch (parseError) {
+            console.error('Error parsing Python JSON output for metadata:', parseError);
+            res.status(500).json({
+              success: false,
+              message: 'Failed to parse response from processing script.'
+            });
+          }
+        } else {
+          console.error(`Python script execution failed (code ${code}). Stderr: ${errorData}`);
+          res.status(500).json({
+            success: false,
+            message: `Data processing script failed with code ${code}.`
+          });
+        }
+      });
+  
+      pythonProcess.on('error', (err) => {
+        console.error('Failed to start Python process for metadata:', err);
+        res.status(500).json({
+          success: false,
+          message: 'Failed to start data processing script for metadata.'
+        });
+      });
+  
+    } catch (error) {
+      console.error('Error setting up Python process for metadata:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Server error during metadata processing setup.'
+      });
+    }
+  });
+  
+  // Add route to clear cache for a specific case
+  router.delete('/:caseId/visualization-cache', (req, res) => {
+    const { caseId } = req.params;
+  
+    if (speedDataCache.data[caseId]) {
+      delete speedDataCache.data[caseId];
+      console.log(`Cache cleared for case ${caseId}`);
+      return res.json({ success: true, message: `Cache cleared for case ${caseId}` });
+    }
+  
+    return res.json({ success: true, message: `No cache found for case ${caseId}` });
+  });
+  
+  
   router.use("/:caseId/wind-turbines", windTurbinesRouter);
- 
+  
   module.exports = router;

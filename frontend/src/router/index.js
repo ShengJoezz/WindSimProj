@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-03-30 14:43:20
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-03-31 10:15:08
+ * @LastEditTime: 2025-04-01 21:23:38
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\router\index.js
  * @Description: 
  * 
@@ -58,6 +58,12 @@ const routes = [
         path: "wind-management", // Existing
         name: "WindManagement",
         component: () => import("../components/WindTurbineManagement.vue"),
+      },
+      {
+        path: "speed-visualization", // Choose a path
+        name: "SpeedVisualization",
+        component: () => import("../components/SpeedVisualization.vue"),
+        props: true // Pass route params (caseId) as props
       },
       // { // Keep test route if needed
       //   path: "terrainTest",

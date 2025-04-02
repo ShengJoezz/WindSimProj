@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-03-19 19:43:55
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-03-30 17:47:20
+ * @LastEditTime: 2025-04-01 21:24:02
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\Dashboard.vue
  * @Description: 
  * 
@@ -124,6 +124,7 @@ const menuItems = computed(() => {
     { index: `/cases/${caseId.value}/parameters`, icon: Setting, title: "参数设置" },
     { index: `/cases/${caseId.value}/calculation`, icon: Monitor, title: "计算输出" },
     { index: `/cases/${caseId.value}/results`, icon: DataLine, title: "结果展示" },
+    { index: `/cases/${caseId.value}/speed-visualization`, icon: 'WindPower', title: "速度场分析" }, 
     { index: `/cases/${caseId.value}/wind-management`, icon: DataLine, title: "风机管理" }
   ];
 }else {

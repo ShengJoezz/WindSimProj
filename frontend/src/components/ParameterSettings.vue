@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-03-16 17:23:12
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-04-01 12:09:05
+ * @LastEditTime: 2025-04-01 18:51:11
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\ParameterSettings.vue
  * @Description:
  *
@@ -144,7 +144,7 @@
               />
             </el-form-item>
             <el-form-item
-              label="最大待证长度 (m)"
+              label="最大特征长度 (m)"
               prop="grid.maxExtensionLength"
               :inline="true"
               class="child-form-item"
@@ -532,7 +532,7 @@
       { type: "number", min: 0, message: "生长率必须大于0", trigger: "blur" },
     ],
     "grid.maxExtensionLength": [
-      { required: true, message: "请输入最大待证长度", trigger: "blur" },
+      { required: true, message: "请输入最大特征长度", trigger: "blur" },
       { type: "number", min: 0, message: "长度必须大于0", trigger: "blur" },
     ],
     "grid.encryptionRadialLength": [
