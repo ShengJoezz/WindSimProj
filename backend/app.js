@@ -1,15 +1,3 @@
-/*
- * @Author: joe 847304926@qq.com
- * @Date: 2025-03-19 20:37:38
- * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-03-30 20:53:00
- * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\backend\app.js
- * @Description: 
- * 
- * Copyright (c) 2025 by joe, All Rights Reserved.
- */
-
-// backend/app.js
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -24,6 +12,7 @@ const windTurbinesRouter = require('./routes/windTurbinesRouter'); // Existing W
 const terrainRouter = require('./routes/terrain'); // Existing Terrain Router
 const windMastRouter = require('./routes/windmastRouter');
 const errorHandler = require('./middleware/errorHandler'); // Existing Error Handler
+const demClipperRouter = require('./routes/demClipper');
 
 const app = express();
 
@@ -59,7 +48,7 @@ app.use('/api/cases', casesRouter);
 app.use('/api/cases/:caseId/wind-turbines', windTurbinesRouter);
 app.use('/api/cases', terrainRouter); // Check path if it includes :caseId implicitly or explicitly
 app.use('/api/windmast', windMastRouter);
-
+app.use('/api/dem', demClipperRouter);
 // --- 404 Handler ---
 app.use((req, res, next) => {
   res.status(404).json({ success: false, message: 'Route not found' });

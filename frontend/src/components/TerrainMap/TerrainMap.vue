@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-03-19 22:25:10
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-04-01 12:28:06
+ * @LastEditTime: 2025-05-15 20:29:01
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\TerrainMap.vue
  * @Description:
  *
@@ -1891,9 +1891,21 @@ const onDragSelectionEnd = () => {
 
 // 创建选择框可视化
 const createDragSelectionBox = (startCoords, endCoords) => {
-  // 移除现有选择框
+  // 完全移除现有选择框
   if (dragSelectionMesh.value) {
     scene.remove(dragSelectionMesh.value);
+    // 彻底释放几何体和材质资源
+    dragSelectionMesh.value.traverse((child) => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) {
+        if (Array.isArray(child.material)) {
+          child.material.forEach(m => m.dispose());
+        } else {
+          child.material.dispose();
+        }
+      }
+    });
+    dragSelectionMesh.value = null;
   }
 
   // 计算正方形边界

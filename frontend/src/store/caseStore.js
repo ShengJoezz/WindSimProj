@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-04-01 12:10:40
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-04-01 12:27:03
+ * @LastEditTime: 2025-05-15 19:30:21
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\store\caseStore.js
  * @Description: 
  * 
@@ -23,7 +23,7 @@ export const useCaseStore = defineStore('caseStore', () => {
   const caseName = ref(null);
   const currentCaseId = ref(localStorage.getItem('currentCaseId') || null);
   const parameters = ref({
-    calculationDomain: { width: 10000, height: 800 },
+    calculationDomain: { width: 6500, height: 800 },
     conditions: { windDirection: 0, inletWindSpeed: 10 },
     grid: {
       encryptionHeight: 210,

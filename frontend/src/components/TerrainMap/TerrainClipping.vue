@@ -1,361 +1,475 @@
 <!--
  * @Author: joe 847304926@qq.com
- * @Date: 2025-03-19 22:26:46
+ * @Date: 2025-05-15 20:11:00
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-04-02 15:25:41
+ * @LastEditTime: 2025-05-15 20:30:54
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\TerrainClipping.vue
- * @Description:
- *
+ * @Description: 
+ * 
  * Copyright (c) 2025 by joe, All Rights Reserved.
 -->
 
 <template>
   <div v-show="visible" class="terrain-clipping-panel" :class="{ visible }">
     <div class="panel-header">
-      <h3>地形裁剪 (正方形)</h3>
-      <el-button type="text" @click="$emit('update:visible', false)">
+      <h3><i class="el-icon-crop"></i> 地形裁剪工具</h3>
+      <el-button type="text" @click="$emit('update:visible', false)" class="close-button">
         <el-icon><Close /></el-icon>
       </el-button>
     </div>
 
     <div class="panel-body">
-      <el-form label-position="top">
-        <el-form-item label="坐标格式">
-          <el-radio-group v-model="coordFormat">
-            <el-radio-button label="decimal">十进制度数</el-radio-button>
-            <el-radio-button label="dms">度分秒</el-radio-button>
-          </el-radio-group>
-          <div class="bounds-info">
-            <div class="bounds-title">有效数据范围:</div>
-            <div>纬度: {{ formatDEMBound('minLat') }} - {{ formatDEMBound('maxLat') }}</div>
-            <div>经度: {{ formatDEMBound('minLon') }} - {{ formatDEMBound('maxLon') }}</div>
-          </div>
-        </el-form-item>
-
-        <!-- 添加拖拽裁剪模式切换 -->
-        <div class="clipping-mode-selector">
-          <el-radio-group v-model="clippingMode">
-            <el-radio-button label="manual">手动输入</el-radio-button>
-            <el-radio-button label="drag">拖拽选择</el-radio-button>
-          </el-radio-group>
+      <!-- 切换模式选项卡 -->
+      <div class="mode-tabs">
+        <div 
+          class="mode-tab" 
+          :class="{ active: clippingMode === 'drag' }"
+          @click="clippingMode = 'drag'"
+        >
+          <i class="el-icon-mouse"></i> 拖拽选择
         </div>
+        <div 
+          class="mode-tab" 
+          :class="{ active: clippingMode === 'manual' }"
+          @click="clippingMode = 'manual'"
+        >
+          <i class="el-icon-edit"></i> 手动输入
+        </div>
+      </div>
 
-        <!-- 拖拽提示 -->
-        <div v-if="clippingMode === 'drag'" class="drag-instructions">
+      <!-- 拖拽选择模式 -->
+      <div v-if="clippingMode === 'drag'" class="drag-mode-container">
+        <div class="instruction-card">
           <div class="instruction-icon">
             <i class="el-icon-mouse"></i>
           </div>
-          <div class="instruction-text">
-            <p>点击并拖拽地图以选择裁剪区域</p>
-            <p>将自动保持正方形比例</p>
-            <el-button type="primary" size="small" @click="startDragSelection">开始选择</el-button>
-            <el-button v-if="isDragSelectionActive" type="danger" size="small" @click="cancelDragSelection">取消选择</el-button>
-          </div>
-        </div>
-
-        <!-- Synchronization info display -->
-        <div class="synchronization-info" v-if="isAdjusting && clippingMode === 'manual'">
-          <div class="sync-animation">
-            <span class="sync-icon">⟲</span>
-            <span>同步调整中</span>
-          </div>
-          <div class="sync-detail">
-            <div class="sync-metric">
-              <span>纬度跨度:</span>
-              <strong>{{ ((maxLat - minLat) * 111.32).toFixed(2) }} km</strong>
-            </div>
-            <div class="sync-metric">
-              <span>经度跨度:</span>
-              <strong>{{ ((maxLon - minLon) * 111.32 * Math.cos(((minLat + maxLat) / 2) * Math.PI / 180)).toFixed(2) }} km</strong>
-            </div>
-            <div class="sync-status" :class="{ 'sync-equal': isSquare }">
-              <span v-if="isSquare">✓ 保持正方形</span>
-              <span v-else>◯ 调整为正方形</span>
+          <div class="instruction-content">
+            <h4>拖拽选择裁剪区域</h4>
+            <p>在地形上点击并拖拽来选择正方形裁剪区域，系统将自动保持正方形比例。</p>
+            <div class="drag-actions">
+              <el-button type="primary" @click="startDragSelection" :disabled="isDragSelectionActive">
+                开始选择
+              </el-button>
+              <el-button type="danger" v-if="isDragSelectionActive" @click="cancelDragSelection">
+                取消选择
+              </el-button>
             </div>
           </div>
         </div>
+      </div>
 
-        <!-- Decimal format coordinates -->
-        <template v-if="coordFormat === 'decimal' && clippingMode === 'manual'">
-          <el-form-item :label="`最小纬度 (范围: ${formatDEMBound('minLat')})`">
-            <div class="input-with-controls">
-              <el-input-number
-                v-model="minLat"
-                :min="demMinLat"
-                :max="maxLat - 0.001"
-                :precision="6"
-                :step="0.001"
-                controls-position="right"
-                @change="onMinLatChange"
-              />
-              <div class="input-controls">
-                <el-button size="small" @click="adjustValue('minLat', -0.001)">−</el-button>
-                <el-button size="small" @click="adjustValue('minLat', 0.001)">+</el-button>
-              </div>
+      <!-- 手动输入模式 -->
+      <div v-else class="manual-mode-container">
+        <!-- 坐标格式切换 -->
+        <div class="format-selector">
+          <span class="format-label">坐标格式:</span>
+          <el-radio-group v-model="coordFormat" size="small">
+            <el-radio-button label="decimal">十进制度数</el-radio-button>
+            <el-radio-button label="dms">度分秒</el-radio-button>
+          </el-radio-group>
+        </div>
+
+        <!-- 数据范围提示 -->
+        <div class="bounds-card">
+          <div class="bounds-header">
+            <i class="el-icon-info-filled"></i> 可用范围
+          </div>
+          <div class="bounds-content">
+            <div class="bounds-row">
+              <span class="bounds-label">纬度:</span>
+              <span class="bounds-value">{{ formatDEMBound('minLat') }} 至 {{ formatDEMBound('maxLat') }}</span>
             </div>
-          </el-form-item>
-
-          <el-form-item :label="`最小经度 (范围: ${formatDEMBound('minLon')})`">
-            <div class="input-with-controls">
-              <el-input-number
-                v-model="minLon"
-                :min="demMinLon"
-                :max="maxLon - 0.001"
-                :precision="6"
-                :step="0.001"
-                controls-position="right"
-                @change="onMinLonChange"
-              />
-              <div class="input-controls">
-                <el-button size="small" @click="adjustValue('minLon', -0.001)">−</el-button>
-                <el-button size="small" @click="adjustValue('minLon', 0.001)">+</el-button>
-              </div>
+            <div class="bounds-row">
+              <span class="bounds-label">经度:</span>
+              <span class="bounds-value">{{ formatDEMBound('minLon') }} 至 {{ formatDEMBound('maxLon') }}</span>
             </div>
-          </el-form-item>
+          </div>
+        </div>
 
-          <el-form-item :label="`最大纬度 (范围: ${formatDEMBound('maxLat')})`">
-            <div class="input-with-controls">
-              <el-input-number
-                v-model="maxLat"
-                :min="minLat + 0.001"
-                :max="demMaxLat"
-                :precision="6"
-                :step="0.001"
-                controls-position="right"
-                @change="onMaxLatChange"
-              />
-              <div class="input-controls">
-                <el-button size="small" @click="adjustValue('maxLat', -0.001)">−</el-button>
-                <el-button size="small" @click="adjustValue('maxLat', 0.001)">+</el-button>
-              </div>
-            </div>
-          </el-form-item>
-
-          <el-form-item :label="`最大经度 (范围: ${formatDEMBound('maxLon')})`">
-            <div class="input-with-controls">
-              <el-input-number
-                v-model="maxLon"
-                :min="minLon + 0.001"
-                :max="demMaxLon"
-                :precision="6"
-                :step="0.001"
-                controls-position="right"
-                @change="onMaxLonChange"
-              />
-              <div class="input-controls">
-                <el-button size="small" @click="adjustValue('maxLon', -0.001)">−</el-button>
-                <el-button size="small" @click="adjustValue('maxLon', 0.001)">+</el-button>
-              </div>
-            </div>
-          </el-form-item>
-        </template>
-
-        <!-- DMS format coordinates - Completely restructured to fix occlusion -->
-        <template v-else-if="coordFormat === 'dms' && clippingMode === 'manual'">
-          <div class="coordinate-section">
-            <h4 class="section-heading">纬度坐标 (北纬)</h4>
-
-            <div class="coordinate-row">
-              <div class="coordinate-label">最小值:</div>
-              <div class="dms-input-container">
-                <div class="dms-unit">
-                  <el-input-number
-                    v-model="minLatDMS.deg"
-                    :min="0"
-                    :max="90"
-                    :precision="0"
-                    controls-position="right"
-                    class="dms-input"
-                    @change="updateDecimalFromDMS(); onMinLatChange();" />
-                  <div class="dms-symbol">°</div>
-                </div>
-
-                <div class="dms-unit">
-                  <el-input-number
-                    v-model="minLatDMS.min"
-                    :min="0"
-                    :max="59"
-                    :precision="0"
-                    controls-position="right"
-                    class="dms-input"
-                    @change="updateDecimalFromDMS(); onMinLatChange();" />
-                  <div class="dms-symbol">'</div>
-                </div>
-
-                <div class="dms-unit">
-                  <el-input-number
-                    v-model="minLatDMS.sec"
-                    :min="0"
-                    :max="59.999"
-                    :precision="3"
-                    controls-position="right"
-                    class="dms-input"
-                    @change="updateDecimalFromDMS(); onMinLatChange();" />
-                  <div class="dms-symbol">"</div>
+        <!-- 十进制坐标输入 -->
+        <div v-if="coordFormat === 'decimal'" class="decimal-inputs">
+          <div class="coord-section">
+            <h4 class="section-title">纬度范围</h4>
+            <div class="coord-input-group">
+              <div class="coord-input-row">
+                <span class="coord-label">最小值:</span>
+                <el-input-number
+                  v-model="minLat"
+                  :min="demMinLat"
+                  :max="maxLat - 0.001"
+                  :precision="6"
+                  :step="0.001"
+                  controls-position="right"
+                  @change="onMinLatChange"
+                  class="coord-input"
+                />
+                <div class="fine-controls">
+                  <el-tooltip content="微调减小" placement="top">
+                    <el-button size="small" circle @click="adjustValue('minLat', -0.001)">
+                      <i class="el-icon-minus"></i>
+                    </el-button>
+                  </el-tooltip>
+                  <el-tooltip content="微调增加" placement="top">
+                    <el-button size="small" circle @click="adjustValue('minLat', 0.001)">
+                      <i class="el-icon-plus"></i>
+                    </el-button>
+                  </el-tooltip>
                 </div>
               </div>
-            </div>
-
-            <div class="coordinate-row">
-              <div class="coordinate-label">最大值:</div>
-              <div class="dms-input-container">
-                <div class="dms-unit">
-                  <el-input-number
-                    v-model="maxLatDMS.deg"
-                    :min="0"
-                    :max="90"
-                    :precision="0"
-                    controls-position="right"
-                    class="dms-input"
-                    @change="updateDecimalFromDMS(); onMaxLatChange();" />
-                  <div class="dms-symbol">°</div>
-                </div>
-
-                <div class="dms-unit">
-                  <el-input-number
-                    v-model="maxLatDMS.min"
-                    :min="0"
-                    :max="59"
-                    :precision="0"
-                    controls-position="right"
-                    class="dms-input"
-                    @change="updateDecimalFromDMS(); onMaxLatChange();" />
-                  <div class="dms-symbol">'</div>
-                </div>
-
-                <div class="dms-unit">
-                  <el-input-number
-                    v-model="maxLatDMS.sec"
-                    :min="0"
-                    :max="59.999"
-                    :precision="3"
-                    controls-position="right"
-                    class="dms-input"
-                    @change="updateDecimalFromDMS(); onMaxLatChange();" />
-                  <div class="dms-symbol">"</div>
-                </div>
-              </div>
-            </div>
-
-            <h4 class="section-heading">经度坐标 (东经)</h4>
-
-            <div class="coordinate-row">
-              <div class="coordinate-label">最小值:</div>
-              <div class="dms-input-container">
-                <div class="dms-unit">
-                  <el-input-number
-                    v-model="minLonDMS.deg"
-                    :min="0"
-                    :max="180"
-                    :precision="0"
-                    controls-position="right"
-                    class="dms-input"
-                    @change="updateDecimalFromDMS(); onMinLonChange();" />
-                  <div class="dms-symbol">°</div>
-                </div>
-
-                <div class="dms-unit">
-                  <el-input-number
-                    v-model="minLonDMS.min"
-                    :min="0"
-                    :max="59"
-                    :precision="0"
-                    controls-position="right"
-                    class="dms-input"
-                    @change="updateDecimalFromDMS(); onMinLonChange();" />
-                  <div class="dms-symbol">'</div>
-                </div>
-
-                <div class="dms-unit">
-                  <el-input-number
-                    v-model="minLonDMS.sec"
-                    :min="0"
-                    :max="59.999"
-                    :precision="3"
-                    controls-position="right"
-                    class="dms-input"
-                    @change="updateDecimalFromDMS(); onMinLonChange();" />
-                  <div class="dms-symbol">"</div>
-                </div>
-              </div>
-            </div>
-
-            <div class="coordinate-row">
-              <div class="coordinate-label">最大值:</div>
-              <div class="dms-input-container">
-                <div class="dms-unit">
-                  <el-input-number
-                    v-model="maxLonDMS.deg"
-                    :min="0"
-                    :max="180"
-                    :precision="0"
-                    controls-position="right"
-                    class="dms-input"
-                    @change="updateDecimalFromDMS(); onMaxLonChange();" />
-                  <div class="dms-symbol">°</div>
-                </div>
-
-                <div class="dms-unit">
-                  <el-input-number
-                    v-model="maxLonDMS.min"
-                    :min="0"
-                    :max="59"
-                    :precision="0"
-                    controls-position="right"
-                    class="dms-input"
-                    @change="updateDecimalFromDMS(); onMaxLonChange();" />
-                  <div class="dms-symbol">'</div>
-                </div>
-
-                <div class="dms-unit">
-                  <el-input-number
-                    v-model="maxLonDMS.sec"
-                    :min="0"
-                    :max="59.999"
-                    :precision="3"
-                    controls-position="right"
-                    class="dms-input"
-                    @change="updateDecimalFromDMS(); onMaxLonChange();" />
-                  <div class="dms-symbol">"</div>
+              <div class="coord-input-row">
+                <span class="coord-label">最大值:</span>
+                <el-input-number
+                  v-model="maxLat"
+                  :min="minLat + 0.001"
+                  :max="demMaxLat"
+                  :precision="6"
+                  :step="0.001"
+                  controls-position="right"
+                  @change="onMaxLatChange"
+                  class="coord-input"
+                />
+                <div class="fine-controls">
+                  <el-tooltip content="微调减小" placement="top">
+                    <el-button size="small" circle @click="adjustValue('maxLat', -0.001)">
+                      <i class="el-icon-minus"></i>
+                    </el-button>
+                  </el-tooltip>
+                  <el-tooltip content="微调增加" placement="top">
+                    <el-button size="small" circle @click="adjustValue('maxLat', 0.001)">
+                      <i class="el-icon-plus"></i>
+                    </el-button>
+                  </el-tooltip>
                 </div>
               </div>
             </div>
           </div>
-        </template>
 
-        <el-form-item>
-          <el-button type="primary" @click="previewCrop">预览裁剪区域</el-button>
-          <el-button type="success" :disabled="!isPreviewActive" @click="applyCrop">应用裁剪</el-button>
-          <el-button @click="resetCrop">重置</el-button>
-        </el-form-item>
-
-        <!-- Improved preview information with square indicator -->
-        <el-form-item v-if="isPreviewActive" label="预览">
-          <div class="preview-info">
-            <div class="preview-square-indicator">
-              <div class="square-icon"></div>
-              <span>正方形裁剪区域</span>
+          <div class="coord-section">
+            <h4 class="section-title">经度范围</h4>
+            <div class="coord-input-group">
+              <div class="coord-input-row">
+                <span class="coord-label">最小值:</span>
+                <el-input-number
+                  v-model="minLon"
+                  :min="demMinLon"
+                  :max="maxLon - 0.001"
+                  :precision="6"
+                  :step="0.001"
+                  controls-position="right"
+                  @change="onMinLonChange"
+                  class="coord-input"
+                />
+                <div class="fine-controls">
+                  <el-tooltip content="微调减小" placement="top">
+                    <el-button size="small" circle @click="adjustValue('minLon', -0.001)">
+                      <i class="el-icon-minus"></i>
+                    </el-button>
+                  </el-tooltip>
+                  <el-tooltip content="微调增加" placement="top">
+                    <el-button size="small" circle @click="adjustValue('minLon', 0.001)">
+                      <i class="el-icon-plus"></i>
+                    </el-button>
+                  </el-tooltip>
+                </div>
+              </div>
+              <div class="coord-input-row">
+                <span class="coord-label">最大值:</span>
+                <el-input-number
+                  v-model="maxLon"
+                  :min="minLon + 0.001"
+                  :max="demMaxLon"
+                  :precision="6"
+                  :step="0.001"
+                  controls-position="right"
+                  @change="onMaxLonChange"
+                  class="coord-input"
+                />
+                <div class="fine-controls">
+                  <el-tooltip content="微调减小" placement="top">
+                    <el-button size="small" circle @click="adjustValue('maxLon', -0.001)">
+                      <i class="el-icon-minus"></i>
+                    </el-button>
+                  </el-tooltip>
+                  <el-tooltip content="微调增加" placement="top">
+                    <el-button size="small" circle @click="adjustValue('maxLon', 0.001)">
+                      <i class="el-icon-plus"></i>
+                    </el-button>
+                  </el-tooltip>
+                </div>
+              </div>
             </div>
-            <p><strong>坐标范围:</strong> {{ formatArea() }}</p>
-            <p><strong>地面尺寸:</strong> 每边约 {{ ((maxLat - minLat) * 111.32).toFixed(2) }} 公里</p>
-            <p><strong>预计数据点:</strong> {{ estimatedDataPoints.toLocaleString() }}</p>
           </div>
-        </el-form-item>
+        </div>
 
-        <el-divider />
+        <!-- 度分秒坐标输入 -->
+        <div v-else class="dms-inputs">
+          <div class="coord-section">
+            <h4 class="section-title">纬度范围 (北纬)</h4>
+            <div class="dms-input-group">
+              <div class="dms-row">
+                <span class="dms-label">最小值:</span>
+                <div class="dms-units">
+                  <div class="dms-unit">
+                    <el-input-number
+                      v-model="minLatDMS.deg"
+                      :min="0"
+                      :max="90"
+                      :precision="0"
+                      controls-position="right"
+                      @change="updateDecimalFromDMS(); onMinLatChange();"
+                      class="dms-input"
+                    />
+                    <span class="dms-unit-label">度</span>
+                  </div>
+                  <div class="dms-unit">
+                    <el-input-number
+                      v-model="minLatDMS.min"
+                      :min="0"
+                      :max="59"
+                      :precision="0"
+                      controls-position="right"
+                      @change="updateDecimalFromDMS(); onMinLatChange();"
+                      class="dms-input"
+                    />
+                    <span class="dms-unit-label">分</span>
+                  </div>
+                  <div class="dms-unit">
+                    <el-input-number
+                      v-model="minLatDMS.sec"
+                      :min="0"
+                      :max="59.999"
+                      :precision="3"
+                      controls-position="right"
+                      @change="updateDecimalFromDMS(); onMinLatChange();"
+                      class="dms-input"
+                    />
+                    <span class="dms-unit-label">秒</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="dms-row">
+                <span class="dms-label">最大值:</span>
+                <div class="dms-units">
+                  <div class="dms-unit">
+                    <el-input-number
+                      v-model="maxLatDMS.deg"
+                      :min="0"
+                      :max="90"
+                      :precision="0"
+                      controls-position="right"
+                      @change="updateDecimalFromDMS(); onMaxLatChange();"
+                      class="dms-input"
+                    />
+                    <span class="dms-unit-label">度</span>
+                  </div>
+                  <div class="dms-unit">
+                    <el-input-number
+                      v-model="maxLatDMS.min"
+                      :min="0"
+                      :max="59"
+                      :precision="0"
+                      controls-position="right"
+                      @change="updateDecimalFromDMS(); onMaxLatChange();"
+                      class="dms-input"
+                    />
+                    <span class="dms-unit-label">分</span>
+                  </div>
+                  <div class="dms-unit">
+                    <el-input-number
+                      v-model="maxLatDMS.sec"
+                      :min="0"
+                      :max="59.999"
+                      :precision="3"
+                      controls-position="right"
+                      @change="updateDecimalFromDMS(); onMaxLatChange();"
+                      class="dms-input"
+                    />
+                    <span class="dms-unit-label">秒</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
 
-        <el-form-item label="保存裁剪后的地形">
-          <el-input v-model="saveName" placeholder="文件名" />
-          <div class="save-options">
-            <el-checkbox v-model="preserveGeoreference">保留地理参考</el-checkbox>
-            <el-select v-model="saveFormat" style="width: 150px">
-              <el-option label="GeoTIFF" value="geotiff" />
-              <el-option label="ASCII Grid" value="asc" />
+          <div class="coord-section">
+            <h4 class="section-title">经度范围 (东经)</h4>
+            <div class="dms-input-group">
+              <div class="dms-row">
+                <span class="dms-label">最小值:</span>
+                <div class="dms-units">
+                  <div class="dms-unit">
+                    <el-input-number
+                      v-model="minLonDMS.deg"
+                      :min="0"
+                      :max="180"
+                      :precision="0"
+                      controls-position="right"
+                      @change="updateDecimalFromDMS(); onMinLonChange();"
+                      class="dms-input"
+                    />
+                    <span class="dms-unit-label">度</span>
+                  </div>
+                  <div class="dms-unit">
+                    <el-input-number
+                      v-model="minLonDMS.min"
+                      :min="0"
+                      :max="59"
+                      :precision="0"
+                      controls-position="right"
+                      @change="updateDecimalFromDMS(); onMinLonChange();"
+                      class="dms-input"
+                    />
+                    <span class="dms-unit-label">分</span>
+                  </div>
+                  <div class="dms-unit">
+                    <el-input-number
+                      v-model="minLonDMS.sec"
+                      :min="0"
+                      :max="59.999"
+                      :precision="3"
+                      controls-position="right"
+                      @change="updateDecimalFromDMS(); onMinLonChange();"
+                      class="dms-input"
+                    />
+                    <span class="dms-unit-label">秒</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="dms-row">
+                <span class="dms-label">最大值:</span>
+                <div class="dms-units">
+                  <div class="dms-unit">
+                    <el-input-number
+                      v-model="maxLonDMS.deg"
+                      :min="0"
+                      :max="180"
+                      :precision="0"
+                      controls-position="right"
+                      @change="updateDecimalFromDMS(); onMaxLonChange();"
+                      class="dms-input"
+                    />
+                    <span class="dms-unit-label">度</span>
+                  </div>
+                  <div class="dms-unit">
+                    <el-input-number
+                      v-model="maxLonDMS.min"
+                      :min="0"
+                      :max="59"
+                      :precision="0"
+                      controls-position="right"
+                      @change="updateDecimalFromDMS(); onMaxLonChange();"
+                      class="dms-input"
+                    />
+                    <span class="dms-unit-label">分</span>
+                  </div>
+                  <div class="dms-unit">
+                    <el-input-number
+                      v-model="maxLonDMS.sec"
+                      :min="0"
+                      :max="59.999"
+                      :precision="3"
+                      controls-position="right"
+                      @change="updateDecimalFromDMS(); onMaxLonChange();"
+                      class="dms-input"
+                    />
+                    <span class="dms-unit-label">秒</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 正方形提示区域 -->
+      <div v-if="clippingMode === 'manual' && isAdjusting" class="square-status-card">
+        <div class="square-status-icon">
+          <i class="el-icon-refresh"></i>
+        </div>
+        <div class="square-status-content">
+          <div class="square-status-title">正方形调整中</div>
+          <div class="square-status-details">
+            <div class="status-metric">
+              <span>纬度跨度: {{ ((maxLat - minLat) * 111.32).toFixed(2) }} km</span>
+            </div>
+            <div class="status-metric">
+              <span>经度跨度: {{ ((maxLon - minLon) * 111.32 * Math.cos(((minLat + maxLat) / 2) * Math.PI / 180)).toFixed(2) }} km</span>
+            </div>
+          </div>
+          <div class="square-check">
+            <i class="el-icon-check"></i> 保持正方形比例
+          </div>
+        </div>
+      </div>
+
+      <!-- 预览信息区域 -->
+      <div v-if="isPreviewActive" class="preview-card">
+        <div class="preview-header">
+          <div class="preview-icon">
+            <i class="el-icon-view"></i>
+          </div>
+          <h4>裁剪预览</h4>
+        </div>
+        <div class="preview-content">
+          <div class="preview-metric">
+            <span class="metric-label">坐标范围:</span>
+            <span class="metric-value">{{ formatArea() }}</span>
+          </div>
+          <div class="preview-metric">
+            <span class="metric-label">地面尺寸:</span>
+            <span class="metric-value">每边约 {{ ((maxLat - minLat) * 111.32).toFixed(2) }} 公里</span>
+          </div>
+          <div class="preview-metric">
+            <span class="metric-label">预计数据点:</span>
+            <span class="metric-value">{{ estimatedDataPoints.toLocaleString() }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 操作按钮区域 -->
+      <div class="actions-container">
+        <div class="primary-actions">
+          <el-button type="primary" @click="previewCrop">
+            <i class="el-icon-view"></i> 预览区域
+          </el-button>
+          <el-button type="success" :disabled="!isPreviewActive" @click="applyCrop">
+            <i class="el-icon-check"></i> 应用裁剪
+          </el-button>
+          <el-button @click="resetCrop">
+            <i class="el-icon-refresh"></i> 重置
+          </el-button>
+        </div>
+      </div>
+
+      <el-divider></el-divider>
+
+      <!-- 保存区域 -->
+      <div class="save-section">
+        <h4 class="save-title"><i class="el-icon-download"></i> 保存裁剪后的地形</h4>
+        <div class="save-container">
+          <div class="save-row">
+            <span class="save-label">文件名:</span>
+            <el-input v-model="saveName" placeholder="输入文件名" class="save-input"></el-input>
+          </div>
+          <div class="save-row">
+            <span class="save-label">格式:</span>
+            <el-select v-model="saveFormat" class="save-select">
+              <el-option label="GeoTIFF (.tif)" value="geotiff" />
+              <el-option label="ASCII Grid (.asc)" value="asc" />
             </el-select>
-            <el-button type="primary" :disabled="!isCropped" @click="saveClippedTerrain">保存</el-button>
           </div>
-        </el-form-item>
-      </el-form>
+          <div class="save-row">
+            <el-checkbox v-model="preserveGeoreference">保留地理参考</el-checkbox>
+          </div>
+          <div class="save-action">
+            <el-button type="primary" :disabled="!isCropped" @click="saveClippedTerrain" class="save-button">
+              <i class="el-icon-download"></i> 保存
+            </el-button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -413,7 +527,7 @@ const isSquare = computed(() => {
   // Calculate real-world distances
   const latDistanceKm = latDiff * 111.32;
   const centerLat = (minLat.value + maxLat.value) / 2;
-  const lonDistanceKm = lonDiff * 111.32 * Math.cos(((minLat + maxLat) / 2) * Math.PI / 180);
+  const lonDistanceKm = lonDiff * 111.32 * Math.cos(centerLat * Math.PI / 180);
 
   // Check if distances are nearly equal (within 1%)
   return Math.abs(latDistanceKm - lonDistanceKm) / latDistanceKm < 0.01;
@@ -487,7 +601,7 @@ const enforceDataBoundaries = () => {
   if (minLon.value >= maxLon.value) minLon.value = maxLon.value - 0.001;
 };
 
-// Improved enforceSquareRatio function that always runs after any coordinate change
+// 在TerrainClipping.vue中修改enforceSquareRatio函数
 const enforceSquareRatio = () => {
   // 确保有有效值
   if (!minLat.value || !maxLat.value || !minLon.value || !maxLon.value) return;
@@ -500,7 +614,7 @@ const enforceSquareRatio = () => {
   const latSpan = maxLat.value - minLat.value;
   const lonSpan = maxLon.value - minLon.value;
 
-  // 计算实际距离 (使用Haversine公式更准确)
+  // 计算实际距离
   const cosLat = Math.cos(centerLat * Math.PI / 180);
   const latDistanceKm = latSpan * 111.32;
   const lonDistanceKm = lonSpan * 111.32 * cosLat;
@@ -771,29 +885,31 @@ defineExpose({
   position: absolute;
   top: 24px;
   right: -400px;
-  width: 450px;
-  height: 60%;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(10px);
-  border-radius: 16px;
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.1);
-  transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  width: 380px;
+  max-height: 80vh;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.15);
+  transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s ease;
   display: flex;
   flex-direction: column;
   z-index: 100;
   overflow: hidden;
-  border: 1px solid rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.08);
 }
 
 .terrain-clipping-panel.visible {
   right: 24px;
+  transform: translateY(0) scale(1);
 }
 
 .panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px;
+  padding: 16px;
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  color: white;
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
 }
 
@@ -801,260 +917,439 @@ defineExpose({
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  color: #1a202c;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.close-button {
+  color: white;
 }
 
 .panel-body {
   flex: 1;
-  padding: 20px;
+  padding: 16px;
   overflow-y: auto;
 }
 
-.bounds-info {
-  margin-top: 12px;
-  font-size: 13px;
-  color: #606266;
-  background-color: #f5f7fa;
-  padding: 10px 12px;
-  border-radius: 4px;
-  border-left: 3px solid #909399;
-}
-
-.bounds-title {
-  font-weight: 500;
-  margin-bottom: 4px;
-  color: #303133;
-}
-
-/* Completely new DMS input layout to fix occlusion */
-.coordinate-section {
-  margin-bottom: 20px;
-  background-color: #f7f9fc;
+/* 模式选项卡 */
+.mode-tabs {
+  display: flex;
+  background: #f0f4fa;
   border-radius: 8px;
+  margin-bottom: 16px;
+  overflow: hidden;
+  border: 1px solid #e0e7ff;
+}
+
+.mode-tab {
+  flex: 1;
   padding: 12px;
-  border: 1px solid #e6e8ec;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
-.section-heading {
-  margin: 0 0 12px 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: #2c3e50;
+.mode-tab.active {
+  background: #3b82f6;
+  color: white;
 }
 
-.coordinate-row {
+.mode-tab:not(.active) {
+  color: #4b5563;
+}
+
+.mode-tab:not(.active):hover {
+  background: #e0e7ff;
+}
+
+/* 拖拽模式样式 */
+.instruction-card {
+  display: flex;
+  padding: 16px;
+  background: #f9fafb;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  margin-bottom: 16px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.instruction-icon {
+  font-size: 24px;
+  color: #4f46e5;
+  margin-right: 16px;
+  padding-top: 4px;
+}
+
+.instruction-content h4 {
+  margin: 0 0 8px 0;
+  color: #1f2937;
+  font-size: 16px;
+}
+
+.instruction-content p {
+  margin: 0 0 16px 0;
+  color: #4b5563;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.drag-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* 坐标格式选择器 */
+.format-selector {
   display: flex;
   align-items: center;
   margin-bottom: 12px;
 }
 
-.coordinate-label {
-  width: 60px;
-  flex-shrink: 0;
+.format-label {
   font-size: 14px;
   font-weight: 500;
-  color: #606266;
+  margin-right: 8px;
+  color: #374151;
 }
 
-.dms-input-container {
+/* 数据范围卡片 */
+.bounds-card {
+  background: #f0f9ff;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 16px;
+  border: 1px solid #bae6fd;
+}
+
+.bounds-header {
+  background: #0ea5e9;
+  color: white;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 500;
   display: flex;
-  flex-grow: 1;
+  align-items: center;
   gap: 6px;
 }
 
-.dms-unit {
+.bounds-content {
+  padding: 12px;
+}
+
+.bounds-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.bounds-row:last-child {
+  margin-bottom: 0;
+}
+
+.bounds-label {
+  font-weight: 500;
+  color: #1f2937;
+}
+
+.bounds-value {
+  color: #4b5563;
+}
+
+/* 十进制输入框样式 */
+.coord-section {
+  margin-bottom: 16px;
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+}
+
+.section-title {
+  margin: 0 0 12px 0;
+  font-size: 15px;
+  color: #1f2937;
   display: flex;
   align-items: center;
-  width: calc(33.333% - 4px);
+  gap: 6px;
+}
+
+.coord-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.coord-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.coord-label {
+  width: 60px;
+  font-size: 14px;
+  color: #4b5563;
+}
+
+.coord-input {
+  flex: 1;
+}
+
+.fine-controls {
+  display: flex;
+  gap: 4px;
+}
+
+/* 度分秒输入框样式 */
+.dms-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dms-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dms-label {
+  font-size: 14px;
+  color: #4b5563;
+  font-weight: 500;
+}
+
+.dms-units {
+  display: flex;
+  gap: 8px;
+}
+
+.dms-unit {
+  flex: 1;
   position: relative;
 }
 
 .dms-input {
-  width: 100% !important;
+  width: 100%;
 }
 
-.dms-symbol {
+.dms-unit-label {
   position: absolute;
-  right: 35px; /* Adjust based on ElementUI's input number controls */
+  right: 35px;
+  top: 50%;
+  transform: translateY(-50%);
   font-size: 14px;
-  color: #606266;
+  color: #6b7280;
 }
 
-.save-options {
+/* 正方形状态卡片 */
+.square-status-card {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 12px;
-}
-
-/* Improved preview info styling */
-.preview-info {
-  background: rgba(64, 158, 255, 0.15);
-  padding: 12px 16px;
+  background: #ecfdf5;
   border-radius: 8px;
-  margin-top: 12px;
-  border-left: 4px solid #409EFF;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-}
-
-.preview-info p {
-  margin: 6px 0;
-  font-size: 14px;
-  font-weight: 500;
-  color: #2c3e50;
-}
-
-.preview-square-indicator {
-  display: flex;
-  align-items: center;
-  margin-bottom: 10px;
-  padding: 5px;
-  background-color: #ecf5ff;
-  border-radius: 4px;
-}
-
-.square-icon {
-  width: 16px;
-  height: 16px;
-  background-color: #409EFF;
-  margin-right: 8px;
-}
-
-.input-with-controls {
-  display: flex;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.input-with-controls .el-input-number {
-  flex: 1;
-}
-
-.input-controls {
-  display: flex;
-  flex-direction: column;
-  margin-left: 8px;
-}
-
-.input-controls .el-button {
-  padding: 6px 8px;
-  margin: 0;
-  border-radius: 4px;
-  font-weight: bold;
-}
-
-.input-controls .el-button:first-child {
-  margin-bottom: 4px;
-}
-
-/* Synchronization feedback styles */
-.synchronization-info {
-  margin: 12px 0;
-  padding: 10px;
-  background-color: #f0f7ff;
-  border-radius: 6px;
-  border-left: 3px solid #409EFF;
+  padding: 12px;
+  margin: 16px 0;
+  border: 1px solid #a7f3d0;
   animation: pulse 2s infinite;
 }
 
 @keyframes pulse {
-  0% { background-color: #f0f7ff; }
-  50% { background-color: #e6f1ff; }
-  100% { background-color: #f0f7ff; }
+  0% { background-color: #ecfdf5; }
+  50% { background-color: #d1fae5; }
+  100% { background-color: #ecfdf5; }
 }
 
-.sync-animation {
+.square-status-icon {
+  font-size: 24px;
+  color: #059669;
+  margin-right: 12px;
   display: flex;
   align-items: center;
-  margin-bottom: 8px;
-  font-weight: 500;
-  color: #409EFF;
 }
 
-.sync-icon {
-  display: inline-block;
+.square-status-icon i {
   animation: spin 1.5s linear infinite;
-  margin-right: 8px;
-  font-size: 16px;
 }
 
 @keyframes spin {
   100% { transform: rotate(360deg); }
 }
 
-.sync-detail {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 13px;
+.square-status-content {
+  flex: 1;
 }
 
-.sync-metric {
+.square-status-title {
+  font-weight: 500;
+  color: #047857;
+  margin-bottom: 8px;
+}
+
+.square-status-details {
+  font-size: 13px;
+  color: #065f46;
+  margin-bottom: 8px;
+}
+
+.status-metric {
+  margin-bottom: 4px;
+}
+
+.square-check {
+  font-weight: 500;
+  color: #047857;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(5, 150, 105, 0.1);
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: inline-flex;
+}
+
+/* 预览卡片 */
+.preview-card {
+  background: #eff6ff;
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 16px 0;
+  border: 1px solid #bfdbfe;
+}
+
+.preview-header {
+  background: #3b82f6;
+  color: white;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.preview-header h4 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.preview-content {
+  padding: 12px;
+}
+
+.preview-metric {
   display: flex;
   justify-content: space-between;
-}
-
-.sync-status {
-  margin-top: 6px;
-  text-align: center;
-  padding: 3px;
-  background-color: #e0e0e0;
-  border-radius: 4px;
-  font-weight: 500;
-}
-
-.sync-equal {
-  background-color: #67c23a;
-  color: white;
-}
-
-/* Ensure input numbers are styled correctly */
-:deep(.el-input-number__input) {
-  padding-right: 25px !important;
-  text-align: right;
-  font-weight: 500;
+  margin-bottom: 8px;
   font-size: 14px;
 }
 
-/* Fix for control buttons */
-:deep(.el-input-number__decrease),
-:deep(.el-input-number__increase) {
-  z-index: 3;
+.preview-metric:last-child {
+  margin-bottom: 0;
 }
 
-:deep(.el-checkbox__label) {
-  font-size: 14px;
+.metric-label {
+  font-weight: 500;
+  color: #1f2937;
 }
 
-/* 添加新样式 */
-.clipping-mode-selector {
+.metric-value {
+  color: #4b5563;
+}
+
+/* 按钮样式 */
+.actions-container {
   margin: 16px 0;
 }
 
-.drag-instructions {
+.primary-actions {
   display: flex;
-  padding: 12px;
-  background-color: #f0f9ff;
-  border-radius: 8px;
-  margin: 12px 0;
-  border-left: 3px solid #409EFF;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-.instruction-icon {
-  font-size: 24px;
-  color: #409EFF;
-  margin-right: 12px;
+/* 保存区域 */
+.save-section {
+  margin-top: 16px;
+}
+
+.save-title {
   display: flex;
   align-items: center;
+  gap: 8px;
+  margin: 0 0 12px 0;
+  color: #1f2937;
+  font-size: 16px;
 }
 
-.instruction-text p {
-  margin: 4px 0;
+.save-container {
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+}
+
+.save-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.save-label {
+  width: 70px;
   font-size: 14px;
-  color: #606266;
+  color: #4b5563;
 }
 
-.instruction-text .el-button {
-  margin-top: 8px;
+.save-input,
+.save-select {
+  flex: 1;
+}
+
+.save-action {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.save-button {
+  width: 120px;
+}
+
+/* 输入框美化 */
+:deep(.el-input-number .el-input__inner) {
+  text-align: left;
+}
+
+:deep(.el-radio-button__inner) {
+  padding: 8px 15px;
+}
+
+/* 滚动条美化 */
+.panel-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.panel-body::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.panel-body::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.panel-body::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* 按钮图标间距 */
+.el-button i {
+  margin-right: 4px;
 }
 </style>

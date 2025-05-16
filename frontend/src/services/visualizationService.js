@@ -1,10 +1,11 @@
 /*
  * @Author: joe 847304926@qq.com
- * @Date: 2025-04-02 17:11:26
+ * @Date: 2025-04-02 19:10:20
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-04-02 19:10:20
+ * @LastEditTime: 2025-04-26 00:15:00 (Refactored Visualization API)
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\services\visualizationService.js
- * @Description:
+ * @Description: Service layer for fetching visualization data from the backend.
+ *               Uses updated API endpoints that provide pre-calculated pixel coordinates.
  *
  * Copyright (c) 2025 by joe, All Rights Reserved.
  */
@@ -12,154 +13,198 @@
 import axios from 'axios';
 import { ElMessage } from 'element-plus';
 
-// Simple In-Memory Cache (Replace with LRU if many cases/large data expected)
+// --- 客户端缓存 ---
 const clientCache = {
-  metadata: {}, // caseId -> metadata
-  // slices: {},   // sliceKey -> sliceData  // Removed slice cache
-  profile: {}, // caseId_turbineId -> profileData  // Add profile cache
-  wake: {},    // caseId_turbineId -> wakeData     // Add wake cache
+  metadata: {}, // Stores main metadata (heights, turbine list with km coords, etc.)
+  profile: {},  // Stores wind profile data per turbine
+  wake: {},     // Stores wake data per turbine
+  // Note: Slice data (image URL, pixel coords, dimensions) is generally not cached client-side
+  //       as it changes frequently with height selection.
 };
 
-// Generate cache keys
+// --- 缓存 Key 生成函数 ---
 const getMetadataKey = (caseId) => `metadata_${caseId}`;
-// const getSliceKey = (caseId, height) => `slice_${caseId}_${height.toFixed(1)}`; // Removed slice key
-const getProfileKey = (caseId, turbineId) => `profile_${caseId}_${turbineId}`; // Profile cache key
-const getWakeKey = (caseId, turbineId) => `wake_${caseId}_${turbineId}`;    // Wake cache key
+const getProfileKey = (caseId, turbineId) => `profile_${caseId}_${turbineId}`;
+const getWakeKey = (caseId, turbineId) => `wake_${caseId}_${turbineId}`;
 
-
-// --- API Fetching Functions with Client-Side Caching ---
-
+/**
+ * 获取工况的主元数据（不包含特定切片的像素信息）。
+ * 主元数据包含高度层级、风机列表（公里坐标）、颜色范围等。
+ * @param {string} caseId 工况 ID
+ * @returns {Promise<object>} 包含元数据的 Promise 对象
+ */
 export const getMetadata = async (caseId) => {
   const cacheKey = getMetadataKey(caseId);
-
   if (clientCache.metadata[cacheKey]) {
-    console.log(`Cache hit (Client - Metadata): ${cacheKey}`);
+    console.log(`缓存命中 (客户端 - 主元数据): ${cacheKey}`);
     return clientCache.metadata[cacheKey];
   }
-
-  console.log(`Cache miss (Client - Metadata): ${cacheKey}, Fetching metadata...`);
-
+  console.log(`缓存未命中 (客户端 - 主元数据): ${cacheKey}, 正在获取主元数据...`);
   try {
+    // Fetch main metadata (heights, turbines list, vmin/vmax, extent, etc.)
     const response = await axios.get(`/api/cases/${caseId}/visualization-metadata`);
+    let metadata = null;
     if (response.data.success && response.data.metadata) {
-      // Add compatibility handling, ensure extent property exists
-      const metadata = response.data.metadata;
+        metadata = response.data.metadata;
+    } else if (response.data && typeof response.data === 'object' && response.data.heightLevels) {
+        // Compatibility for potential direct metadata response
+        console.warn("后端主元数据响应结构可能已更改。假设数据即元数据。");
+        metadata = response.data;
+    }
+
+    if (metadata) {
+      // Ensure 'extent' exists if 'extentKm' is present (for backward compatibility if needed)
       if (!metadata.extent && metadata.extentKm) {
         metadata.extent = metadata.extentKm;
       }
-      clientCache.metadata[cacheKey] = metadata;
+      clientCache.metadata[cacheKey] = metadata; // Cache the main metadata
       return metadata;
     }
 
-    // If backend response structure is directly the metadata object
-    if (response.data && typeof response.data === 'object' && response.data.heightLevels) {
-      console.warn("Backend metadata response structure might have changed. Assuming data is metadata.");
-      const metadata = response.data;
-      if (!metadata.extent && metadata.extentKm) {
-        metadata.extent = metadata.extentKm;
-      }
-      clientCache.metadata[cacheKey] = metadata;
-      return metadata;
-    }
-
-    throw new Error(response.data?.message || 'Failed to fetch valid metadata');
+    // Throw error if metadata is not valid
+    throw new Error(response.data?.message || '未能获取有效的主元数据');
   } catch (error) {
-    console.error(`Error fetching metadata for ${caseId}:`, error);
-    throw error;
+    console.error(`获取工况 ${caseId} 的主元数据失败:`, error);
+    ElMessage.error('加载主元数据失败: ' + (error.response?.data?.message || error.message));
+    throw error; // Re-throw to allow calling component to handle
   }
 };
 
+/**
+ * 获取特定高度的速度切片信息。
+ * 返回该切片图像的URL、原始尺寸、预计算的风机像素坐标等。
+ * @param {string} caseId 工况 ID
+ * @param {number} height 请求的高度 (米)
+ * @returns {Promise<object>} 包含切片信息的 Promise 对象 (imageUrl, actualHeight, imageDimensions, turbinesPixels, vmin, vmax, extentKm)
+ */
 export const getSliceData = async (caseId, height) => {
-  console.log(`Fetching slice image info for case ${caseId}, height ${height}...`);
+  console.log(`正在获取工况 ${caseId}，高度 ${height} 的切片图像和像素信息...`);
   try {
+    // Fetch slice-specific data: image URL, pixel coords for turbines on *this* image, original image dimensions
     const response = await axios.get(`/api/cases/${caseId}/visualization-slice`, {
-      params: { height }
+      params: { height } // Pass height as query parameter
     });
-    if (response.data.success && response.data.sliceImageUrl) {
+
+    // Check the expected response structure from the updated API
+    if (response.data.success &&
+        response.data.sliceImageUrl &&
+        response.data.turbinesPixels &&       // Expecting turbinesPixels array
+        response.data.imageDimensions         // Expecting imageDimensions object
+       ) {
+      // Return the relevant data for the frontend component
       return {
         imageUrl: response.data.sliceImageUrl,
         actualHeight: response.data.actualHeight,
-        turbines: response.data.turbines,
-        extentKm: response.data.extentKm,
+        imageDimensions: response.data.imageDimensions, // Original dimensions of the slice image
+        turbinesPixels: response.data.turbinesPixels,   // Pre-calculated pixel coordinates [{id, x, y}, ...]
+        extentKm: response.data.extentKm,               // Domain extent (may still be useful)
         vmin: response.data.vmin,
-        vmax: response.data.vmax
-      }; // Return the data needed for image display and overlay
+        vmax: response.data.vmax,
+      };
     }
-    throw new Error(response.data?.message || `Failed to fetch valid slice image info for height ${height}`); // Updated error message
+
+    // Handle cases where the response structure is not as expected or success is false
+    throw new Error(response.data?.message || `未能获取高度 ${height} 的有效切片信息 (URL/像素/尺寸)`);
+
   } catch (error) {
-    console.error(`Error fetching slice image info for ${caseId}, H=${height}:`, error); // Updated error log
-    // Propagate a more informative error message
-    const errorMessage = error.response?.data?.message || error.message || `Network/server error fetching slice H=${height}`;
-    ElMessage.error(`加载高度 ${height.toFixed(1)}m 的图像失败: ${errorMessage}`); // Show user error
+    console.error(`获取工况 ${caseId}，高度 H=${height} 的切片信息失败:`, error);
+    const errorMessage = error.response?.data?.message || error.message || `获取切片 H=${height} 时网络/服务器错误`;
+    // Show error message to the user
+    ElMessage.error(`加载高度 ${height.toFixed(1)}m 的图像信息失败: ${errorMessage}`);
+    // Re-throw the error so the calling component knows the operation failed
     throw new Error(errorMessage);
   }
 };
 
+/**
+ * 获取指定风机的风速廓线数据。
+ * @param {string} caseId 工况 ID
+ * @param {string} turbineId 风机 ID
+ * @returns {Promise<object>} 包含风廓线数据的 Promise 对象 (profile: {heights, speeds})
+ */
 export const getProfileData = async (caseId, turbineId) => {
   const cacheKey = getProfileKey(caseId, turbineId);
   if (clientCache.profile[cacheKey]) {
-    console.log(`Cache hit (Client - Profile): ${cacheKey}`);
+    console.log(`缓存命中 (客户端 - 风廓线): ${cacheKey}`);
     return clientCache.profile[cacheKey];
   }
-
-  console.log(`Cache miss (Client - Profile): ${cacheKey}, Fetching profile data for turbine ${turbineId}...`);
+  console.log(`缓存未命中 (客户端 - 风廓线): ${cacheKey}, 正在获取风机 ${turbineId} 的风廓线数据...`);
   try {
     const response = await axios.get(`/api/cases/${caseId}/visualization-profile/${turbineId}`);
     if (response.data.success && response.data.profile) {
-      clientCache.profile[cacheKey] = response.data; // Cache the entire response
-      return response.data;
+      clientCache.profile[cacheKey] = response.data; // Cache the successful response
+      return response.data; // Return the whole response structure {success: true, profile: {...}}
     }
-    throw new Error(response.data?.message || `Failed to fetch profile data for turbine ${turbineId}`);
+    // Handle unsuccessful response or missing profile data
+    throw new Error(response.data?.message || `未能获取风机 ${turbineId} 的风廓线数据`);
   } catch (error) {
-    console.error(`Error fetching profile data for ${caseId}, turbine ${turbineId}:`, error);
+    console.error(`获取工况 ${caseId}，风机 ${turbineId} 的风廓线数据失败:`, error);
     ElMessage.error(`加载风机 ${turbineId} 的风廓线数据失败`);
-    throw new Error(error.response?.data?.message || error.message || `Network/server error fetching profile data for turbine ${turbineId}`);
+    // Re-throw a more specific error
+    throw new Error(error.response?.data?.message || error.message || `获取风机 ${turbineId} 风廓线数据时网络/服务器错误`);
   }
 };
 
-
+/**
+ * 获取指定风机的尾流分析数据。
+ * @param {string} caseId 工况 ID
+ * @param {string} turbineId 风机 ID
+ * @returns {Promise<object>} 包含尾流数据的 Promise 对象 (wake: {distances, speeds, hubHeightUsed})
+ */
 export const getWakeData = async (caseId, turbineId) => {
   const cacheKey = getWakeKey(caseId, turbineId);
   if (clientCache.wake[cacheKey]) {
-    console.log(`Cache hit (Client - Wake): ${cacheKey}`);
+    console.log(`缓存命中 (客户端 - 尾流): ${cacheKey}`);
     return clientCache.wake[cacheKey];
   }
-
-  console.log(`Cache miss (Client - Wake): ${cacheKey}, Fetching wake data for turbine ${turbineId}...`);
+  console.log(`缓存未命中 (客户端 - 尾流): ${cacheKey}, 正在获取风机 ${turbineId} 的尾流数据...`);
   try {
     const response = await axios.get(`/api/cases/${caseId}/visualization-wake/${turbineId}`);
     if (response.data.success && response.data.wake) {
-      clientCache.wake[cacheKey] = response.data; // Cache the entire response
-      return response.data;
+      clientCache.wake[cacheKey] = response.data; // Cache the successful response
+      return response.data; // Return the whole response structure {success: true, wake: {...}}
     }
-    throw new Error(response.data?.message || `Failed to fetch wake data for turbine ${turbineId}`);
+    // Handle unsuccessful response or missing wake data
+    throw new Error(response.data?.message || `未能获取风机 ${turbineId} 的尾流数据`);
   } catch (error) {
-    console.error(`Error fetching wake data for ${caseId}, turbine ${turbineId}:`, error);
+    console.error(`获取工况 ${caseId}，风机 ${turbineId} 的尾流数据失败:`, error);
     ElMessage.error(`加载风机 ${turbineId} 的尾流数据失败`);
-    throw new Error(error.response?.data?.message || error.message || `Network/server error fetching wake data for turbine ${turbineId}`);
+    // Re-throw a more specific error
+    throw new Error(error.response?.data?.message || error.message || `获取风机 ${turbineId} 尾流数据时网络/服务器错误`);
   }
 };
 
-
-// Function to clear cache for a specific case (call when needed)
+/**
+ * 清除指定工况的所有客户端缓存（元数据、风廓线、尾流）。
+ * @param {string} caseId 工况 ID
+ */
 export const clearClientCaseCache = (caseId) => {
   const metaKey = getMetadataKey(caseId);
   delete clientCache.metadata[metaKey];
-  // Object.keys(clientCache.slices).forEach(key => {  // Removed slice cache clearing
-  //     if (key.startsWith(`slice_${caseId}_`)) delete clientCache.slices[key];
-  // });
-  // Clear profile/wake caches
+
+  // Clear profile cache entries for this caseId
   Object.keys(clientCache.profile).forEach(key => {
-      if (key.startsWith(`profile_${caseId}_`)) delete clientCache.profile[key];
-  });
-  Object.keys(clientCache.wake).forEach(key => {
-      if (key.startsWith(`wake_${caseId}_`)) delete clientCache.wake[key];
+      if (key.startsWith(`profile_${caseId}_`)) {
+          delete clientCache.profile[key];
+      }
   });
 
-  console.log(`Client cache cleared for case ${caseId}`);
+  // Clear wake cache entries for this caseId
+  Object.keys(clientCache.wake).forEach(key => {
+      if (key.startsWith(`wake_${caseId}_`)) {
+          delete clientCache.wake[key];
+      }
+  });
+
+  console.log(`已清除工况 ${caseId} 的客户端缓存`);
 };
 
-// --- Helper Functions ---
+/**
+ * 在数组中查找最接近给定值的元素的索引。
+ * @param {number[]} arr 要搜索的数字数组
+ * @param {number} value 要查找的值
+ * @returns {number} 最接近元素的索引，如果数组为空则返回 -1
+ */
 export const findClosestIndex = (arr, value) => {
   if (!arr || arr.length === 0) return -1;
   let closest = 0;
@@ -173,6 +218,3 @@ export const findClosestIndex = (arr, value) => {
   }
   return closest;
 };
-
-// Optional: Add interpolation if needed later, but not required for this test component
-// export const interpolateWindSpeed = (heights, speeds, targetHeight) => { ... };

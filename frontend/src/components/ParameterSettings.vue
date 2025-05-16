@@ -1,11 +1,11 @@
 <!--
  * @Author: joe 847304926@qq.com
- * @Date: 2025-03-16 17:23:12
+ * @Date: 2025-04-01 18:51:11
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-04-01 18:51:11
+ * @LastEditTime: 2025-05-15 19:25:21
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\ParameterSettings.vue
- * @Description:
- *
+ * @Description: 
+ * 
  * Copyright (c) 2025 by joe, All Rights Reserved.
 -->
 
@@ -42,7 +42,7 @@
         <!-- 计算域 -->
         <el-form-item label="计算域" class="parent-form-item">
           <el-form-item
-            label="宽度 (m)"
+            label="计算域长度 (m)" 
             prop="calculationDomain.width"
             :inline="true"
             class="child-form-item"
@@ -55,7 +55,7 @@
             />
           </el-form-item>
           <el-form-item
-            label="高度 (m)"
+            label="计算域高度 (m)" 
             prop="calculationDomain.height"
             :inline="true"
             class="child-form-item"
@@ -72,7 +72,7 @@
         <!-- 工况 -->
         <el-form-item label="工况" class="parent-form-item">
           <el-form-item
-            label="风向角 (°)"
+            label="风向角 (°)" 
             prop="conditions.windDirection"
             :inline="true"
             class="child-form-item"
@@ -86,7 +86,7 @@
             />
           </el-form-item>
           <el-form-item
-            label="入口风速 (m/s)"
+            label="入口风速 (m/s)" 
             prop="conditions.inletWindSpeed"
             :inline="true"
             class="child-form-item"
@@ -104,7 +104,7 @@
         <el-form-item label="网格" class="parent-form-item">
           <div class="grid-section">
             <el-form-item
-              label="加密区高度 (m)"
+              label="粗糙层高度 (m)" 
               prop="grid.encryptionHeight"
               :inline="true"
               class="child-form-item"
@@ -117,7 +117,7 @@
               />
             </el-form-item>
             <el-form-item
-              label="加密层数"
+              label="粗糙层层数" 
               prop="grid.encryptionLayers"
               :inline="true"
               class="child-form-item"
@@ -130,7 +130,7 @@
               />
             </el-form-item>
             <el-form-item
-              label="空间网格生长率"
+              label="纵向网格生长率" 
               prop="grid.gridGrowthRate"
               :inline="true"
               class="child-form-item"
@@ -144,7 +144,7 @@
               />
             </el-form-item>
             <el-form-item
-              label="最大特征长度 (m)"
+              label="最大网格尺寸 (m)" 
               prop="grid.maxExtensionLength"
               :inline="true"
               class="child-form-item"
@@ -157,7 +157,7 @@
               />
             </el-form-item>
             <el-form-item
-              label="加密区径向长度 (m)"
+              label="最小网格尺寸 (m)" 
               prop="grid.encryptionRadialLength"
               :inline="true"
               class="child-form-item"
@@ -170,7 +170,7 @@
               />
             </el-form-item>
             <el-form-item
-              label="尾流区径向长度 (m)"
+              label="尾流区径向长度 (m)" 
               prop="grid.downstreamRadialLength"
               :inline="true"
               class="child-form-item"
@@ -183,7 +183,7 @@
               />
             </el-form-item>
             <el-form-item
-              label="加密半径 (m)"
+              label="网格加密区半径（内）(m)" 
               prop="grid.encryptionRadius"
               :inline="true"
               class="child-form-item"
@@ -196,7 +196,7 @@
               />
             </el-form-item>
             <el-form-item
-              label="加密过渡半径 (m)"
+              label="网格加密区半径（外）(m)" 
               prop="grid.encryptionTransitionRadius"
               :inline="true"
               class="child-form-item"
@@ -209,7 +209,7 @@
               />
             </el-form-item>
             <el-form-item
-              label="地形半径 (m)"
+              label="地形区域半径（内）(m)" 
               prop="grid.terrainRadius"
               :inline="true"
               class="child-form-item"
@@ -222,7 +222,7 @@
               />
             </el-form-item>
             <el-form-item
-              label="地形过渡半径 (m)"
+              label="地形区域半径（外）(m)" 
               prop="grid.terrainTransitionRadius"
               :inline="true"
               class="child-form-item"
@@ -235,7 +235,7 @@
               />
             </el-form-item>
             <el-form-item
-              label="尾流区长度 (m)"
+              label="尾流区加密长度 (m)" 
               prop="grid.downstreamLength"
               :inline="true"
               class="child-form-item"
@@ -248,7 +248,7 @@
               />
             </el-form-item>
             <el-form-item
-              label="尾流区宽度 (m)"
+              label="尾流区加密宽度 (m)" 
               prop="grid.downstreamWidth"
               :inline="true"
               class="child-form-item"
@@ -261,7 +261,7 @@
               />
             </el-form-item>
             <el-form-item
-              label="缩放比"
+              label="缩尺比"
               prop="grid.scale"
               :inline="true"
               class="child-form-item"
@@ -280,6 +280,7 @@
 
         <!-- 仿真 -->
         <el-form-item label="仿真" class="parent-form-item">
+          <!-- Labels for simulation parameters are kept as is, as they are not in the provided table snippet -->
           <el-form-item
             label="核"
             prop="simulation.cores"
@@ -320,6 +321,7 @@
 
         <!-- 后处理 -->
         <el-form-item label="后处理" class="parent-form-item">
+          <!-- Labels for postProcessing parameters are kept as is, as they are not in the provided table snippet -->
           <el-form-item
             label="结果层数"
             prop="postProcessing.resultLayers"
@@ -349,7 +351,7 @@
         </el-form-item>
 
         <!-- 添加中心经纬度展示（只读） -->
-        <el-form-item label="中心经纬度" class="parent-form-item">
+        <el-form-item label="中心经纬度" class="parent-form-item"> <!-- KEPT (This is a summary label for a computed value, not a direct parameter from the table's "参数描述" list that's editable here) -->
           <el-input readonly :value="centerCoordinates" clearable class="location-input" />
         </el-form-item>
 
