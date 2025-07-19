@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-01-12 17:44:55
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-04-01 12:43:22
+ * @LastEditTime: 2025-07-14 20:09:37
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\backend\routes\windTurbinesRouter.js
  * @Description: 
  * 
@@ -25,7 +25,8 @@ const windTurbineSchema = Joi.object({
   longitude: Joi.number().required(),
   hubHeight: Joi.number().required(),
   rotorDiameter: Joi.number().required(),
-  type: Joi.string().optional(),
+  type: Joi.number().optional(), 
+  model: Joi.string().allow('', null).optional()
 });
 
 // 获取风机数据路径的辅助函数
@@ -60,9 +61,14 @@ router.post('/', (req, res) => {
   const { caseId } = req.params;
   const turbineData = req.body;
 
+  // --- 新增日志 ---
+  console.log(`[DEBUG] Received single turbine data for case ${caseId}:`, JSON.stringify(turbineData, null, 2));
+
   // 验证输入
   const { error, value } = windTurbineSchema.validate(turbineData);
   if (error) {
+    // --- 新增日志 ---
+    console.error(`[VALIDATION FAILED] Joi validation error for case ${caseId}:`, error.details[0].message);
     return res.status(400).json({ success: false, message: error.details[0].message });
   }
 
@@ -75,14 +81,23 @@ router.post('/', (req, res) => {
   const turbines = readWindTurbines(caseId);
 
   // 检查重复的名称或 ID
-  if (turbines.some(t => t.id === value.id || t.name === value.name)) {
-    return res.status(400).json({ success: false, message: 'Wind turbine with the same ID or name already exists.' });
+  if (turbines.some(t => t.id === value.id)) {
+    // --- 新增日志 ---
+    console.error(`[DUPLICATE CHECK FAILED] Duplicate ID found for case ${caseId}. ID: ${value.id}`);
+    return res.status(400).json({ success: false, message: `Wind turbine with the same ID (${value.id}) already exists.` });
+  }
+  if (turbines.some(t => t.name === value.name)) {
+      // --- 新增日志 ---
+      console.error(`[DUPLICATE CHECK FAILED] Duplicate name found for case ${caseId}. Name: ${value.name}`);
+      return res.status(400).json({ success: false, message: `Wind turbine with the same name ('${value.name}') already exists.` });
   }
 
   // 添加新风机
   turbines.push(value);
   writeWindTurbines(caseId, turbines);
 
+  // --- 新增日志 ---
+  console.log(`[SUCCESS] Wind turbine '${value.name}' added successfully to case ${caseId}.`);
   res.status(201).json({ success: true, message: 'Wind turbine added successfully.', turbine: value });
 });
 

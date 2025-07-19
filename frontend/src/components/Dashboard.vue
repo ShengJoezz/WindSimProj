@@ -2,10 +2,10 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-03-19 19:43:55
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-05-17 00:45:17
+ * @LastEditTime: 2025-05-17 01:38:08
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\Dashboard.vue
- * @Description: 
- * 
+ * @Description:
+ *
  * Copyright (c) 2025 by joe, All Rights Reserved.
 -->
 
@@ -28,8 +28,8 @@
     >
       <div class="logo-area" :class="{ collapsed: isCollapse }">
         <div class="logo-content">
-          <div class="logo-icon">W</div>
-          <span v-if="!isCollapse" class="logo-text">WindSim</span>
+          <div class="logo-icon">H</div> <!-- Changed W to H for HustWind -->
+          <span v-if="!isCollapse" class="logo-text">HustWind</span> <!-- Changed WindSim to HustWind -->
         </div>
       </div>
 
@@ -65,9 +65,9 @@
 
       <div class="menu-footer" v-if="!isCollapse">
         <div class="user-status">
-          <div class="user-avatar">W</div>
+          <div class="user-avatar">H</div> <!-- Changed W to H for HustWind -->
           <div class="user-info">
-            <div class="user-name">WindSim用户</div>
+            <div class="user-name">HustWind用户</div> <!-- Changed WindSim to HustWind -->
             <div class="user-role">系统管理员</div>
           </div>
         </div>
@@ -124,16 +124,16 @@ const menuItems = computed(() => {
     { index: `/cases/${caseId.value}/parameters`, icon: Setting, title: "参数设置" },
     { index: `/cases/${caseId.value}/calculation`, icon: Monitor, title: "计算输出" },
     { index: `/cases/${caseId.value}/results`, icon: DataLine, title: "结果展示" },
-    { index: `/cases/${caseId.value}/speed-visualization`, icon: 'WindPower', title: "速度场分析" }, 
-    { index: `/cases/${caseId.value}/wind-management`, icon: DataLine, title: "风机管理" }
+    { index: `/cases/${caseId.value}/speed-visualization`, icon: 'WindPower', title: "速度场分析" },
+    { index: `/cases/${caseId.value}/wind-management`, icon: Files, title: "风机管理" } // Changed DataLine to Files
   ];
 }else {
       return [
         { index: "/", icon: House, title: "首页" },
-        { index: `/windmast`, icon: Files, title: "测风塔分析" },
+        { index: `/windmast`, icon: DataLine, title: "测风塔分析" }, // Changed Files to DataLine
         { index: "/new", icon: Plus, title: "新建工况" },
-        { index: "/cases", icon: Files, title: "工况列表" },
-        { index: "/terrainClip",icon:Files,title:"地形获取与裁剪"}
+        { index: "/cases", icon: Files, title: "工况列表" }, // Kept Files
+        { index: "/terrainClip",icon: Location,title:"地形获取与裁剪"} // Changed Files to Location
       ];
     }
   });

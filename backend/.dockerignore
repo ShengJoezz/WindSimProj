@@ -1,0 +1,19 @@
+# Ignore Node.js dependency folder
+node_modules
+
+# Ignore npm debug logs
+npm-debug.log
+
+# Ignore common project files
+.git
+.gitignore
+README.md
+
+# Ignore large data or result files (add any other folders you have)
+# 如果您有存放模拟结果的文件夹，比如 results, data, case, upload 等，务必加上
+uploads/
+batch_1/
+
+# Ignore Docker files themselves
+Dockerfile
+.dockerignore

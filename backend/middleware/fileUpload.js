@@ -14,7 +14,7 @@ const path = require('path');
 const fs = require('fs'); // Use synchronous fs for initial dir check within multer setup
 
 // Define TEMP_DIR consistently
-const TEMP_DIR = path.join(__dirname, '..', 'uploads', 'temp');
+const TEMP_DIR = path.join(__dirname, '..', 'windmast_data', 'temp');
 
 // Multer disk storage configuration
 const storage = multer.diskStorage({

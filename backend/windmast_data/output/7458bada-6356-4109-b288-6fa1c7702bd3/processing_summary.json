@@ -1,0 +1,108 @@
+{
+  "analysisId": "7458bada-6356-4109-b288-6fa1c7702bd3",
+  "analysisName": "测风分析-0703_181642",
+  "description": "",
+  "status": "completed_with_warnings",
+  "startTime": "2025-07-03T18:16:46.410470",
+  "endTime": "2025-07-03T18:16:50.329067",
+  "totalDurationSec": 3.92,
+  "inputDataFolder": "/home/joe/wind_project/WindSimProj/backend/uploads/windmast/input",
+  "outputDataFolder": "/home/joe/wind_project/WindSimProj/backend/uploads/windmast/output/7458bada-6356-4109-b288-6fa1c7702bd3",
+  "parameters": {
+    "enableFiltering": true,
+    "threshold": 60,
+    "method": "standard",
+    "chartTypes": [
+      "wind_rose",
+      "wind_frequency",
+      "wind_energy",
+      "stability_distribution"
+    ]
+  },
+  "files_requested": 2,
+  "files_processed": 2,
+  "success_files": 0,
+  "warning_files": 2,
+  "error_files": 0,
+  "processed_files_details": [
+    {
+      "file": "1751533494588-meteoforce_W001PADINGLIANGZI_2021010106_weather.csv",
+      "farm_id": "W001PADINGLIANGZI",
+      "date_str": "1751533494588",
+      "status": "warning",
+      "plots_created": [
+        "windrose_10m",
+        "wind_frequency_10m",
+        "wind_energy_10m",
+        "windrose_30m",
+        "wind_frequency_30m",
+        "wind_energy_30m",
+        "windrose_50m",
+        "wind_frequency_50m",
+        "wind_energy_50m",
+        "windrose_70m",
+        "wind_frequency_70m",
+        "wind_energy_70m",
+        "windrose_80m",
+        "wind_frequency_80m",
+        "wind_energy_80m",
+        "windrose_90m",
+        "wind_frequency_90m",
+        "wind_energy_90m",
+        "windrose_110m",
+        "wind_frequency_110m",
+        "wind_energy_110m",
+        "stability_distribution"
+      ],
+      "output_folder": "/home/joe/wind_project/WindSimProj/backend/uploads/windmast/output/7458bada-6356-4109-b288-6fa1c7702bd3",
+      "warnings": [
+        "date_time 列不是日期时间格式",
+        "保存统计信息失败: NDFrame.describe() got an unexpected keyword argument 'datetime_is_numeric'"
+      ],
+      "error": null,
+      "rows_processed": 1320,
+      "processing_time_sec": 3.79
+    },
+    {
+      "file": "1751536039046-meteoforce_W001PADINGLIANGZI_2021010206_weather.csv",
+      "farm_id": "W001PADINGLIANGZI",
+      "date_str": "1751536039046",
+      "status": "warning",
+      "plots_created": [
+        "windrose_10m",
+        "wind_frequency_10m",
+        "wind_energy_10m",
+        "windrose_30m",
+        "wind_frequency_30m",
+        "wind_energy_30m",
+        "windrose_50m",
+        "wind_frequency_50m",
+        "wind_energy_50m",
+        "windrose_70m",
+        "wind_frequency_70m",
+        "wind_energy_70m",
+        "windrose_80m",
+        "wind_frequency_80m",
+        "wind_energy_80m",
+        "windrose_90m",
+        "wind_frequency_90m",
+        "wind_energy_90m",
+        "windrose_110m",
+        "wind_frequency_110m",
+        "wind_energy_110m",
+        "stability_distribution"
+      ],
+      "output_folder": "/home/joe/wind_project/WindSimProj/backend/uploads/windmast/output/7458bada-6356-4109-b288-6fa1c7702bd3",
+      "warnings": [
+        "date_time 列不是日期时间格式",
+        "保存统计信息失败: NDFrame.describe() got an unexpected keyword argument 'datetime_is_numeric'"
+      ],
+      "error": null,
+      "rows_processed": 1320,
+      "processing_time_sec": 3.84
+    }
+  ],
+  "unique_farm_ids": [
+    "W001PADINGLIANGZI"
+  ]
+}

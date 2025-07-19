@@ -1,3 +1,14 @@
+<!--
+ * @Author: joe 847304926@qq.com
+ * @Date: 2025-03-18 19:08:40
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-07-05 17:22:03
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+-->
+
 <!-- frontend/src/components/ResultsDisplay.vue -->
 <!--
  * @Author: joe 847304926@qq.com
@@ -22,10 +33,6 @@
         </button>
         <button class="export-button" @click="exportLayerPhotos">
           <i class="fa fa-image"></i>  导出速度场文件
-        </button>
-        <!-- 新增PDF报告按钮 - 简化调用，无需传递图表引用 -->
-        <button class="export-button pdf-button" @click="generatePdfReport">
-          <i class="fa fa-file-pdf"></i>  生成PDF报告
         </button>
       </div>
     </div>
@@ -62,14 +69,6 @@
         />
       </div>
     </div>
-    <!-- 添加PDF生成器组件 -->
-    <div class="pdf-button-container">
-      <PDFReportGenerator
-        v-if="caseStore.currentCaseId"
-        :caseId="caseStore.currentCaseId"
-        ref="pdfGeneratorRef"
-      />
-    </div>
   </div>
 </template>
 
@@ -88,25 +87,6 @@ const router = useRouter(); // 初始化 router
 const vtkViewerRef = ref(null);
 const velocityRef = ref(null);
 const pdfGeneratorRef = ref(null);
-
-// 生成PDF报告 - 简化调用，无需传递风机引用，数据由后端服务准备
-const generatePdfReport = async () => {
-  if (pdfGeneratorRef.value) {
-    try {
-      showNotification('正在生成PDF报告...', 'info');
-
-      // 直接调用 PDF 生成器，无需传递额外的引用
-      await pdfGeneratorRef.value.generatePDF();
-
-      showNotification('PDF报告生成成功', 'success');
-    } catch (error) {
-      console.error('PDF报告生成失败:', error);
-      showNotification('PDF报告生成失败: ' + error.message, 'error');
-    }
-  } else {
-    showNotification('PDF生成器未准备好', 'error');
-  }
-};
 
 // 通知反馈状态
 const notification = ref({
@@ -205,7 +185,7 @@ watch(() => caseStore.currentCaseId, (newId) => {
 </script>
 
 <style scoped>
-/* 样式部分与之前提供的 ResultsDisplay.vue 相同，并增加了通知样式 */
+
 /* 布局容器 */
 .case-viewer {
   width: 100%;

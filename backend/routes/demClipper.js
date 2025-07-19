@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-05-17 00:19:57
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-05-17 00:36:22
+ * @LastEditTime: 2025-07-05 19:51:17
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\backend\routes\demClipper.js
  * @Description: 
  * 
@@ -21,7 +21,7 @@ const { v4: uuidv4 } = require('uuid');
 // 设置文件上传
 const storage = multer.diskStorage({
   destination: function(req, file, cb) {
-    const uploadDir = path.join(__dirname, '../uploads/temp');
+    const uploadDir = path.join(__dirname, '../../temp');
     fs.ensureDirSync(uploadDir);
     cb(null, uploadDir);
   },
@@ -70,7 +70,7 @@ router.post('/clip', upload.single('demFile'), async (req, res, next) => {
     // 源文件和目标文件路径
     const srcFilePath = req.file.path;
     const outputId = uuidv4();
-    const outputDir = path.join(__dirname, '../uploads/clipped');
+    const outputDir = path.join(__dirname, '../../clipped');
     fs.ensureDirSync(outputDir);
     const outputFilePath = path.join(outputDir, `clipped_${outputId}.tif`);
 
@@ -337,7 +337,7 @@ router.post('/clip', upload.single('demFile'), async (req, res, next) => {
 router.get('/download/:id', async (req, res, next) => {
   try {
     const fileId = req.params.id;
-    const filePath = path.join(__dirname, '../uploads/clipped', `clipped_${fileId}.tif`);
+    const filePath = path.join(__dirname, '../../clipped', `clipped_${fileId}.tif`);
     
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ 

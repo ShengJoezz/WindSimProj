@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-03-19 22:25:10
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-05-15 20:29:01
+ * @LastEditTime: 2025-06-19 17:35:01
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\TerrainMap.vue
  * @Description:
  *
@@ -28,7 +28,6 @@
     <TopToolbar
       @toggle-sidebar="toggleSidebar"
       @add-turbine="handleAddTurbineClick"
-      @toggle-terrain-clipping="toggleTerrainClipping"
     />
 
     <!-- Left Sidebar: Control Panel -->
@@ -47,32 +46,12 @@
     <WindTurbineManagement
       v-model:visible="sidebars.management"
       :windTurbines="caseStore.windTurbines"
-      :geographicBounds="formattedGeoBounds"
+      :geographicBounds="rawGeoBounds"
       @focus-turbine="focusOnTurbine"
       @delete-turbine="confirmDeleteTurbine"
       @add-turbine="handleAddTurbineFromManagement"
       @import-turbines="handleBulkImport"
     />
-
-    <!-- Terrain Clipping Panel -->
-    <TerrainClipping
-      ref="terrainClipping"
-      v-model:visible="sidebars.terrainClipping"
-      :geographic-bounds="formattedGeoBounds"
-      @preview-crop="previewCropArea"
-      @apply-crop="applyCropArea"
-      @save-terrain="saveClippedTerrain"
-      @start-drag-selection="startDragSelection"
-      @cancel-drag-selection="cancelDragSelection"
-    />
-
-    <!-- Crop Preview Overlay -->
-    <div v-if="cropPreviewActive" class="crop-preview-overlay">
-      <div class="crop-preview-info">
-        <span>预览裁剪区域</span>
-        <el-button size="small" type="danger" @click="cancelCropPreview">取消</el-button>
-      </div>
-    </div>
 
     <!-- Terrain Info Box -->
     <TerrainInfo
@@ -88,13 +67,6 @@
       :position="tooltipPos"
     />
 
-    <!-- 添加拖拽选择模式的提示 -->
-    <div v-if="isDragSelectionActive" class="drag-selection-active-indicator">
-      <div class="indicator-content">
-        <i class="el-icon-crop"></i>
-        <span>正在选择裁剪区域 - 点击并拖拽</span>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -116,7 +88,7 @@ import ControlPanel from "./ControlPanel.vue";
 import WindTurbineManagement from "./WindTurbineManagement.vue";
 import TerrainInfo from "./TerrainInfo.vue";
 import TurbineTooltip from "./TurbineTooltip.vue";
-import TerrainClipping from "./TerrainClipping.vue"; // Import TerrainClipping Component
+// import TerrainClipping from "./TerrainClipping.vue"; // Removed TerrainClipping Component
 import axios from "axios";
 import { fromArrayBuffer } from "geotiff";
 import Papa from "papaparse";
@@ -156,18 +128,18 @@ const rotationSpeed = ref(1.0);
 const sidebars = ref({
   control: false,
   management: false,
-  terrainClipping: false, // Add terrainClipping to sidebars state
+  // terrainClipping: false, // Removed terrainClipping from sidebars state
 });
 const hoveredTurbine = ref(null);
 const tooltipPos = ref({ x: 0, y: 0 });
 const hasRendererInitialized = ref(false);
 const isSceneInitialized = ref(ref(false)); // Track if scene is initialized, using ref for reactivity
-const cropPreviewActive = ref(false);
-const cropPreviewBounds = ref(null);
-let cropPreviewMesh = null;
+// const cropPreviewActive = ref(false); // Removed
+// const cropPreviewBounds = ref(null); // Removed
+// let cropPreviewMesh = null; // Removed
 const queuedTurbines = ref([]); // Queue turbines to add after scene is ready
-const isDragSelectionActive = ref(false); // Ensure this ref is defined if used
-const terrainClipping = ref(null); // Ensure ref is defined for TerrainClipping
+// const isDragSelectionActive = ref(false); // Removed
+// const terrainClipping = ref(null); // Removed
 
 
 // GLTF Model references  // Step 3: Add Model Variables
@@ -233,6 +205,16 @@ const formattedGeoBounds = computed(() => {
       typeof caseStore.maxLongitude === "number"
         ? caseStore.maxLongitude.toFixed(6)
         : "N/A",
+  };
+});
+
+// [新增] 创建一个用于逻辑计算的计算属性
+const rawGeoBounds = computed(() => {
+  return {
+    minLat: caseStore.minLatitude, // <-- 直接使用原始数字
+    maxLat: caseStore.maxLatitude,
+    minLon: caseStore.minLongitude,
+    maxLon: caseStore.maxLongitude,
   };
 });
 
@@ -557,10 +539,7 @@ const toggleSidebar = (type) => {
   // Toggle the target sidebar
   sidebars.value[type] = !sidebars.value[type];
 
-  // Cancel crop preview when closing terrain clipping panel
-  if (type === 'terrainClipping' && !sidebars.value.terrainClipping) {
-    cancelCropPreview();
-  }
+  // Removed logic for terrainClipping and cancelCropPreview
 };
 
 // 处理添加风机按钮点击
@@ -947,25 +926,7 @@ const deleteWindTurbineFromScene = (turbineId) => {
   }
 };
 
-// 添加一个专门用于切换地形裁剪面板的方法
-const toggleTerrainClipping = () => {
-  // 切换地形裁剪面板的显示状态
-  sidebars.value.terrainClipping = !sidebars.value.terrainClipping;
-
-  // 如果打开地形裁剪面板，则关闭其他面板
-  if (sidebars.value.terrainClipping) {
-    Object.keys(sidebars.value).forEach(key => {
-      if (key !== 'terrainClipping') {
-        sidebars.value[key] = false;
-      }
-    });
-  }
-
-  // 如果关闭了地形裁剪面板，取消任何正在进行的裁剪预览
-  if (!sidebars.value.terrainClipping) {
-    cancelCropPreview();
-  }
-};
+// Removed toggleTerrainClipping function
 
 // 改进的经纬度到XZ坐标的映射
 const mapLatLonToXZ = (latitude, longitude) => {
@@ -1482,7 +1443,7 @@ const handleBulkImport = async (turbines) => {
     // Call the store action to add turbines
     await caseStore.addBulkWindTurbines(turbines); // Let the store handle backend interaction
     log(2, `[TerrainMap] Bulk add requested to store. Watcher will update scene.`);
-    ElMessage.success(`请求导入 ${turbines.length} 个风机`);
+    
     // The watcher below will handle adding meshes to the scene
   } catch (error) {
     log(3, "[TerrainMap] Error requesting bulk add to store:", error);
@@ -1569,494 +1530,9 @@ const disposeThreeResources = () => {
   log(2, '[DISPOSE_RESOURCES] All Three.js resources disposed.');
 };
 
-// --- Terrain Cropping Functionality ---
+// --- Removed Terrain Cropping Functionality (previewCropArea, cancelCropPreview, applyCropArea, saveClippedTerrain) ---
 
-const previewCropArea = (bounds) => {
-  // 首先清除旧的预览
-  if (cropPreviewMesh) {
-    scene.remove(cropPreviewMesh);
-    cropPreviewMesh.traverse(child => {
-      if (child.geometry) child.geometry.dispose();
-      if (child.material) {
-        if (Array.isArray(child.material)) {
-          child.material.forEach(m => m.dispose());
-        } else {
-          child.material.dispose();
-        }
-      }
-    });
-    cropPreviewMesh = null;
-  }
-
-  if (!bounds) {
-    cropPreviewActive.value = false;
-    return;
-  }
-
-  cropPreviewActive.value = true;
-  cropPreviewBounds.value = bounds;
-
-  // 创建预览组
-  cropPreviewMesh = new THREE.Group();
-
-  // 从地形获取高度信息
-  const { minLat, minLon, maxLat, maxLon } = bounds;
-  const minXZ = mapLatLonToXZ(minLat, minLon);
-  const maxXZ = mapLatLonToXZ(maxLat, maxLon);
-
-  // 采样多个点以获取更准确的地形高度范围
-  const samplePoints = 5; // 每边采样点数
-  const heights = [];
-
-  for (let i = 0; i <= samplePoints; i++) {
-    for (let j = 0; j <= samplePoints; j++) {
-      const x = minXZ.x + (maxXZ.x - minXZ.x) * (i / samplePoints);
-      const z = minXZ.z + (maxXZ.z - minXZ.z) * (j / samplePoints);
-      const height = getTerrainHeight(x, z);
-      if (height !== null) heights.push(height);
-    }
-  }
-
-  const minHeight = Math.min(...heights);
-  const maxHeight = Math.max(...heights);
-  const verticalPadding = 50; // 添加额外的垂直空间
-  const boxHeight = maxHeight - minHeight + verticalPadding;
-
-  // 创建半透明盒子
-  const width = Math.abs(maxXZ.x - minXZ.x);
-  const depth = Math.abs(maxXZ.z - minXZ.z);
-  const boxGeometry = new THREE.BoxGeometry(width, boxHeight, depth);
-  const boxMaterial = new THREE.MeshBasicMaterial({
-    color: 0x22cc88,
-    transparent: true,
-    opacity: 0.15,
-    depthWrite: false // 防止 Z 冲突
-  });
-
-  const boxMesh = new THREE.Mesh(boxGeometry, boxMaterial);
-  boxMesh.position.set(
-    (minXZ.x + maxXZ.x) / 2,
-    minHeight + boxHeight / 2,
-    (minXZ.z + maxXZ.z) / 2
-  );
-  cropPreviewMesh.add(boxMesh);
-
-  // 添加线框边缘
-  const edgeGeometry = new THREE.EdgesGeometry(boxGeometry);
-  const edgeMaterial = new THREE.LineBasicMaterial({
-    color: 0x00aa66,
-    linewidth: 2
-  });
-
-  const edgeMesh = new THREE.LineSegments(edgeGeometry, edgeMaterial);
-  cropPreviewMesh.add(edgeMesh);
-
-  // 添加角柱到地面
-  const postRadius = 1.5;
-  const postHeight = boxHeight + 20; // 将柱子稍微延伸超过盒子
-  const postGeometry = new THREE.CylinderGeometry(postRadius, postRadius, postHeight, 8);
-  const postMaterial = new THREE.MeshBasicMaterial({ color: 0x22cc88 });
-
-  // 创建四个角柱
-  [
-    { x: minXZ.x, z: minXZ.z },
-    { x: maxXZ.x, z: minXZ.z },
-    { x: maxXZ.x, z: maxXZ.z },
-    { x: minXZ.x, z: minXZ.z }
-  ].forEach(({x, z}) => {
-    const height = getTerrainHeight(x, z) || 0;
-    const post = new THREE.Mesh(postGeometry, postMaterial);
-    post.position.set(x, height + postHeight/2, z);
-    cropPreviewMesh.add(post);
-  });
-
-  scene.add(cropPreviewMesh);
-};
-
-const cancelCropPreview = () => {
-  if (cropPreviewMesh) {
-    scene.remove(cropPreviewMesh);
-    cropPreviewMesh.traverse(child => {
-      if (child.geometry) child.geometry.dispose();
-      if (child.material) {
-        if (Array.isArray(child.material)) {
-          child.material.forEach(m => m.dispose());
-        } else {
-          child.material.dispose();
-        }
-      }
-    });
-    cropPreviewMesh = null;
-  }
-  cropPreviewActive.value = false;
-  cropPreviewBounds.value = null;
-};
-
-const applyCropArea = async (bounds) => {
-  let loading = ElLoading.service({
-    lock: true,
-    text: '正在裁剪地形...',
-    background: 'rgba(0, 0, 0, 0.7)'
-  });
-
-  try {
-    const { caseId } = route.params;
-    const response = await axios.post(`/api/cases/${caseId}/terrain/crop`, bounds);
-
-    if (response.data.success) {
-      cancelCropPreview(); // Remove preview after successful crop
-      await loadGeoTIFF(caseId); // Reload the terrain
-      ElMessage.success('地形裁剪成功');
-    } else {
-      ElMessage.error(response.data.message || '地形裁剪失败');
-    }
-  } catch (error) {
-    console.error('裁剪地形失败', error);
-    ElMessage.error('裁剪地形失败: ' + (error.response?.data?.message || error.message));
-  } finally {
-    loading.close();
-  }
-};
-
-const saveClippedTerrain = async (saveOptions) => {
-  let loading = ElLoading.service({
-    lock: true,
-    text: '正在保存地形...',
-    background: 'rgba(0, 0, 0, 0.7)'
-  });
-
-  try {
-    const { caseId } = route.params;
-    const response = await axios.post(
-      `/api/cases/${caseId}/terrain/save`,
-      saveOptions,
-      { responseType: 'blob' } // Expecting a binary blob as response
-    );
-
-    // Create download link
-    const url = window.URL.createObjectURL(new Blob([response.data]));
-    const link = document.createElement('a');
-    link.href = url;
-
-    // Determine file extension based on format
-    const extension = saveOptions.format === 'geotiff' ? '.tif' : '.asc';
-    link.setAttribute('download', `${saveOptions.filename}${extension}`);
-
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link); // Clean up link
-
-    ElMessage.success('地形数据已保存');
-  } catch (error) {
-    console.error('保存地形失败', error);
-    ElMessage.error('保存地形失败: ' + (error.response?.data?.message || error.message));
-  } finally {
-    loading.close();
-  }
-};
-
-// --- Terrain Drag Selection Functionality ---
-// 拖拽选择状态
-const dragStartPos = ref(null);
-const dragCurrentPos = ref(null);
-const dragSelectionMesh = ref(null);
-
-// 拖拽选择方法
-const startDragSelection = () => {
-  isDragSelectionActive.value = true;
-
-  // 添加视觉提示
-  const element = document.createElement('div');
-  element.className = 'drag-selection-cursor';
-  element.innerHTML = '<i class="el-icon-crop"></i>';
-  document.body.appendChild(element);
-
-  // 添加事件监听器
-  renderer.domElement.addEventListener('mousedown', onDragSelectionStart);
-
-  // 更改鼠标光标
-  renderer.domElement.style.cursor = 'crosshair';
-};
-
-const cancelDragSelection = () => {
-  isDragSelectionActive.value = false;
-
-  // 移除拖拽选择的视觉指示
-  if (dragSelectionMesh.value) {
-    scene.remove(dragSelectionMesh.value);
-    dragSelectionMesh.value = null;
-  }
-
-  // 移除事件监听器
-  renderer.domElement.removeEventListener('mousedown', onDragSelectionStart);
-  document.removeEventListener('mousemove', onDragSelectionMove);
-  document.removeEventListener('mouseup', onDragSelectionEnd);
-
-  // 恢复鼠标光标
-  renderer.domElement.style.cursor = '';
-
-  // 移除视觉提示
-  const element = document.querySelector('.drag-selection-cursor');
-  if (element) {
-    document.body.removeChild(element);
-  }
-};
-
-const onDragSelectionStart = (event) => {
-  // 记录起始点
-  const { clientX, clientY } = event;
-
-  // 使用射线检测获取起始点在地形上的坐标
-  const rect = renderer.domElement.getBoundingClientRect();
-  const x = ((clientX - rect.left) / rect.width) * 2 - 1;
-  const y = -((clientY - rect.top) / rect.height) * 2 + 1;
-
-  // 创建射线
-  const raycaster = new THREE.Raycaster();
-  raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
-
-  // 检测与地形的交点
-  const intersects = raycaster.intersectObject(terrainMesh);
-  if (intersects.length > 0) {
-    // 获取交点位置
-    const intersectionPoint = intersects[0].point;
-
-    // 将三维坐标转换为地理坐标
-    const geoCoords = xzToLatLon(intersectionPoint.x, intersectionPoint.z);
-    dragStartPos.value = geoCoords;
-
-    // 添加拖拽事件监听器
-    document.addEventListener('mousemove', onDragSelectionMove);
-    document.addEventListener('mouseup', onDragSelectionEnd);
-
-    // 创建选择框可视化
-    createDragSelectionBox(geoCoords, geoCoords);
-  }
-};
-
-const onDragSelectionMove = (event) => {
-  if (!dragStartPos.value) return;
-
-  const { clientX, clientY } = event;
-
-  // 使用射线检测获取当前点在地形上的坐标
-  const rect = renderer.domElement.getBoundingClientRect();
-  const x = ((clientX - rect.left) / rect.width) * 2 - 1;
-  const y = -((clientY - rect.top) / rect.height) * 2 + 1;
-
-  // 创建射线
-  const raycaster = new THREE.Raycaster();
-  raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
-
-  // 检测与地形的交点
-  const intersects = raycaster.intersectObject(terrainMesh);
-  if (intersects.length > 0) {
-    // 获取交点位置
-    const intersectionPoint = intersects[0].point;
-
-    // 将三维坐标转换为地理坐标
-    const geoCoords = xzToLatLon(intersectionPoint.x, intersectionPoint.z);
-    dragCurrentPos.value = geoCoords;
-
-    // 更新选择框
-    updateDragSelectionBox();
-  }
-};
-
-const onDragSelectionEnd = () => {
-  if (!dragStartPos.value || !dragCurrentPos.value) return;
-
-  // 移除事件监听器
-  document.removeEventListener('mousemove', onDragSelectionMove);
-  document.removeEventListener('mouseup', onDragSelectionEnd);
-
-  // 计算最终的选择区域（确保为正方形）
-  const bounds = calculateSquareBounds(dragStartPos.value, dragCurrentPos.value);
-
-    // 更新裁剪面板中的坐标
-    if (bounds && sidebars.value.terrainClipping) {
-    // 正确访问引用
-    if (terrainClipping.value) {
-      terrainClipping.value.updateCoordsFromDragSelection(bounds);
-    }
-  }
-
-  // 重置状态
-  dragStartPos.value = null;
-  dragCurrentPos.value = null;
-
-  // 取消拖拽选择模式
-  cancelDragSelection();
-};
-
-// 创建选择框可视化
-const createDragSelectionBox = (startCoords, endCoords) => {
-  // 完全移除现有选择框
-  if (dragSelectionMesh.value) {
-    scene.remove(dragSelectionMesh.value);
-    // 彻底释放几何体和材质资源
-    dragSelectionMesh.value.traverse((child) => {
-      if (child.geometry) child.geometry.dispose();
-      if (child.material) {
-        if (Array.isArray(child.material)) {
-          child.material.forEach(m => m.dispose());
-        } else {
-          child.material.dispose();
-        }
-      }
-    });
-    dragSelectionMesh.value = null;
-  }
-
-  // 计算正方形边界
-  const bounds = calculateSquareBounds(startCoords, endCoords);
-  if (!bounds) return;
-
-  // 创建一个新的选择框
-  const { minLat, minLon, maxLat, maxLon } = bounds;
-
-  // 将地理坐标转换为场景坐标
-  const minXZ = mapLatLonToXZ(minLat, minLon);
-  const maxXZ = mapLatLonToXZ(maxLat, maxLon);
-
-  // 创建选择框网格
-  const width = Math.abs(maxXZ.x - minXZ.x);
-  const depth = Math.abs(maxXZ.z - minXZ.z);
-
-  // 获取地形高度
-  const minHeight = getTerrainHeight(minXZ.x, minXZ.z) || 0;
-  const maxHeight = getTerrainHeight(maxXZ.x, maxXZ.z) || 0;
-  const height = Math.max(maxHeight - minHeight, 20) + 50; // 添加一些额外高度
-
-  // 创建选择框组
-  const selectionGroup = new THREE.Group();
-
-  // 创建半透明框
-  const boxGeometry = new THREE.BoxGeometry(width, height, depth);
-  const boxMaterial = new THREE.MeshBasicMaterial({
-    color: 0x4a90e2,
-    transparent: true,
-    opacity: 0.2,
-    depthWrite: false
-  });
-
-  const boxMesh = new THREE.Mesh(boxGeometry, boxMaterial);
-  boxMesh.position.set(
-    (minXZ.x + maxXZ.x) / 2,
-    minHeight + height / 2,
-    (minXZ.z + maxXZ.z) / 2
-  );
-  selectionGroup.add(boxMesh);
-
-  // 添加边框
-  const edgeGeometry = new THREE.EdgesGeometry(boxGeometry);
-  const edgeMaterial = new THREE.LineBasicMaterial({
-    color: 0x2c7be5,
-    linewidth: 2
-  });
-
-  const edgeMesh = new THREE.LineSegments(edgeGeometry, edgeMaterial);
-  edgeMesh.position.copy(boxMesh.position);
-  selectionGroup.add(edgeMesh);
-
-  // 添加角标记
-  const cornerMarkerGeometry = new THREE.SphereGeometry(2, 8, 8);
-  const cornerMarkerMaterial = new THREE.MeshBasicMaterial({ color: 0x2c7be5 });
-
-  const corners = [
-    { x: minXZ.x, z: minXZ.z },
-    { x: maxXZ.x, z: minXZ.z },
-    { x: maxXZ.x, z: maxXZ.z },
-    { x: minXZ.x, z: maxXZ.z }
-  ];
-
-  corners.forEach(({ x, z }) => {
-    const height = getTerrainHeight(x, z) || 0;
-    const marker = new THREE.Mesh(cornerMarkerGeometry, cornerMarkerMaterial);
-    marker.position.set(x, height + 2, z);
-    selectionGroup.add(marker);
-  });
-
-  // 存储选择框引用
-  dragSelectionMesh.value = selectionGroup;
-  scene.add(selectionGroup);
-};
-
-// 更新选择框
-const updateDragSelectionBox = () => {
-  if (!dragStartPos.value || !dragCurrentPos.value) return;
-
-  // 重新创建选择框
-  createDragSelectionBox(dragStartPos.value, dragCurrentPos.value);
-};
-
-// 计算确保为正方形的边界
-const calculateSquareBounds = (startCoords, endCoords) => {
-  if (!startCoords || !endCoords) return null;
-
-  // 初始边界
-  let minLat = Math.min(startCoords.lat, endCoords.lat);
-  let maxLat = Math.max(startCoords.lat, endCoords.lat);
-  let minLon = Math.min(startCoords.lon, endCoords.lon);
-  let maxLon = Math.max(startCoords.lon, endCoords.lon);
-
-  // 计算中心点
-  const centerLat = (minLat + maxLat) / 2;
-  const centerLon = (minLon + maxLon) / 2;
-
-  // 计算距离并调整为正方形
-  const cosLat = Math.cos(centerLat * Math.PI / 180);
-
-  // 计算以km为单位的尺寸
-  const latDistanceKm = (maxLat - minLat) * 111.32;
-  const lonDistanceKm = (maxLon - minLon) * 111.32 * cosLat;
-
-  // 使用较大的尺寸以保持正方形
-  const squareSizeKm = Math.max(latDistanceKm, lonDistanceKm);
-
-  // 计算对应的经纬度跨度
-  const latSpan = squareSizeKm / 111.32;
-  const lonSpan = squareSizeKm / (111.32 * cosLat);
-
-  // 应用新的经纬度范围，保持中心点
-  minLat = centerLat - (latSpan / 2);
-  maxLat = centerLat + (latSpan / 2);
-  minLon = centerLon - (lonSpan / 2);
-  maxLon = centerLon + (lonSpan / 2);
-
-  // 确保在DEM边界内
-  minLat = Math.max(minLat, parseFloat(formattedGeoBounds.value.minLat));
-  maxLat = Math.min(maxLat, parseFloat(formattedGeoBounds.value.maxLat));
-  minLon = Math.max(minLon, parseFloat(formattedGeoBounds.value.minLon));
-  maxLon = Math.min(maxLon, parseFloat(formattedGeoBounds.value.maxLon));
-
-  return { minLat, minLon, maxLat, maxLon };
-};
-
-// 改进的XZ坐标到经纬度的映射
-const xzToLatLon = (x, z) => {
-  if (
-    typeof caseStore.minLatitude !== "number" ||
-    typeof caseStore.maxLatitude !== "number" ||
-    typeof caseStore.minLongitude !== "number" ||
-    typeof caseStore.maxLongitude !== "number"
-  ) {
-    console.warn("GeoTIFF bounds are not set.");
-    return { lat: 0, lon: 0 };
-  }
-    // 类似的改进逻辑
-  const terrainSize = 1000;
-
-  const longitudeRatio = (x / terrainSize) + 0.5;
-  const latitudeRatio = (z / terrainSize) + 0.5;
-
-  const lon = caseStore.minLongitude + (caseStore.maxLongitude - caseStore.minLongitude) * longitudeRatio;
-  const lat = caseStore.minLatitude + (caseStore.maxLatitude - caseStore.minLatitude) * latitudeRatio;
-
-  return { lat, lon };
-};
-
-// --- End Terrain Drag Selection Functionality ---
+// --- Removed Terrain Drag Selection Functionality (startDragSelection, cancelDragSelection, onDragSelectionStart, onDragSelectionMove, onDragSelectionEnd, createDragSelectionBox, updateDragSelectionBox, calculateSquareBounds, xzToLatLon) ---
 
 // --- Debugging Tools ---
 // Add this function to your global scope for debugging
@@ -2472,59 +1948,7 @@ watch(
   transform: scale(1.2);
 }
 
-/* Crop Preview Styles */
-.crop-preview-overlay {
-  position: absolute;
-  top: 80px;
-  left: 24px;
-  background: rgba(0, 200, 0, 0.8);
-  color: white;
-  padding: 10px 16px;
-  border-radius: 8px;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-}
+/* Removed Crop Preview Styles */
+/* Removed Drag Selection Styles */
 
-.crop-preview-info {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-/* 添加拖拽选择模式的提示 */
-.drag-selection-active-indicator {
-  position: fixed;
-  top: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  background-color: rgba(24, 144, 255, 0.9);
-  color: white;
-  padding: 8px 16px;
-  border-radius: 4px;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-}
-
-.indicator-content {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.drag-selection-cursor {
-  position: fixed;
-  width: 32px;
-  height: 32px;
-  pointer-events: none;
-  z-index: 9999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #409EFF;
-  font-size: 24px;
-}
 </style>

@@ -1,2 +1,18 @@
-base/
-uploads/
+backend/uploads/
+backend/batch_1
+backend/batch_2
+backend/node_modules
+
+# Compiled files
+*.o
+*.so
+
+# Python cache
+__pycache__/
+
+# Binary files (if they can be regenerated)
+*.bin
+*.tif
+
+# Windows Zone Identifier files
+*:Zone.Identifier

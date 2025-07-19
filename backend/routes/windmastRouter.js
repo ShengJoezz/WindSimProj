@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-03-30 19:43:59
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-03-30 21:52:12
+ * @LastEditTime: 2025-07-03 17:31:58
  * @FilePath: backend/routes/windmastRouter.js
  * @Description: Router for Wind Mast API endpoints, handling single file uploads and analysis.
  *
@@ -17,18 +17,21 @@ const fsStandard = require('fs');  // 引入标准 fs 模块 for createWriteStre
 const { spawn } = require('child_process');
 const { v4: uuidv4 } = require('uuid');
 const multer = require('multer');
+const cors = require('cors');
 const archiver = require('archiver');
 
 const { ensureDirectoryExists } = require('../utils/fileUtils');
 const uploadMiddleware = require('../middleware/fileUpload');
 
 // 统一的基础目录定义
-const BASE_UPLOADS_DIR = path.join(__dirname, '..', 'uploads', 'windmast');
-const INPUT_DIR = path.join(BASE_UPLOADS_DIR, 'input');
-const TEMP_DIR = path.join(__dirname, '..', 'uploads', 'temp');
-const OUTPUT_DIR = path.join(BASE_UPLOADS_DIR, 'output');
+const BASE_WINDMAST_DATA_DIR = path.join(__dirname, '..', 'windmast_data'); 
+const INPUT_DIR = path.join(BASE_WINDMAST_DATA_DIR, 'input');
+const OUTPUT_DIR = path.join(BASE_WINDMAST_DATA_DIR, 'output');
 const ANALYSES_INDEX_FILE = path.join(OUTPUT_DIR, 'analyses_index.json');
 
+// 【修改】也将临时文件目录指向新位置，保持模块内聚
+const TEMP_DIR = path.join(BASE_WINDMAST_DATA_DIR, 'temp');
+router.use(cors());
 // === 核心 API 路由 ===
 
 /**
@@ -146,20 +149,42 @@ router.post('/analyze', async (req, res, next) => {
         pythonProcess.stderr.on('data', (data) => {
             const chunk = data.toString(); scriptError += chunk; console.error(`[PyErr ${analysisId}]: ${chunk.trim()}`);
         });
-        pythonProcess.on('close', (code) => {
-            console.log(`[API /analyze] Python 脚本 for ${analysisId} 退出，代码 ${code}`);
-            fs.unlink(fileListPath).catch(err => console.error(`[API /analyze] 删除临时列表文件 ${fileListPath} 失败: ${err}`));
-            const io = req.app.get('socketio');
-            const eventData = { analysisId: analysisId, success: code === 0 };
-            if (code === 0) { eventData.message = '分析成功完成'; }
-            else {
-                eventData.message = `分析失败(code:${code})`;
-                eventData.error = scriptError.trim() || 'Python 脚本执行出错';
-                const errorLogPath = path.join(analysisOutputDir, 'error.log');
-                fs.access(errorLogPath).catch(() => fs.writeFile(errorLogPath, `Failed code ${code}.\n\nSTDERR:\n${scriptError}\n\nSTDOUT:\n${scriptOutput}`).catch(e => console.error(`写入回退日志 ${analysisId} 失败: ${e}`)));
-            }
-            if (io) { io.emit('windmast_analysis_complete', eventData); }
-        });
+        pythonProcess.on('close', async (code) => {
+    console.log(`[API /analyze] Python 脚本 for ${analysisId} 退出，代码 ${code}`);
+    
+    // 清理临时文件
+    fs.unlink(fileListPath).catch(err => console.error(`删除临时列表文件失败: ${err}`));
+    
+    // **新增：分析完成后立即更新索引**
+    if (code === 0) {
+        try {
+            console.log(`[API /analyze] 分析 ${analysisId} 成功完成，更新索引...`);
+            await scanAnalysesAndUpdateIndex(); // 重新扫描并更新索引
+            console.log(`[API /analyze] 索引更新完成`);
+        } catch (indexError) {
+            console.error(`[API /analyze] 更新索引失败: ${indexError}`);
+        }
+    }
+    
+    // 发送WebSocket事件
+    const io = req.app.get('socketio');
+    const eventData = { 
+        analysisId: analysisId, 
+        success: code === 0,
+        shouldRefreshList: true // **新增：告诉前端需要刷新列表**
+    };
+    
+    if (code === 0) { 
+        eventData.message = '分析成功完成'; 
+    } else {
+        eventData.message = `分析失败(code:${code})`;
+        eventData.error = scriptError.trim() || 'Python 脚本执行出错';
+    }
+    
+    if (io) { 
+        io.emit('windmast_analysis_complete', eventData); 
+    }
+});
         pythonProcess.on('error', (err) => {
             console.error(`[API /analyze] 启动 Python 进程 ${analysisId} 失败:`, err);
             const io = req.app.get('socketio');
@@ -579,45 +604,52 @@ router.get('/images/:analysisId', async (req, res, next) => {
     };
 
     imageFiles.forEach(filename => {
-      const parts = filename.split('_');
+      // 移除文件扩展名，方便解析
+      const baseFilename = filename.substring(0, filename.lastIndexOf('.'));
+      const parts = baseFilename.split('_');
 
-      if (parts.length >= 3) {
-        const farmId = parts[0];
+      if (parts.length < 2) return; // 文件名不符合 "ID_..._type" 格式，跳过
 
-        let chartType = '';
-        let height = '';
+      // 提取 farmId 和时间戳部分，剩下的部分用于判断类型和高度
+      const farmId = parts[0];
+      const timestamp = parts[1];
+      const typeParts = parts.slice(2); // ['wind', 'rose', '10m'] or ['stability', 'distribution']
+      
+      let chartType = '';
+      let height = '';
+      
+      // 先检查最后一个部分是否是高度
+      const lastPart = typeParts[typeParts.length - 1];
+      if (lastPart.endsWith('m') && !isNaN(parseInt(lastPart))) {
+        height = lastPart;
+        // 高度之前的部分是类型
+        chartType = typeParts.slice(0, -1).join('_'); // e.g., 'wind_rose'
+      } else {
+        // 没有高度，整个部分都是类型
+        chartType = typeParts.join('_'); // e.g., 'stability_distribution'
+      }
+      
+      if (!chartType) return; // 如果无法解析出类型，跳过
 
-        const lastPart = parts[parts.length - 1];
-        const heightMatch = lastPart.match(/(\d+)m\.(png|jpg|jpeg|gif|svg)$/i);
+      // 使用 getChartTypeText 转换为用户友好的名称
+      const formattedChartType = getChartTypeText(chartType);
 
-        if (heightMatch) {
-          height = heightMatch[1] + 'm';
-          chartType = parts[parts.length - 2];
-        } else {
-          chartType = parts[parts.length - 2];
-          if (lastPart.startsWith('distribution')) {
-            chartType = 'stability_distribution';
-          }
+      // --- 后续的分类逻辑保持不变 ---
+      if (!categorizedImages.byType[formattedChartType]) {
+        categorizedImages.byType[formattedChartType] = [];
+      }
+      categorizedImages.byType[formattedChartType].push(filename);
+
+      if (!categorizedImages.byFarmId[farmId]) {
+        categorizedImages.byFarmId[farmId] = [];
+      }
+      categorizedImages.byFarmId[farmId].push(filename);
+
+      if (height) {
+        if (!categorizedImages.byHeight[height]) {
+          categorizedImages.byHeight[height] = [];
         }
-
-        const formattedChartType = getChartTypeText(chartType);
-
-        if (!categorizedImages.byType[formattedChartType]) {
-          categorizedImages.byType[formattedChartType] = [];
-        }
-        categorizedImages.byType[formattedChartType].push(filename);
-
-        if (!categorizedImages.byFarmId[farmId]) {
-          categorizedImages.byFarmId[farmId] = [];
-        }
-        categorizedImages.byFarmId[farmId].push(filename);
-
-        if (height) {
-          if (!categorizedImages.byHeight[height]) {
-            categorizedImages.byHeight[height] = [];
-          }
-          categorizedImages.byHeight[height].push(filename);
-        }
+        categorizedImages.byHeight[height].push(filename);
       }
     });
 

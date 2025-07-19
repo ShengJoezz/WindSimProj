@@ -1,3 +1,14 @@
+<!--
+ * @Author: joe 847304926@qq.com
+ * @Date: 2025-03-16 19:01:39
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-07-03 18:31:21
+ * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\TurbineTooltip.vue
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+-->
+
 <!-- TurbineTooltip.vue -->
 <template>
   <div
@@ -16,11 +27,11 @@
         <span class="value">{{ turbine.latitude !== undefined && turbine.latitude !== null ? turbine.latitude.toFixed(6) + '°' : 'N/A' }}</span>
       </div>
       <div class="tooltip-item">
-        <span class="label">桅杆高度:</span>
+        <span class="label">轮毂高度:</span>
         <span class="value">{{ turbine.hubHeight ?? 'N/A' }}m</span>
       </div>
       <div class="tooltip-item">
-        <span class="label">转子直径:</span>
+        <span class="label">叶轮直径:</span>
         <span class="value">{{ turbine.rotorDiameter ?? 'N/A' }}m</span>
       </div>
     </div>

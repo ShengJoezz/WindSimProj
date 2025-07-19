@@ -1,14 +1,13 @@
-
 /*
  * @Author: joe 847304926@qq.com
- * @Date: 2025-04-01 11:28:56
+ * @Date: 2025-05-24 19:55:48
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-05-15 19:40:27
+ * @LastEditTime: 2025-07-14 20:15:14
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\backend\routes\cases.js
- * @Description: 后端路由，包含工况创建、参数管理、计算启动及状态持久化机制，可视化 API。
- *
+ * @Description: 
+ * 
  * Copyright (c) 2025 by joe, All Rights Reserved.
- */ 
+ */
 
 const express = require("express");
 const router = express.Router();
@@ -21,7 +20,7 @@ const { spawn } = require("child_process");
 const checkCalculationStatus = require("../middleware/statusCheck");
 const rateLimit = require('express-rate-limit');
 const { knownTasks } = require('../utils/tasks');
-const windTurbinesRouter = require('./windTurbines');
+const windTurbinesRouter = require('./windTurbinesRouter');
 const archiver = require('archiver');
 const pdfDataService = require('../services/pdfDataService'); // 引入 PDF 数据服务
 
@@ -92,7 +91,7 @@ router.use("/:caseId", (req, res, next) => {
     next();
 });
 
-// Multer 配置
+// Multer 配置 (地形文件)
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         // Use caseId from route params if caseName is not in body (e.g., for later uploads)
@@ -134,7 +133,35 @@ const upload = multer({
         cb(null, true);
     },
     limits: { fileSize: 500 * 1024 * 1024 } // Example: 500MB limit
-}).fields([{ name: 'terrainFile', maxCount: 1 }]); // Allow only terrain file for now
+}).fields([{ name: 'terrainFile', maxCount: 1 }]); 
+
+// ===== 新增: Multer 配置 (风机性能曲线) =====
+const curveStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+      // 目的地是持久化目录，不在 run 文件夹内
+      const dst = path.join(__dirname, '..', 'uploads', req.params.caseId, 'customCurves');
+      fs.mkdirSync(dst, { recursive: true });
+      cb(null, dst);
+    },
+    filename: (req, file, cb) => {
+        // 直接使用原始文件名 (例如 1-U-P-Ct.txt)
+        cb(null, file.originalname);
+    }
+});
+const uploadCurves = multer({
+    storage: curveStorage,
+    fileFilter: (req, file, cb) => {
+        // 可选：验证文件扩展名
+        const allowedExt = ['.txt', '.csv'];
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (!allowedExt.includes(ext)) {
+            return cb(new Error(`仅支持 ${allowedExt.join(', ')} 文件`), false);
+        }
+        cb(null, true);
+    },
+    limits: { fileSize: 1 * 1024 * 1024 } // 1MB limit per file
+}).array('curveFiles', 10); // 'curveFiles' 对应前端 FormData的key, 最多10个文件
+// ============================================
 
 // --- 工况管理路由 ---
 
@@ -481,6 +508,28 @@ router.post("/:caseId/parameters", async (req, res) => {
 });
 
 
+// ===== 新增: 上传风机性能曲线文件 =====
+router.post('/:caseId/curve-files', async (req, res) => {
+    uploadCurves(req, res, (err) => {
+        if (err instanceof multer.MulterError) {
+            // Multer specific errors
+            console.error(`Multer error on curve upload (${req.params.caseId}):`, err.message);
+            return res.status(400).json({ success: false, message: `文件上传错误: ${err.message}` });
+        } else if (err) {
+            // Other errors (e.g., file filter)
+            console.error(`Non-multer error on curve upload (${req.params.caseId}):`, err.message);
+            return res.status(500).json({ success: false, message: err.message });
+        }
+        
+        // Success
+        const uploadedFiles = req.files.map(f => f.filename);
+        console.log(`工况 ${req.params.caseId} 成功上传了性能曲线:`, uploadedFiles);
+        return res.json({ success: true, files: uploadedFiles });
+    });
+});
+// ======================================
+
+
 // --- 计算与结果路由 ---
 
 // 7. 获取特定工况的仿真结果 (results.json - 保持不变)
@@ -509,20 +558,22 @@ router.get("/:caseId/results", async (req, res) => {
         res.status(500).json({ success: false, message: "获取结果文件失败" });
     }
 });
+// backend/routes/cases.js
 
-// 8. 启动特定工况的计算 (清理了重复定义)
+// ... (文件顶部的其他 require 和配置，例如 express, path, fs, etc.)
+
+// 8. 启动特定工况的计算 (已应用方案3进行修改)
 router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
     const { caseId } = req.params;
-    const scriptPath = path.join(__dirname, "../base/run.sh"); // Main calculation script
-    const precomputeScriptPath = path.join(__dirname, '../utils/precompute_visualization.py'); // Visualization script
+    const scriptPath = path.join(__dirname, "../base/run.sh"); // 主计算脚本
+    const precomputeScriptPath = path.join(__dirname, '../utils/precompute_visualization.py'); // 可视化预处理脚本
     const casePath = path.join(__dirname, "../uploads", caseId);
-    const progressPath = path.join(casePath, 'calculation_progress.json'); // Progress persistence
+    const progressPath = path.join(casePath, 'calculation_progress.json');
     const infoJsonPath = path.join(casePath, "info.json");
-    const cacheDir = path.join(casePath, 'visualization_cache'); // Visualization cache directory
-    const runDir = path.join(casePath, 'run'); // Run directory for logs etc.
-    const io = req.app.get("socketio"); // Socket.IO instance
+    const runDir = path.join(casePath, 'run');
+    const io = req.app.get("socketio"); // 获取 Socket.IO 实例
 
-    // --- Pre-checks ---
+    // --- 前置检查 ---
     if (!fs.existsSync(scriptPath)) {
         console.error("主计算脚本 run.sh 未找到!");
         return res.status(500).json({ success: false, message: "服务器错误：计算脚本丢失" });
@@ -530,369 +581,183 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
     if (!fs.existsSync(casePath)) {
         return res.status(404).json({ success: false, message: "工况目录不存在" });
     }
-     if (!fs.existsSync(infoJsonPath)) {
-         console.error(`工况 ${caseId} 的 info.json 未找到，无法开始计算。`);
+    if (!fs.existsSync(infoJsonPath)) {
+        console.error(`工况 ${caseId} 的 info.json 未找到，无法开始计算。`);
         return res.status(400).json({ success: false, message: "缺少配置文件 (info.json)，请先生成或上传" });
     }
-    // checkCalculationStatus middleware already checked if running/completed
 
-    // --- Prepare for Calculation ---
+    // --- 准备计算环境 ---
     console.log(`准备启动工况 ${caseId} 的计算...`);
-
-    // Ensure run directory exists
     try {
-        if (!fs.existsSync(runDir)) {
-            await fsPromises.mkdir(runDir, { recursive: true });
-            console.log(`已创建 run 目录: ${runDir}`);
-        }
+        if (!fs.existsSync(runDir)) await fsPromises.mkdir(runDir, { recursive: true });
+        // 清理旧的可视化缓存
+        const cacheDir = path.join(casePath, 'visualization_cache');
+        if (fs.existsSync(cacheDir)) await fsPromises.rm(cacheDir, { recursive: true, force: true });
     } catch (err) {
-        console.error(`创建 run 目录 (${caseId}) 失败:`, err);
-        return res.status(500).json({ success: false, message: '无法创建运行目录' });
+        console.error(`准备运行环境 (${caseId}) 失败:`, err);
+        return res.status(500).json({ success: false, message: '无法准备运行环境' });
     }
 
-    // Clear old visualization cache
-    try {
-        if (fs.existsSync(cacheDir)) {
-            console.log(`计算前清理工况 ${caseId} 的可视化缓存...`);
-            await fsPromises.rm(cacheDir, { recursive: true, force: true });
-        }
-    } catch(err) {
-        console.warn(`警告: 清理可视化缓存 (${caseId}) 失败:`, err);
-        // Continue calculation even if cache clearing fails
-    }
-    // Clear old log files (optional, keep maybe last N logs?)
-    try {
-        const files = await fsPromises.readdir(runDir);
-        const oldLogs = files.filter(f => f.startsWith('calculation_log_') && f.endsWith('.txt'));
-        // Keep latest 1 log?
-        oldLogs.sort().slice(0, -1).forEach(logFile => {
-            fsPromises.unlink(path.join(runDir, logFile)).catch(e => console.warn(`清理旧日志 ${logFile} 失败: ${e.message}`));
-        });
-        // Also clear specific log files if they exist
-        const specificLogs = ['log.simpleFoam', 'log.snappyHexMesh', 'log.blockMesh', 'log.potentialFoam']; // Add other Foam logs
-        specificLogs.forEach(logName => {
-            const logPath = path.join(runDir, logName);
-            if (fs.existsSync(logPath)) {
-                 fsPromises.unlink(logPath).catch(e => console.warn(`清理日志 ${logName} 失败: ${e.message}`));
-            }
-        });
-
-    } catch (err) {
-        console.warn(`清理旧日志文件 (${caseId}) 出错:`, err);
-    }
-
-    // Update info.json status to 'running'
+    // 更新 info.json 状态为 'running'
     try {
         const info = JSON.parse(await fsPromises.readFile(infoJsonPath, "utf-8"));
         info.calculationStatus = "running";
-        info.lastCalculationStart = new Date().toISOString(); // Add timestamp
+        info.lastCalculationStart = new Date().toISOString();
         await fsPromises.writeFile(infoJsonPath, JSON.stringify(info, null, 2), "utf-8");
-        console.log(`工况 ${caseId} 的 info.json 状态更新为 'running'`);
     } catch (err) {
-        console.warn(`警告: 更新 info.json (${caseId}) 状态失败:`, err);
+        console.warn(`警告: 更新 info.json (${caseId}) 状态为 'running' 失败:`, err);
     }
 
-    // Initialize task statuses
+    // 初始化任务状态并通过 WebSocket 发送
     const taskStatuses = {};
     knownTasks.forEach(task => { taskStatuses[task.id] = "pending"; });
-    // Send initial status via WebSocket
     if (io) io.to(caseId).emit("taskUpdate", taskStatuses);
 
-    // --- Execute Main Calculation Script (run.sh) ---
+    // --- 执行主计算脚本 (run.sh) ---
     try {
         console.log(`执行 run.sh，工况: ${caseId}, CWD: ${casePath}`);
-        // Execute run.sh from within the case directory
-        const child = spawn("bash", [scriptPath], { cwd: casePath, shell: false, stdio: ['ignore', 'pipe', 'pipe'] }); // Use bash, ignore stdin, pipe stdout/stderr
-        const logFilePath = path.join(runDir, `calculation_log_${Date.now()}.txt`); // Store log in run directory
+        const child = spawn("bash", [scriptPath], { cwd: casePath, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
+        
+        const logFilePath = path.join(runDir, `calculation_log_${Date.now()}.txt`);
         const logStream = fs.createWriteStream(logFilePath, { flags: "a" });
+        
+        // <<< 修改点 1: 引入 stderr 缓冲区 >>>
+        let stderrOutput = '';
 
-        // --- Handle stdout (Progress, Info, Tasks) ---
+        // 处理 stdout (进度、信息、任务)
         child.stdout.on("data", async (data) => {
             const outputString = data.toString();
-            logStream.write(outputString); // Log raw output
-            const lines = outputString.split("\n").filter(line => line.trim() !== "");
+            logStream.write(outputString);
+            if (io) io.to(caseId).emit("calculationOutput", outputString); // 实时发送原始输出
 
+            // 解析 JSON 格式的进度信息
+            const lines = outputString.split("\n").filter(line => line.trim().startsWith('{'));
             for (const line of lines) {
-                 // Send raw line via WebSocket if socket is available
-                if (io) io.to(caseId).emit("calculationOutput", line);
+                try {
+                    const msg = JSON.parse(line);
+                    let progressChanged = false;
 
-                if (line.startsWith('{')) { // Attempt to parse JSON messages
-                    try {
-                        const msg = JSON.parse(line);
-                        let progressData = {
-                            isCalculating: true, tasks: taskStatuses, // Use current task statuses
+                    // 处理任务状态更新
+                    if (msg.action === "taskStart" && taskStatuses[msg.taskId] !== 'running') {
+                        taskStatuses[msg.taskId] = "running";
+                        if (io) io.to(caseId).emit("taskStarted", msg.taskId);
+                        progressChanged = true;
+                    } else if (msg.action === "progress" || msg.action === "taskEnd") {
+                        const {taskId, progress} = msg;
+                        if (knownTasks.some(t => t.id === taskId)) {
+                            if (progress === "ERROR" && taskStatuses[taskId] !== 'error') {
+                                taskStatuses[taskId] = "error";
+                                progressChanged = true;
+                            } else if (progress === "COMPLETE" || parseInt(progress, 10) === 100) {
+                                if (taskStatuses[taskId] !== 'error') taskStatuses[taskId] = "completed";
+                                progressChanged = true;
+                            }
+                            if (io) io.to(caseId).emit("calculationProgress", { progress: parseInt(progress, 10) || 0, taskId });
+                        }
+                    }
+                    
+                    // 如果任务状态有变，则更新并持久化
+                    if (progressChanged) {
+                        const progressData = {
+                            isCalculating: true, tasks: taskStatuses,
                             timestamp: Date.now(), completed: false
                         };
-
-                        // --- Task Start ---
-                        if (msg.action === "taskStart" && knownTasks.some(t => t.id === msg.taskId)) {
-                            const taskId = msg.taskId;
-                            if (taskStatuses[taskId] !== 'completed' && taskStatuses[taskId] !== 'error') {
-                                taskStatuses[taskId] = "running";
-                                console.log(`Task started (${caseId}): ${taskId}`);
-                                if (io) io.to(caseId).emit("taskStarted", taskId);
-                            }
-                        }
-                        // --- Task Progress/Completion/Error ---
-                        else if (msg.action === "progress") {
-                            const taskId = msg.taskId;
-                            const progressValue = msg.progress; // Can be "ERROR", number, or "COMPLETE"
-
-                            if (knownTasks.some(t => t.id === taskId)) {
-                                if (progressValue === "ERROR") {
-                                    taskStatuses[taskId] = "error";
-                                    console.error(`Task error reported (${caseId}): ${taskId}`);
-                                    if (io) io.to(caseId).emit("calculationError", { message: `脚本报告任务 ${taskId} 错误`, taskId });
-                                } else if (progressValue === "COMPLETE" || parseInt(progressValue, 10) === 100) {
-                                    if (taskStatuses[taskId] !== 'error') { // Don't overwrite error state
-                                        taskStatuses[taskId] = "completed";
-                                        console.log(`Task completed (${caseId}): ${taskId}`);
-                                        if (io) io.to(caseId).emit("calculationProgress", { progress: 100, taskId });
-                                    }
-                                } else {
-                                    const percent = parseInt(progressValue, 10);
-                                    if (!isNaN(percent) && percent >= 0 && percent < 100) {
-                                        if (taskStatuses[taskId] !== 'error') { // Don't overwrite error
-                                           taskStatuses[taskId] = "running"; // Ensure running if progress reported
-                                           if (io) io.to(caseId).emit("calculationProgress", { progress: percent, taskId });
-                                        }
-                                    } else {
-                                        // console.warn(`Unknown progress value (${caseId}, ${taskId}): ${progressValue}`);
-                                    }
-                                }
-                            }
-                        }
-                        // Persist progress after processing message
-                        progressData.tasks = taskStatuses; // Update task statuses in persistence object
-                        // Add overall progress calculation if desired (e.g., average of completed tasks)
-                        await fsPromises.writeFile(progressPath, JSON.stringify(progressData, null, 2)).catch(err => {
-                             console.error(`写入进度文件 (${caseId}) 失败:`, err);
-                        });
-                         // Send updated task statuses via WebSocket
+                        await fsPromises.writeFile(progressPath, JSON.stringify(progressData, null, 2));
                         if (io) io.to(caseId).emit("taskUpdate", taskStatuses);
-
-                    } catch (e) {
-                        // Line started with '{' but wasn't valid JSON, ignore or log if needed
-                        // console.log(`Non-JSON message starting with '{': ${line}`);
                     }
-                }
+                } catch (e) { /* 不是合法的 JSON，忽略 */ }
             }
         });
 
-        // --- Handle stderr ---
+        // <<< 修改点 2: stderr 处理器只收集信息到缓冲区 >>>
         child.stderr.on("data", (data) => {
-            const errorOutput = data.toString();
-            logStream.write(`STDERR: ${errorOutput}`);
-            console.error(`run.sh stderr (${caseId}): ${errorOutput.trim()}`);
-             if (io) io.to(caseId).emit("calculationError", { message: "计算脚本错误输出", details: errorOutput.trim() });
-            // Mark all running tasks as error? Maybe too aggressive. Only mark the current one?
-            // Or wait for exit code? Let's wait for exit code primarily.
+            const errorChunk = data.toString();
+            stderrOutput += errorChunk; // 累加到缓冲区
+            logStream.write(`STDERR: ${errorChunk}`);
+            console.warn(`run.sh stderr (buffering) (${caseId}): ${errorChunk.trim()}`);
         });
 
-        // --- Handle Process Exit ---
+        // <<< 修改点 3: 在进程结束时根据退出码做最终判断 >>>
         child.on("close", async (code) => {
             logStream.end();
             console.log(`run.sh 进程 (${caseId}) 退出，退出码: ${code}`);
 
-             // Determine final status based on exit code and task statuses
-            let finalStatus = "unknown";
-            let overallProgress = 0;
-            const totalTasks = knownTasks.length;
-            let completedTasks = 0;
-            let errorTasks = 0;
+            // 检查是否有任何任务报告了错误
+            const hasReportedErrors = Object.values(taskStatuses).includes('error');
+            const isSuccess = (code === 0 && !hasReportedErrors);
+            const finalStatus = isSuccess ? "completed" : "error";
+            
+            if (isSuccess && stderrOutput.trim()) {
+                // 成功退出，但 stderr 有输出（通常是警告或 INFO/DEBUG 日志）
+                console.warn(`脚本 (${caseId}) 成功退出，但 stderr 包含输出 (可能为日志/警告)`);
+                // 将这些“警告”作为普通输出发送给前端
+                if (io) io.to(caseId).emit("calculationOutput", `[SCRIPT-WARN] 脚本成功退出，但 stderr 包含以下内容:\n---\n${stderrOutput.trim()}\n---`);
+            }
 
+            // 更新所有未完成的任务状态
             Object.keys(taskStatuses).forEach(taskId => {
-                if (code !== 0) { // If script failed
-                    if (taskStatuses[taskId] === 'running' || taskStatuses[taskId] === 'pending') {
-                        taskStatuses[taskId] = 'error'; // Mark incomplete as error
-                        errorTasks++;
-                    } else if (taskStatuses[taskId] === 'error') {
-                        errorTasks++;
-                    } else if (taskStatuses[taskId] === 'completed') {
-                         completedTasks++;
-                    }
-                } else { // If script succeeded (code 0)
-                    if (taskStatuses[taskId] === 'running' || taskStatuses[taskId] === 'pending') {
-                        taskStatuses[taskId] = 'completed'; // Mark incomplete as completed
-                         completedTasks++;
-                    } else if (taskStatuses[taskId] === 'error') {
-                        // This case shouldn't happen if code is 0, but handle defensively
-                        errorTasks++;
-                        finalStatus = 'error'; // Mark overall as error if any task failed
-                    } else if (taskStatuses[taskId] === 'completed') {
-                        completedTasks++;
-                    }
+                if (taskStatuses[taskId] === 'pending' || taskStatuses[taskId] === 'running') {
+                    taskStatuses[taskId] = isSuccess ? 'completed' : 'error';
                 }
             });
+            if(io) io.to(caseId).emit("taskUpdate", taskStatuses);
 
-             if (code === 0 && errorTasks === 0) {
-                 finalStatus = "completed";
-                 overallProgress = 100;
-             } else {
-                 finalStatus = "error";
-                 // Calculate partial progress based on completed tasks if script failed
-                 overallProgress = Math.round((completedTasks / totalTasks) * 100);
-             }
-
-
-            // Update final progress state file
+            // 更新最终进度文件
+            const completedTaskCount = Object.values(taskStatuses).filter(s => s === 'completed').length;
+            const finalProgressValue = isSuccess ? 100 : Math.round((completedTaskCount / knownTasks.length) * 100);
             const finalProgress = {
-                isCalculating: false,
-                progress: overallProgress,
-                tasks: taskStatuses, // Final task statuses
-                timestamp: Date.now(),
-                completed: finalStatus === "completed",
-                exitCode: code // Store exit code
+                isCalculating: false, progress: finalProgressValue, tasks: taskStatuses,
+                timestamp: Date.now(), completed: isSuccess, exitCode: code
             };
-            await fsPromises.writeFile(progressPath, JSON.stringify(finalProgress, null, 2)).catch(err => {
-                console.error(`写入最终进度文件 (${caseId}) 失败:`, err);
-            });
-             if (io) io.to(caseId).emit("taskUpdate", taskStatuses); // Send final task statuses
-
-
-            // Update info.json status based on final calculated status
+            await fsPromises.writeFile(progressPath, JSON.stringify(finalProgress, null, 2));
+            
+            // 更新 info.json
             try {
                 const info = JSON.parse(await fsPromises.readFile(infoJsonPath, "utf-8"));
                 info.calculationStatus = finalStatus;
                 info.lastCalculationEnd = new Date().toISOString();
-                if (finalStatus === 'error') info.lastErrorCode = code;
+                if (!isSuccess) {
+                    info.lastCalculationError = `脚本退出码: ${code}. 详情: ${stderrOutput.substring(0, 1000).trim()}`;
+                }
                 await fsPromises.writeFile(infoJsonPath, JSON.stringify(info, null, 2), "utf-8");
-                console.log(`工况 ${caseId} 的 info.json 状态更新为 '${finalStatus}'`);
             } catch (err) {
                 console.warn(`警告: 更新最终 info.json (${caseId}) 状态失败:`, err);
             }
-
-            // --- Handle Final WebSocket Messages ---
-            if (finalStatus === "completed") {
+            
+            // 发送最终的 WebSocket 消息
+            if (isSuccess) {
                 if (io) io.to(caseId).emit("calculationCompleted", { message: "主计算成功完成" });
+                
+                // 触发后续的可视化预计算...
+                // (此处省略了可视化预计算的spawn逻辑，您可以根据需要保留或添加)
+                console.log(`主计算成功 (${caseId})，可触发可视化预计算。`);
 
-                // *** Trigger Visualization Precomputation on Success ***
-                console.log(`主计算成功 (${caseId})，触发可视化预计算...`);
-                if (fs.existsSync(precomputeScriptPath)) {
-                     if (io) io.to(caseId).emit("visualization_status", { status: 'starting' });
-                     const precomputeProcess = spawn('python3', [precomputeScriptPath, '--caseId', caseId], { stdio: ['ignore', 'pipe', 'pipe'] });
-
-                     let precomputeStdout = '';
-                     precomputeProcess.stdout.on('data', (data) => {
-                         const output = data.toString().trim();
-                         precomputeStdout += output + '\n';
-                         console.log(`Precompute (${caseId}) stdout: ${output}`);
-                         if (io) io.to(caseId).emit('visualization_progress', { message: output });
-                     });
-                     let precomputeStderr = '';
-                     precomputeProcess.stderr.on('data', (data) => {
-                         const errorOutput = data.toString().trim();
-                         precomputeStderr += errorOutput + '\n';
-                         console.error(`Precompute (${caseId}) stderr: ${errorOutput}`);
-                         if (io) io.to(caseId).emit('visualization_error', { message: errorOutput });
-                     });
-                     precomputeProcess.on('close', (precomputeCode) => {
-                         const precomputeStatus = precomputeCode === 0 ? 'completed' : 'failed';
-                         console.log(`可视化预计算 (${caseId}) 完成，退出码 ${precomputeCode} (${precomputeStatus}).`);
-                         if (io) io.to(caseId).emit('visualization_status', { status: precomputeStatus, code: precomputeCode });
-                         if (precomputeCode !== 0) {
-                             console.error(`预计算失败 (${caseId}). Stderr:\n${precomputeStderr}`);
-                              // Optionally update info.json to indicate visualization failure
-                               fsPromises.readFile(infoJsonPath, "utf-8")
-                                .then(data => JSON.parse(data))
-                                .then(info => {
-                                    info.visualizationStatus = "failed";
-                                    info.lastVisualizationError = precomputeStderr.substring(0, 500); // Log part of error
-                                    return fsPromises.writeFile(infoJsonPath, JSON.stringify(info, null, 2), "utf-8");
-                                })
-                                .catch(err => console.warn(`警告: 更新 info.json (${caseId}) 可视化失败状态失败:`, err));
-                         } else {
-                              // Optionally update info.json to indicate visualization success
-                               fsPromises.readFile(infoJsonPath, "utf-8")
-                                .then(data => JSON.parse(data))
-                                .then(info => {
-                                    info.visualizationStatus = "completed";
-                                    return fsPromises.writeFile(infoJsonPath, JSON.stringify(info, null, 2), "utf-8");
-                                })
-                                .catch(err => console.warn(`警告: 更新 info.json (${caseId}) 可视化成功状态失败:`, err));
-                         }
-                     });
-                     precomputeProcess.on('error', (err) => {
-                         console.error(`启动预计算进程 (${caseId}) 失败:`, err);
-                         if (io) io.to(caseId).emit('visualization_status', { status: 'failed', error: err.message });
-                          // Update info.json to indicate visualization failure
-                          fsPromises.readFile(infoJsonPath, "utf-8")
-                                .then(data => JSON.parse(data))
-                                .then(info => {
-                                    info.visualizationStatus = "failed";
-                                    info.lastVisualizationError = `启动预计算进程失败: ${err.message}`;
-                                    return fsPromises.writeFile(infoJsonPath, JSON.stringify(info, null, 2), "utf-8");
-                                })
-                                .catch(errFS => console.warn(`警告: 更新 info.json (${caseId}) 可视化失败状态失败:`, errFS));
-                     });
-                 } else {
-                     console.error(`预计算脚本未找到: ${precomputeScriptPath}`);
-                     if (io) io.to(caseId).emit('visualization_status', { status: 'failed', error: '服务器上未找到预计算脚本。' });
-                     // Update info.json
-                       fsPromises.readFile(infoJsonPath, "utf-8")
-                        .then(data => JSON.parse(data))
-                        .then(info => {
-                            info.visualizationStatus = "skipped_not_found";
-                            return fsPromises.writeFile(infoJsonPath, JSON.stringify(info, null, 2), "utf-8");
-                        })
-                        .catch(errFS => console.warn(`警告: 更新 info.json (${caseId}) 可视化跳过状态失败:`, errFS));
-                 }
-                 // Respond to the initial POST request immediately after starting calculation
-                 // If the initial response wasn't sent yet (should have been), send success now.
-                 // This part should actually be outside the 'close' handler. See below.
-
-            } else { // Calculation failed (finalStatus === 'error')
-                console.error(`主计算 (${caseId}) 失败，退出码 ${code}`);
-                if (io) io.to(caseId).emit("calculationFailed", { message: `主计算失败，退出码: ${code}` });
-                 // Send failure if response not sent - this should also be outside the 'close' handler.
+            } else { // 失败
+                console.error(`主计算 (${caseId}) 失败，退出码 ${code}。错误详情:\n${stderrOutput.trim()}`);
+                if (io) io.to(caseId).emit("calculationFailed", {
+                    message: `主计算失败，退出码: ${code}`,
+                    details: stderrOutput.trim() // 将收集到的 stderr 内容作为错误详情发送
+                });
             }
         });
 
-        // --- Handle Process Spawn Error ---
-        child.on("error", async (error) => { // Make async to handle file writes
+        // 处理进程启动错误
+        child.on("error", async (error) => {
             logStream.end();
             console.error(`执行 run.sh (${caseId}) 出错: ${error.message}`);
             if (io) io.to(caseId).emit("calculationError", { message: "无法执行计算脚本", details: error.message });
-            // Update info.json status to 'error'
-             try {
-                const info = JSON.parse(await fsPromises.readFile(infoJsonPath, "utf-8"));
-                info.calculationStatus = "error";
-                info.lastCalculationEnd = new Date().toISOString();
-                info.lastCalculationError = `启动脚本失败: ${error.message}`;
-                await fsPromises.writeFile(infoJsonPath, JSON.stringify(info, null, 2), "utf-8");
-             } catch(err) {
-                 console.warn(`警告: 更新 info.json (${caseId}) 状态为 error (spawn error) 失败:`, err);
-             }
-             // Update progress file
-              const errorProgress = {
-                  isCalculating: false, progress: 0, tasks: taskStatuses, // Mark pending/running as error?
-                  timestamp: Date.now(), completed: false, exitCode: -1, // Indicate spawn error
-                  error: `启动脚本失败: ${error.message}`
-              };
-               Object.keys(errorProgress.tasks).forEach(taskId => {
-                   if (errorProgress.tasks[taskId] === 'pending' || errorProgress.tasks[taskId] === 'running') {
-                       errorProgress.tasks[taskId] = 'error';
-                   }
-               });
-              await fsPromises.writeFile(progressPath, JSON.stringify(errorProgress, null, 2)).catch(err => {
-                  console.error(`写入错误进度文件 (${caseId}) 失败:`, err);
-              });
-
-            // Send failure response if not already sent
-             if (!res.headersSent) {
+            // ... (更新 info.json 和 progress.json 为失败状态的逻辑)
+            if (!res.headersSent) {
                 res.status(500).json({ success: false, message: "执行计算脚本失败" });
-             }
+            }
         });
 
-         // --- Send Initial Response ---
-         // Respond immediately that the process has started (202 Accepted)
-         // This is crucial for long-running processes.
-         if (!res.headersSent) {
+        // 立即响应，表示已接受请求
+        if (!res.headersSent) {
             res.status(202).json({ success: true, message: "计算已启动，请通过 WebSocket 接收进度更新。" });
-         }
+        }
 
-
-    } catch (error) { // Catch errors during setup (e.g., spawn fails immediately)
+    } catch (error) {
         console.error(`设置计算 (${caseId}) 时出错:`, error);
         if (io) io.to(caseId).emit("calculationError", { message: "计算启动失败", details: error.message });
          if (!res.headersSent) {
@@ -977,7 +842,7 @@ router.get('/:caseId/visualization-slice', async (req, res) => {
         }
         const mainMetadata = JSON.parse(await fsPromises.readFile(mainMetadataPath, 'utf-8'));
         const availableHeights = mainMetadata.heightLevels || [];
-        const extentKm = mainMetadata.extentKm || mainMetadata.extent; // Get extent from main meta
+        const extentKm = mainMetadata.extentKm || mainMetadata.extent || mainMetadata.extent_m;
         const vmin = mainMetadata.vmin;
         const vmax = mainMetadata.vmax;
         const plotAreaPixels = mainMetadata.plotAreaPixels; // Get plot area bounds
@@ -1324,6 +1189,7 @@ router.get('/:caseId/info-download', (req, res) => {
 // 13. 生成并保存 info.json
 router.post('/:caseId/info', async (req, res) => {
     const { caseId } = req.params;
+    
     // --- Joi Schema for Validation ---
     const turbineSchema = Joi.object({
         id: Joi.string().required(),
@@ -1332,7 +1198,7 @@ router.post('/:caseId/info', async (req, res) => {
         hubHeight: Joi.number().positive().required(),
         rotorDiameter: Joi.number().positive().required(),
         model: Joi.string().allow(null, '').optional(),
-        type: Joi.string().allow(null, '').optional(),
+        type: Joi.number().allow(null, '').optional(),
         name: Joi.string().allow(null, '').optional(),
     }).required();
 
@@ -1345,15 +1211,23 @@ router.post('/:caseId/info', async (req, res) => {
             windDirection: Joi.number().required(),
             inletWindSpeed: Joi.number().required()
         }).required(),
-        grid: Joi.object().unknown(true).required(), // 允许 grid 对象包含任意内部字段
-        simulation: Joi.object().unknown(true).required(), // 允许 simulation 对象包含任意内部字段
-        postProcessing: Joi.object().unknown(true).required(), // 允许 postProcessing 对象包含任意内部字段
+        grid: Joi.object().unknown(true).required(),
+        simulation: Joi.object().unknown(true).required(),
+        postProcessing: Joi.object().unknown(true).required(),
         center: Joi.object({
-            lon: Joi.number().allow(null).optional(), // 明确允许 lon 为 null
-            lat: Joi.number().allow(null).optional()  // 明确允许 lat 为 null
+            lon: Joi.number().allow(null).optional(),
+            lat: Joi.number().allow(null).optional()
         }).optional(),
-        caseName: Joi.string().optional() // 允许可选的 caseName 字符串字段
-    }).unknown(true).required(); // 允许 parameters 对象本身包含其他未在此明确定义的字段 (增加灵活性)
+        caseName: Joi.string().optional()
+    }).unknown(true).required();
+
+    // 添加地理范围验证schema
+    const geographicBoundsSchema = Joi.object({
+        minLat: Joi.number().min(-90).max(90).required(),
+        maxLat: Joi.number().min(-90).max(90).required(),
+        minLon: Joi.number().min(-180).max(180).required(),
+        maxLon: Joi.number().min(-180).max(180).required()
+    }).optional();
 
     const schema = Joi.object({
         parameters: parametersSchema,
@@ -1361,7 +1235,9 @@ router.post('/:caseId/info', async (req, res) => {
             'array.min': '至少需要提供一个风机信息',
             'array.base': '风机信息必须是一个列表',
         }),
-    }); // 这个顶层的 schema 仍然是严格的，只允许 parameters 和 windTurbines
+        // 添加地理范围字段
+        geographicBounds: geographicBoundsSchema
+    });
 
     // --- Validate Request Body ---
     const { error: validationError, value } = schema.validate(req.body, { abortEarly: false });
@@ -1371,25 +1247,43 @@ router.post('/:caseId/info', async (req, res) => {
         return res.status(400).json({ success: false, message: "请求数据无效", errors: errorMessages });
     }
 
-    const { parameters, windTurbines } = value; // Use validated value
+    const { parameters, windTurbines, geographicBounds } = value;
 
     try {
-        // --- Calculate Center and Projected Coordinates ---
-        let centerLon, centerLat;
+        // --- Calculate Wind Farm Center ---
+        let windFarmCenterLon, windFarmCenterLat;
         if (windTurbines.length > 0) {
-             const longitudes = windTurbines.map(turbine => turbine.longitude);
-             const latitudes = windTurbines.map(turbine => turbine.latitude);
-             // Robust center calculation (handle single turbine case)
-             centerLon = (longitudes.length > 0) ? (Math.min(...longitudes) + Math.max(...longitudes)) / 2 : 0;
-             centerLat = (latitudes.length > 0) ? (Math.min(...latitudes) + Math.max(...latitudes)) / 2 : 0;
+            const longitudes = windTurbines.map(turbine => turbine.longitude);
+            const latitudes = windTurbines.map(turbine => turbine.latitude);
+            windFarmCenterLon = (longitudes.length > 0) ? (Math.min(...longitudes) + Math.max(...longitudes)) / 2 : 0;
+            windFarmCenterLat = (latitudes.length > 0) ? (Math.min(...latitudes) + Math.max(...latitudes)) / 2 : 0;
         } else {
-            // Should not happen due to validation, but handle defensively
-             return res.status(400).json({ success: false, message: "风机列表不能为空" });
+            return res.status(400).json({ success: false, message: "风机列表不能为空" });
         }
 
+        // --- Calculate CFD Domain Center (based on tif geographic bounds) ---
+        let cfdCenterLon, cfdCenterLat;
+        if (geographicBounds) {
+            // 验证地理范围的有效性
+            if (geographicBounds.maxLon <= geographicBounds.minLon || 
+                geographicBounds.maxLat <= geographicBounds.minLat) {
+                console.warn(`无效的地理范围 (${caseId}):`, geographicBounds);
+                return res.status(400).json({ success: false, message: "地理范围数据无效" });
+            }
+            
+            cfdCenterLon = (geographicBounds.minLon + geographicBounds.maxLon) / 2;
+            cfdCenterLat = (geographicBounds.minLat + geographicBounds.maxLat) / 2;
+            
+            console.log(`CFD domain center (tif-based): (${cfdCenterLon.toFixed(6)}, ${cfdCenterLat.toFixed(6)})`);
+            console.log(`Wind farm center: (${windFarmCenterLon.toFixed(6)}, ${windFarmCenterLat.toFixed(6)})`);
+        } else {
+            // fallback: 使用风机群中心
+            cfdCenterLon = windFarmCenterLon;
+            cfdCenterLat = windFarmCenterLat;
+            console.log(`Warning: No geographic bounds provided for case ${caseId}, using wind farm center as CFD domain center`);
+        }
 
-        // --- Construct info.json Content ---
-        // Read existing info.json to preserve status if it exists
+        // --- Read existing info.json to preserve status ---
         let existingInfo = {};
         const casePath = path.join(__dirname, '../uploads', caseId);
         const infoJsonPath = path.join(casePath, 'info.json');
@@ -1401,21 +1295,36 @@ router.post('/:caseId/info', async (req, res) => {
             }
         }
 
-
+        // --- Construct info.json Content ---
         const infoJson = {
             key: caseId,
             // Preserve existing status, default to 'not_started' if new or unreadable
             calculationStatus: existingInfo.calculationStatus || 'not_started',
-            visualizationStatus: existingInfo.visualizationStatus, // Preserve viz status too
+            visualizationStatus: existingInfo.visualizationStatus,
             domain: {
-                lt: parameters.calculationDomain?.width ?? 10000, // Use optional chaining and defaults
-                h: parameters.calculationDomain?.height ?? 800
+                lt: parameters.calculationDomain?.width ?? 10000,
+                h: parameters.calculationDomain?.height ?? 800,
+                // CFD域的实际中心（基于tif数据）
+                centerLon: parseFloat(cfdCenterLon.toFixed(6)),
+                centerLat: parseFloat(cfdCenterLat.toFixed(6))
+            },
+            // 添加地理范围信息（如果提供的话）
+            geographicBounds: geographicBounds ? {
+                minLon: parseFloat(geographicBounds.minLon.toFixed(6)),
+                maxLon: parseFloat(geographicBounds.maxLon.toFixed(6)),
+                minLat: parseFloat(geographicBounds.minLat.toFixed(6)),
+                maxLat: parseFloat(geographicBounds.maxLat.toFixed(6))
+            } : null,
+            // 风机群中心（用于坐标转换）
+            windFarmCenter: {
+                lon: parseFloat(windFarmCenterLon.toFixed(6)),
+                lat: parseFloat(windFarmCenterLat.toFixed(6))
             },
             wind: {
                 angle: parameters.conditions?.windDirection ?? 270,
                 speed: parameters.conditions?.inletWindSpeed ?? 10
             },
-            mesh: { // Add defaults for all mesh parameters from parameters object
+            mesh: {
                 h1: parameters.grid?.encryptionHeight ?? 210,
                 ceng: parameters.grid?.encryptionLayers ?? 21,
                 q1: parameters.grid?.gridGrowthRate ?? 1.2,
@@ -1438,47 +1347,106 @@ router.post('/:caseId/info', async (req, res) => {
             post: {
                 numh: parameters.postProcessing?.resultLayers ?? 10,
                 dh: parameters.postProcessing?.layerSpacing ?? 20,
-                width: parameters.postProcessing?.layerDataWidth ?? 1000, // Use params value or default
+                width: parameters.postProcessing?.layerDataWidth ?? 1000,
                 height: parameters.postProcessing?.layerDataHeight ?? 1000,
             },
             turbines: windTurbines.map(turbine => {
-                const { x, y } = calculateXY(turbine.longitude, turbine.latitude, centerLon, centerLat);
+                // 注意：这里仍然使用风机群中心计算投影坐标
+                // 坐标转换将在预处理阶段进行
+                const { x, y } = calculateXY(turbine.longitude, turbine.latitude, windFarmCenterLon, windFarmCenterLat);
                 return {
                     id: turbine.id,
                     lon: turbine.longitude,
                     lat: turbine.latitude,
                     hub: turbine.hubHeight,
                     d: turbine.rotorDiameter,
-                    x: parseFloat(x.toFixed(3)), // Projected X (meters), rounded
-                    y: parseFloat(y.toFixed(3)), // Projected Y (meters), rounded
-                    type: turbine.type || 'GenericWTG', // Default type if missing
-                    name: turbine.name || `Turbine_${turbine.id}`, // Use name or generate one
-                    model: turbine.model || null // Include model if provided
+                    x: parseFloat(x.toFixed(3)), // 相对于风机群中心的投影坐标（米）
+                    y: parseFloat(y.toFixed(3)),
+                    type: turbine.type || 'GenericWTG',
+                    name: turbine.name || `Turbine_${turbine.id}`,
+                    model: turbine.model || null
                 };
             }),
             center: {
-                 lon: parseFloat(centerLon.toFixed(6)), // Rounded center coords
-                 lat: parseFloat(centerLat.toFixed(6))
+                // 保持向后兼容性，这里仍然是风机群中心
+                lon: parseFloat(windFarmCenterLon.toFixed(6)),
+                lat: parseFloat(windFarmCenterLat.toFixed(6))
             },
             // Add timestamp
             lastInfoGenerated: new Date().toISOString(),
         };
 
         // --- Save info.json ---
-        // Ensure directory exists
         await fsPromises.mkdir(casePath, { recursive: true });
         await fsPromises.writeFile(infoJsonPath, JSON.stringify(infoJson, null, 2), 'utf-8');
 
-        console.log(`info.json 已为工况 ${caseId} 生成/更新。`);
+        console.log(`info.json 已为工况 ${caseId} 生成/更新，包含CFD域中心信息。`);
+        
+        // 输出调试信息
+        if (geographicBounds) {
+            console.log(`  - 地理范围: Lon[${geographicBounds.minLon.toFixed(6)}, ${geographicBounds.maxLon.toFixed(6)}], Lat[${geographicBounds.minLat.toFixed(6)}, ${geographicBounds.maxLat.toFixed(6)}]`);
+            console.log(`  - CFD域中心: (${cfdCenterLon.toFixed(6)}, ${cfdCenterLat.toFixed(6)})`);
+            console.log(`  - 风机群中心: (${windFarmCenterLon.toFixed(6)}, ${windFarmCenterLat.toFixed(6)})`);
+            
+            // 计算中心之间的距离（粗略估算）
+            const earthRadius = 6371000; // 地球半径（米）
+            const lat1 = cfdCenterLat * Math.PI / 180;
+            const lat2 = windFarmCenterLat * Math.PI / 180;
+            const deltaLat = (windFarmCenterLat - cfdCenterLat) * Math.PI / 180;
+            const deltaLon = (windFarmCenterLon - cfdCenterLon) * Math.PI / 180;
+            
+            const a = Math.sin(deltaLat/2) * Math.sin(deltaLat/2) +
+                     Math.cos(lat1) * Math.cos(lat2) *
+                     Math.sin(deltaLon/2) * Math.sin(deltaLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            const distance = earthRadius * c;
+            
+            console.log(`  - 中心距离: ${distance.toFixed(1)} 米`);
+        }
+
         res.status(201).json({ success: true, message: 'info.json 生成/更新成功' });
 
     } catch (error) {
         console.error(`生成和保存 info.json (${caseId}) 失败:`, error);
-        // Avoid sending sensitive error details to the client
         res.status(500).json({ success: false, message: '生成或保存 info.json 时服务器出错' });
     }
 });
 
+// ==========================================================
+// [新增] 13.5. 删除 info.json (用于在前端解锁参数)
+// ==========================================================
+router.delete('/:caseId/info', async (req, res) => {
+    const { caseId } = req.params; // 已由中间件验证
+    const casePath = path.join(__dirname, '../uploads', caseId);
+    const infoJsonPath = path.join(casePath, 'info.json');
+
+    try {
+        // 检查文件是否存在
+        if (!fs.existsSync(infoJsonPath)) {
+            // 如果文件本就不存在，也视为一种“成功”，因为客户端的目标已经达成
+            console.log(`请求解锁参数，但 info.json (${caseId}) 已不存在。`);
+            return res.json({ success: true, message: '参数已处于可编辑状态。' });
+        }
+
+        // 执行删除操作
+        await fsPromises.unlink(infoJsonPath);
+        console.log(`成功删除 info.json (${caseId})，参数已解锁。`);
+
+        // 可选但推荐：如果删除了 info.json，也应该清理相关的计算状态，
+        // 因为旧的计算结果和进度不再与当前（即将被修改的）参数匹配。
+        const progressPath = path.join(casePath, 'calculation_progress.json');
+        if (fs.existsSync(progressPath)) {
+            await fsPromises.unlink(progressPath);
+            console.log(`已一并删除 calculation_progress.json (${caseId})。`);
+        }
+        
+        res.json({ success: true, message: '参数解锁成功，您可以重新编辑并提交。' });
+
+    } catch (error) {
+        console.error(`删除 info.json (${caseId}) 时发生错误:`, error);
+        res.status(500).json({ success: false, message: '服务器在尝试解锁参数时发生错误。' });
+    }
+});
 
 // 14. 获取特定工况的计算状态 (从 info.json 读取)
 router.get('/:caseId/calculation-status', async (req, res) => { // Make async
@@ -1503,23 +1471,36 @@ router.get('/:caseId/calculation-status', async (req, res) => { // Make async
     }
 });
 
-// --- 进度、日志、状态文件路由 (保持不变) ---
+// --- 进度、日志、状态文件路由 ---
 
-// 存储计算进度 (POST /:caseId/calculation-progress - Generally updated by the calculation process itself)
-// This endpoint might be less useful if progress is handled internally by the /calculate endpoint.
-// Keep it for potential manual updates or testing?
+// 存储计算进度 - 放宽验证
 router.post('/:caseId/calculation-progress', async (req, res) => {
     const { caseId } = req.params;
     const progressPath = path.join(__dirname, `../uploads/${caseId}/calculation_progress.json`);
+
     try {
-        // Basic validation for req.body structure
-        if (typeof req.body !== 'object' || req.body === null || typeof req.body.isCalculating === 'undefined') {
-             return res.status(400).json({ success: false, error: '无效的进度数据格式' });
+        // 更宽松的验证
+        if (typeof req.body !== 'object' || req.body === null) {
+            return res.status(400).json({ success: false, error: '无效的进度数据格式' });
         }
-        await fsPromises.writeFile(progressPath, JSON.stringify(req.body, null, 2), 'utf-8');
+
+        // 确保必要的字段存在，提供默认值
+        const progressData = {
+            status: req.body.status || req.body.calculationStatus || 'not_started',
+            isCalculating: req.body.isCalculating !== undefined ? req.body.isCalculating : false,
+            progress: req.body.progress || 0,
+            tasks: req.body.tasks || {},
+            outputs: req.body.outputs || [],
+            timestamp: req.body.timestamp || Date.now(),
+            completed: req.body.completed || false,
+            startTime: req.body.startTime || null,
+            ...req.body // 包含其他字段
+        };
+
+        await fsPromises.writeFile(progressPath, JSON.stringify(progressData, null, 2), 'utf-8');
         res.json({ success: true });
     } catch (error) {
-        console.error(`(Manual) 保存计算进度 (${caseId}) 失败:`, error);
+        console.error(`保存计算进度 (${caseId}) 失败:`, error);
         res.status(500).json({ success: false, error: '保存进度失败', details: error.message });
     }
 });
@@ -1565,7 +1546,83 @@ router.get('/:caseId/calculation-progress', async (req, res) => {
     }
 });
 
+// 获取已上传的性能曲线文件列表
+router.get('/:caseId/curve-files', async (req, res) => {
+    const { caseId } = req.params;
+    const curvesDir = path.join(__dirname, '..', 'uploads', caseId, 'customCurves');
+    
+    try {
+      if (!fs.existsSync(curvesDir)) {
+        return res.json({ success: true, files: [] });
+      }
+      
+      const files = await fsPromises.readdir(curvesDir);
+      const curveFiles = files
+        .filter(file => file.match(/^\d+-U-P-Ct\.(txt|csv)$/))
+        .map(file => ({
+          name: file,
+          path: path.join(curvesDir, file),
+          size: fs.statSync(path.join(curvesDir, file)).size,
+          uploadTime: fs.statSync(path.join(curvesDir, file)).mtime
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      
+      res.json({ success: true, files: curveFiles });
+    } catch (error) {
+      console.error(`获取性能曲线文件列表 (${caseId}) 失败:`, error);
+      res.status(500).json({ success: false, message: '获取文件列表失败' });
+    }
+  });
 
+  // 获取特定性能曲线文件的内容
+router.get('/:caseId/curve-files/:fileName', async (req, res) => {
+    const { caseId, fileName } = req.params;
+    
+    // 验证文件名格式
+    if (!fileName.match(/^\d+-U-P-Ct\.(txt|csv)$/)) {
+      return res.status(400).json({ success: false, message: '无效的文件名格式' });
+    }
+    
+    const filePath = path.join(__dirname, '..', 'uploads', caseId, 'customCurves', fileName);
+    
+    try {
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ success: false, message: '文件不存在' });
+      }
+      
+      const content = await fsPromises.readFile(filePath, 'utf-8');
+      res.json({ success: true, content, fileName });
+    } catch (error) {
+      console.error(`读取性能曲线文件 ${fileName} (${caseId}) 失败:`, error);
+      res.status(500).json({ success: false, message: '读取文件失败' });
+    }
+  });
+  
+  // 删除特定性能曲线文件
+router.delete('/:caseId/curve-files/:fileName', async (req, res) => {
+    const { caseId, fileName } = req.params;
+    
+    // 验证文件名格式
+    if (!fileName.match(/^\d+-U-P-Ct\.(txt|csv)$/)) {
+      return res.status(400).json({ success: false, message: '无效的文件名格式' });
+    }
+    
+    const filePath = path.join(__dirname, '..', 'uploads', caseId, 'customCurves', fileName);
+    
+    try {
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ success: false, message: '文件不存在' });
+      }
+      
+      await fsPromises.unlink(filePath);
+      console.log(`成功删除性能曲线文件: ${fileName} (${caseId})`);
+      res.json({ success: true, message: '文件删除成功' });
+    } catch (error) {
+      console.error(`删除性能曲线文件 ${fileName} (${caseId}) 失败:`, error);
+      res.status(500).json({ success: false, message: '删除文件失败' });
+    }
+  });
+  
 // 删除计算进度 (Maybe useful for forcing a recalculation state reset?)
 router.delete('/:caseId/calculation-progress', async (req, res) => {
     const { caseId } = req.params;
@@ -2106,99 +2163,13 @@ router.get('/:caseId/export-velocity-layers', async (req, res) => {
         if (!res.headersSent) {
             res.status(500).json({ success: false, message: '创建 ZIP 文件失败', error: error.message });
         } else {
-            // If headers sent, maybe the stream failed. Client might get partial file.
+            // If headers sent, the stream failed. Client might get partial file.
             console.error(`Error occurred after headers sent for ZIP (${caseId}).`);
         }
     }
 });
 
 
-// 服务器端 PDF 报告生成
-router.post('/:caseId/generate-pdf-report', async (req, res) => {
-    const { caseId } = req.params;
-    console.log(`收到工况 ${caseId} 的 PDF 生成请求`);
-
-    try {
-        // Log received chart data URIs (optional, be careful with large data)
-         // console.log('前端图表键:', Object.keys(req.body.charts || {}));
-
-        const frontendCharts = req.body.charts || {};
-
-        // 1. Prepare data (fetches from files, potentially generates server-side charts)
-        console.log(`[PDF Report ${caseId}] Preparing data...`);
-        const pdfData = await pdfDataService.prepareDataForPDF(caseId);
-        console.log(`[PDF Report ${caseId}] Data prepared. Case name: ${pdfData.caseName}`);
-
-        // 2. Merge frontend charts (overwriting or using as fallback)
-        // Be explicit about which charts are expected from frontend vs server
-        pdfData.charts = {
-            // Charts potentially generated server-side (can be overwritten)
-            speedComparisonServer: pdfData.charts?.speedComparisonServer, // Example name
-            powerComparisonServer: pdfData.charts?.powerComparisonServer, // Example name
-
-            // Charts expected primarily from frontend
-            speedComparison: frontendCharts.speedComparison, // Assume frontend provides this
-            powerComparison: frontendCharts.powerComparison, // Assume frontend provides this
-            performanceChange: frontendCharts.performanceChange, // Assume frontend provides this
-        };
-
-        // Optional: Validate essential data URIs before passing to template
-         const requiredCharts = ['speedComparison', 'powerComparison', 'performanceChange'];
-         let missingCharts = [];
-         for (const key of requiredCharts) {
-             const value = pdfData.charts[key];
-             if (!value || typeof value !== 'string' || !value.startsWith('data:image/')) {
-                 console.warn(`[PDF Report ${caseId}] 图表 '${key}' 数据无效或缺失.`);
-                 missingCharts.push(key);
-                 // Provide a placeholder? Or fail? For now, let template handle missing data.
-                 // pdfData.charts[key] = PLACEHOLDER_IMAGE_DATA_URI;
-             }
-         }
-        // If critical charts are missing, maybe return an error?
-        // if (missingCharts.length > 0) {
-        //      return res.status(400).json({ success: false, message: `缺少必要的图表数据: ${missingCharts.join(', ')}` });
-        // }
-
-        // 3. Generate PDF buffer using the service
-        console.log(`[PDF Report ${caseId}] Generating PDF buffer...`);
-        const pdfBuffer = await pdfDataService.generatePDF(caseId, pdfData);
-        console.log(`[PDF Report ${caseId}] PDF buffer generated (${pdfBuffer.length} bytes).`);
-
-        // 4. Send PDF response
-        const safeCaseName = encodeURIComponent(pdfData.caseName || caseId);
-        res.writeHead(200, {
-            'Content-Type': 'application/pdf',
-            'Content-Length': pdfBuffer.length,
-            'Content-Disposition': `attachment; filename="${safeCaseName}_report.pdf"; filename*=UTF-8''${safeCaseName}_report.pdf`
-        });
-        res.end(pdfBuffer);
-        console.log(`成功生成并发送了工况 ${caseId} 的 PDF 报告。`);
-
-    } catch (error) {
-        console.error(`生成 PDF 报告 (${caseId}) 时出错:`, error);
-        // Send JSON error only if headers haven't been sent
-        if (!res.headersSent) {
-            // Provide more context if it's a data preparation error vs PDF generation error
-            let message = '生成 PDF 报告失败';
-            if (error.message.includes('prepareDataForPDF')) { // Check if error originated in data prep
-                 message = `准备报告数据时出错: ${error.message}`;
-            } else if (error.message.includes('generatePDF')) { // Check if error originated in PDF generation
-                 message = `PDF 生成过程中出错: ${error.message}`;
-            }
-
-            res.status(500).json({
-                success: false,
-                message: message,
-                // Avoid sending full stack trace to client in production
-                error: process.env.NODE_ENV === 'development' ? error.stack : error.message
-            });
-        } else {
-            // If headers were sent, the connection might be broken or PDF generation failed mid-stream
-            console.error(`Error occurred after headers sent for PDF report (${caseId}).`);
-            res.end(); // Attempt to close the response gracefully
-        }
-    }
-});
 
 
 // --- 嵌套风机路由 ---

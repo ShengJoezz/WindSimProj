@@ -59,6 +59,7 @@
  */
 
 import { ref, watch } from "vue";
+import { ElMessage, ElNotification } from 'element-plus';
 import WindTurbineForm from "./WindTurbineForm.vue";
 import WindTurbineList from "./WindTurbineList.vue";
 import UploadComponent from "./UploadComponent.vue";
@@ -78,6 +79,39 @@ const props = defineProps({
     required: true,
   },
 });
+
+// 添加一个辅助函数来检查边界
+const isWithinBounds = (turbine) => {
+  const bounds = props.geographicBounds;
+  console.log('---边界检查调试---');
+  console.log('传入的 turbine 坐标:', turbine.longitude, turbine.latitude);
+  console.log('传入的地形边界 props:', bounds);
+  console.log('边界值的类型: minLat is a', typeof bounds.minLat);
+  console.log('------------------');
+  
+  // 从用户输入中解析数字
+  const lat = parseFloat(turbine.latitude);
+  const lon = parseFloat(turbine.longitude);
+
+  // 从 props 中直接获取数字 (无需再解析)
+  const { minLat, maxLat, minLon, maxLon } = bounds;
+
+  // 增加一个检查，确保边界数据已经加载
+  if (typeof minLat !== 'number' || typeof maxLat !== 'number' || 
+      typeof minLon !== 'number' || typeof maxLon !== 'number') {
+    console.warn("地形边界数据尚未加载，无法进行校验。");
+    // 在边界数据不可用时，可以选择是阻止还是允许。阻止更安全。
+    ElMessage.error("地形边界数据未就绪，请稍后再试。");
+    return false;
+  }
+
+  // 现在这里是纯粹的数字比较，不会有类型错误
+  if (lat >= minLat && lat <= maxLat && lon >= minLon && lon <= maxLon) {
+    return true;
+  }
+  
+  return false;
+};
 
 // MODIFY: Ensure 'add-turbine' and 'import-turbines' are defined
 const emit = defineEmits([
@@ -114,18 +148,51 @@ const handleClose = () => {
   emit("update:visible", false);
 };
 
-// MODIFY: handleAddTurbine function
+// 修改您的 handleAddTurbine 函数
 const handleAddTurbine = (turbine) => {
-  // REMOVE: store.addWindTurbine(turbine); // Don't call store directly
+  if (!isWithinBounds(turbine)) {
+    ElMessage.error(`风机 "${turbine.name}" 的坐标超出了当前地形边界。`);
+    return; // 阻止添加
+  }
   console.log('[WindTurbineManagement] Emitting add-turbine:', turbine);
-  emit("add-turbine", turbine); // Emit event to parent
+  emit("add-turbine", turbine);
 };
 
-// MODIFY: handleBulkImport function
+// 修改您的 handleBulkImport 函数
 const handleBulkImport = (turbines) => {
-  // REMOVE: store.addBulkWindTurbines(turbines); // Don't call store directly
-  console.log('[WindTurbineManagement] Emitting import-turbines:', turbines?.length);
-  emit("import-turbines", turbines); // Emit event to parent
+  const validTurbines = [];
+  const invalidNames = [];
+
+  for (const turbine of turbines) {
+    if (isWithinBounds(turbine)) {
+      validTurbines.push(turbine);
+    } else {
+      // 收集无效风机的名称，如果没有名称则使用通用描述
+      invalidNames.push(turbine.name || '一个未命名风机');
+    }
+  }
+
+  // 1. 如果有无效风机，使用 ElNotification 给出详细警告。
+  //    Notification 更适合显示较长的列表信息。
+  if (invalidNames.length > 0) {
+    ElNotification({
+      title: '导入警告',
+      message: `以下 ${invalidNames.length} 个风机因坐标超出地形边界而未被导入: ${invalidNames.join(', ')}`,
+      type: 'warning',
+      duration: 8000, // 持续显示8秒，方便用户阅读
+    });
+  }
+
+  // 2. 如果有有效的风机，发出事件并给出明确的成功提示。
+  if (validTurbines.length > 0) {
+    ElMessage.success(`已准备好导入 ${validTurbines.length} 个有效的风机。`);
+    emit("import-turbines", validTurbines); // 只发出有效的风机列表
+  }
+  
+  // 3. (可选) 如果所有风机都无效，可以给出一个最终的错误提示。
+  if (validTurbines.length === 0 && invalidNames.length > 0) {
+     ElMessage.error('本次导入的所有风机均无效，操作已中止。');
+  }
 };
 
 // Handle focusing on a turbine

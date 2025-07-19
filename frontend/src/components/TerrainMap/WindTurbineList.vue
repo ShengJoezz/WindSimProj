@@ -1,3 +1,14 @@
+<!--
+ * @Author: joe 847304926@qq.com
+ * @Date: 2025-03-16 19:02:30
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-07-14 19:32:21
+ * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\WindTurbineList.vue
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+-->
+
 <!-- WindTurbineList.vue -->
 <template>
   <div v-if="windTurbines.length" class="turbine-list">
@@ -29,24 +40,31 @@
           </el-tooltip>
         </div>
       </div>
-      <div class="turbine-details">
-        <div class="detail-item">
-          <span class="label">经度:</span>
-          <span class="value">{{ turbine.longitude?.toFixed(6) ?? 'N/A' }}°</span>
-        </div>
-        <div class="detail-item">
-          <span class="label">纬度:</span>
-          <span class="value">{{ turbine.latitude?.toFixed(6) ?? 'N/A' }}°</span>
-        </div>
-        <div class="detail-item">
-          <span class="label">桅杆高度:</span>
-          <span class="value">{{ turbine.hubHeight ?? 'N/A' }} m</span>
-        </div>
-        <div class="detail-item">
-          <span class="label">转子直径:</span>
-          <span class="value">{{ turbine.rotorDiameter ?? 'N/A' }} m</span>
-        </div>
-      </div>
+      <!-- 在风机详情中添加模型ID显示 -->
+<div class="turbine-details">
+  <!-- 现有字段保持不变 -->
+  <div class="detail-item">
+    <span class="label">经度:</span>
+    <span class="value">{{ turbine.longitude?.toFixed(6) ?? 'N/A' }}°</span>
+  </div>
+  <div class="detail-item">
+    <span class="label">纬度:</span>
+    <span class="value">{{ turbine.latitude?.toFixed(6) ?? 'N/A' }}°</span>
+  </div>
+  <div class="detail-item">
+    <span class="label">桅杆高度:</span>
+    <span class="value">{{ turbine.hubHeight ?? 'N/A' }} m</span>
+  </div>
+  <div class="detail-item">
+    <span class="label">转子直径:</span>
+    <span class="value">{{ turbine.rotorDiameter ?? 'N/A' }} m</span>
+  </div>
+  <!-- 新增：显示模型ID -->
+  <div class="detail-item model-id-item">
+    <span class="label">模型ID:</span>
+    <span class="value model-id-value">{{ getModelId(turbine) }}</span>
+  </div>
+</div>
     </el-card>
   </div>
   <el-empty v-else description="暂无已安装的风机" />
@@ -95,6 +113,9 @@ const confirmDelete = (turbine) => {
     .catch(() => {
       deletingTurbineId.value = null;
     });
+};
+const getModelId = (turbine) => {
+  return turbine.model || turbine.type || '1'; // 尝试多个字段，默认为1
 };
 </script>
 
@@ -215,5 +236,19 @@ const confirmDelete = (turbine) => {
 :deep(.el-empty__description) {
   margin-top: 20px;
   color: #909399;
+}
+.model-id-item {
+  grid-column: span 2; /* 让模型ID占据整行 */
+  background: linear-gradient(135deg, #f0f7ff, #e8f4f8);
+  border: 1px solid #b3d8ff;
+}
+
+.model-id-value {
+  background: #409EFF;
+  color: white;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 12px;
 }
 </style>

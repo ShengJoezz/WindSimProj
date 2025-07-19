@@ -2,9 +2,9 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-04-01 18:51:11
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-05-15 19:25:21
+ * @LastEditTime: 2025-07-14 18:47:16
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\ParameterSettings.vue
- * @Description: 
+ * @Description: 参数设置组件，支持按需加载和预览已存在的性能曲线文件。
  * 
  * Copyright (c) 2025 by joe, All Rights Reserved.
 -->
@@ -39,355 +39,219 @@
         label-width="200px"
         class="parameter-form"
       >
-        <!-- 计算域 -->
+        <!-- 前面的表单项保持不变... -->
         <el-form-item label="计算域" class="parent-form-item">
-          <el-form-item
-            label="计算域长度 (m)" 
-            prop="calculationDomain.width"
-            :inline="true"
-            class="child-form-item"
-          >
-            <el-input-number
-              v-model="caseStore.parameters.calculationDomain.width"
-              :min="0"
-              class="input-number"
-              :disabled="caseStore.infoExists"
-            />
+          <el-form-item label="计算域长度 (m)" prop="calculationDomain.width" :inline="true" class="child-form-item">
+            <div class="input-with-hint">
+              <el-input-number v-model="caseStore.parameters.calculationDomain.width" :min="0" class="input-number" :disabled="caseStore.infoExists" style="width: 100%;"/>
+              <div v-if="showDomainSizeHint" class="form-item-hint"> <el-icon><InfoFilled /></el-icon> <span>{{ domainSizeHintText }}</span> </div>
+            </div>
           </el-form-item>
-          <el-form-item
-            label="计算域高度 (m)" 
-            prop="calculationDomain.height"
-            :inline="true"
-            class="child-form-item"
-          >
-            <el-input-number
-              v-model="caseStore.parameters.calculationDomain.height"
-              :min="0"
-              class="input-number"
-              :disabled="caseStore.infoExists"
-            />
+          <el-form-item label="计算域高度 (m)" prop="calculationDomain.height" :inline="true" class="child-form-item">
+            <el-input-number v-model="caseStore.parameters.calculationDomain.height" :min="0" class="input-number" :disabled="caseStore.infoExists"/>
           </el-form-item>
         </el-form-item>
-
-        <!-- 工况 -->
         <el-form-item label="工况" class="parent-form-item">
-          <el-form-item
-            label="风向角 (°)" 
-            prop="conditions.windDirection"
-            :inline="true"
-            class="child-form-item"
-          >
-            <el-input-number
-              v-model="caseStore.parameters.conditions.windDirection"
-              :min="0"
-              :max="360"
-              class="input-number"
-              :disabled="caseStore.infoExists"
-            />
+          <el-form-item label="风向角 (°)" prop="conditions.windDirection" :inline="true" class="child-form-item">
+            <el-input-number v-model="caseStore.parameters.conditions.windDirection" :min="0" :max="360" class="input-number" :disabled="caseStore.infoExists"/>
           </el-form-item>
-          <el-form-item
-            label="入口风速 (m/s)" 
-            prop="conditions.inletWindSpeed"
-            :inline="true"
-            class="child-form-item"
-          >
-            <el-input-number
-              v-model="caseStore.parameters.conditions.inletWindSpeed"
-              :min="0"
-              class="input-number"
-              :disabled="caseStore.infoExists"
-            />
+          <el-form-item label="入口风速 (m/s)" prop="conditions.inletWindSpeed" :inline="true" class="child-form-item">
+            <el-input-number v-model="caseStore.parameters.conditions.inletWindSpeed" :min="0" class="input-number" :disabled="caseStore.infoExists"/>
           </el-form-item>
         </el-form-item>
-
-        <!-- 网格 -->
         <el-form-item label="网格" class="parent-form-item">
           <div class="grid-section">
-            <el-form-item
-              label="粗糙层高度 (m)" 
-              prop="grid.encryptionHeight"
-              :inline="true"
-              class="child-form-item"
-            >
-              <el-input-number
-                v-model="caseStore.parameters.grid.encryptionHeight"
-                :min="0"
-                class="input-number"
-                :disabled="caseStore.infoExists"
-              />
-            </el-form-item>
-            <el-form-item
-              label="粗糙层层数" 
-              prop="grid.encryptionLayers"
-              :inline="true"
-              class="child-form-item"
-            >
-              <el-input-number
-                v-model="caseStore.parameters.grid.encryptionLayers"
-                :min="0"
-                class="input-number"
-                :disabled="caseStore.infoExists"
-              />
-            </el-form-item>
-            <el-form-item
-              label="纵向网格生长率" 
-              prop="grid.gridGrowthRate"
-              :inline="true"
-              class="child-form-item"
-            >
-              <el-input-number
-                v-model="caseStore.parameters.grid.gridGrowthRate"
-                step="0.1"
-                :min="0"
-                class="input-number"
-                :disabled="caseStore.infoExists"
-              />
-            </el-form-item>
-            <el-form-item
-              label="最大网格尺寸 (m)" 
-              prop="grid.maxExtensionLength"
-              :inline="true"
-              class="child-form-item"
-            >
-              <el-input-number
-                v-model="caseStore.parameters.grid.maxExtensionLength"
-                :min="0"
-                class="input-number"
-                :disabled="caseStore.infoExists"
-              />
-            </el-form-item>
-            <el-form-item
-              label="最小网格尺寸 (m)" 
-              prop="grid.encryptionRadialLength"
-              :inline="true"
-              class="child-form-item"
-            >
-              <el-input-number
-                v-model="caseStore.parameters.grid.encryptionRadialLength"
-                :min="0"
-                class="input-number"
-                :disabled="caseStore.infoExists"
-              />
-            </el-form-item>
-            <el-form-item
-              label="尾流区径向长度 (m)" 
-              prop="grid.downstreamRadialLength"
-              :inline="true"
-              class="child-form-item"
-            >
-              <el-input-number
-                v-model="caseStore.parameters.grid.downstreamRadialLength"
-                :min="0"
-                class="input-number"
-                :disabled="caseStore.infoExists"
-              />
-            </el-form-item>
-            <el-form-item
-              label="网格加密区半径（内）(m)" 
-              prop="grid.encryptionRadius"
-              :inline="true"
-              class="child-form-item"
-            >
-              <el-input-number
-                v-model="caseStore.parameters.grid.encryptionRadius"
-                :min="0"
-                class="input-number"
-                :disabled="caseStore.infoExists"
-              />
-            </el-form-item>
-            <el-form-item
-              label="网格加密区半径（外）(m)" 
-              prop="grid.encryptionTransitionRadius"
-              :inline="true"
-              class="child-form-item"
-            >
-              <el-input-number
-                v-model="caseStore.parameters.grid.encryptionTransitionRadius"
-                :min="0"
-                class="input-number"
-                :disabled="caseStore.infoExists"
-              />
-            </el-form-item>
-            <el-form-item
-              label="地形区域半径（内）(m)" 
-              prop="grid.terrainRadius"
-              :inline="true"
-              class="child-form-item"
-            >
-              <el-input-number
-                v-model="caseStore.parameters.grid.terrainRadius"
-                :min="0"
-                class="input-number"
-                :disabled="caseStore.infoExists"
-              />
-            </el-form-item>
-            <el-form-item
-              label="地形区域半径（外）(m)" 
-              prop="grid.terrainTransitionRadius"
-              :inline="true"
-              class="child-form-item"
-            >
-              <el-input-number
-                v-model="caseStore.parameters.grid.terrainTransitionRadius"
-                :min="0"
-                class="input-number"
-                :disabled="caseStore.infoExists"
-              />
-            </el-form-item>
-            <el-form-item
-              label="尾流区加密长度 (m)" 
-              prop="grid.downstreamLength"
-              :inline="true"
-              class="child-form-item"
-            >
-              <el-input-number
-                v-model="caseStore.parameters.grid.downstreamLength"
-                :min="0"
-                class="input-number"
-                :disabled="caseStore.infoExists"
-              />
-            </el-form-item>
-            <el-form-item
-              label="尾流区加密宽度 (m)" 
-              prop="grid.downstreamWidth"
-              :inline="true"
-              class="child-form-item"
-            >
-              <el-input-number
-                v-model="caseStore.parameters.grid.downstreamWidth"
-                :min="0"
-                class="input-number"
-                :disabled="caseStore.infoExists"
-              />
-            </el-form-item>
-            <el-form-item
-              label="缩尺比"
-              prop="grid.scale"
-              :inline="true"
-              class="child-form-item"
-            >
-              <el-input-number
-                v-model="caseStore.parameters.grid.scale"
-                step="0.001"
-                :min="0"
-                :max="1"
-                class="input-number"
-                :disabled="caseStore.infoExists"
-              />
-            </el-form-item>
+            <el-form-item label="粗糙层高度 (m)" prop="grid.encryptionHeight" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.grid.encryptionHeight" :min="0" class="input-number" :disabled="caseStore.infoExists" /> </el-form-item>
+            <el-form-item label="粗糙层层数" prop="grid.encryptionLayers" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.grid.encryptionLayers" :min="0" class="input-number" :disabled="caseStore.infoExists" /> </el-form-item>
+            <el-form-item label="纵向网格生长率" prop="grid.gridGrowthRate" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.grid.gridGrowthRate" :step="0.1" :min="0" class="input-number" :disabled="caseStore.infoExists" /> </el-form-item>
+            <el-form-item label="最大网格尺寸 (m)" prop="grid.maxExtensionLength" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.grid.maxExtensionLength" :min="0" class="input-number" :disabled="caseStore.infoExists" /> </el-form-item>
+            <el-form-item label="最小网格尺寸 (m)" prop="grid.encryptionRadialLength" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.grid.encryptionRadialLength" :min="0" class="input-number" :disabled="caseStore.infoExists" /> </el-form-item>
+            <el-form-item label="尾流区径向长度 (m)" prop="grid.downstreamRadialLength" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.grid.downstreamRadialLength" :min="0" class="input-number" :disabled="caseStore.infoExists" /> </el-form-item>
+            <el-form-item label="网格加密区半径（内）(m)" prop="grid.encryptionRadius" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.grid.encryptionRadius" :min="0" class="input-number" :disabled="caseStore.infoExists" /> </el-form-item>
+            <el-form-item label="网格加密区半径（外）(m)" prop="grid.encryptionTransitionRadius" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.grid.encryptionTransitionRadius" :min="0" class="input-number" :disabled="caseStore.infoExists" /> </el-form-item>
+            <el-form-item label="地形区域半径（内）(m)" prop="grid.terrainRadius" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.grid.terrainRadius" :min="0" class="input-number" :disabled="caseStore.infoExists" /> </el-form-item>
+            <el-form-item label="地形区域半径（外）(m)" prop="grid.terrainTransitionRadius" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.grid.terrainTransitionRadius" :min="0" class="input-number" :disabled="caseStore.infoExists" /> </el-form-item>
+            <el-form-item label="尾流区加密长度 (m)" prop="grid.downstreamLength" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.grid.downstreamLength" :min="0" class="input-number" :disabled="caseStore.infoExists" /> </el-form-item>
+            <el-form-item label="尾流区加密宽度 (m)" prop="grid.downstreamWidth" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.grid.downstreamWidth" :min="0" class="input-number" :disabled="caseStore.infoExists" /> </el-form-item>
+            <el-form-item label="缩尺比" prop="grid.scale" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.grid.scale" :step="0.001" :min="0" :max="1" class="input-number" :disabled="caseStore.infoExists" /> </el-form-item>
           </div>
         </el-form-item>
-
-        <!-- 仿真 -->
         <el-form-item label="仿真" class="parent-form-item">
-          <!-- Labels for simulation parameters are kept as is, as they are not in the provided table snippet -->
-          <el-form-item
-            label="核"
-            prop="simulation.cores"
-            :inline="true"
-            class="child-form-item"
-          >
-            <el-input-number
-              v-model="caseStore.parameters.simulation.cores"
-              :min="1"
-              class="input-number"
-            />
-          </el-form-item>
-          <el-form-item
-            label="步数"
-            prop="simulation.steps"
-            :inline="true"
-            class="child-form-item"
-          >
-            <el-input-number
-              v-model="caseStore.parameters.simulation.steps"
-              :min="1"
-              class="input-number"
-            />
-          </el-form-item>
-          <el-form-item
-            label="时间步长"
-            prop="simulation.deltaT"
-            :inline="true"
-            class="child-form-item"
-          >
-            <el-input-number
-              v-model="caseStore.parameters.simulation.deltaT"
-              :min="0.001"
-              class="input-number"
-            />
-          </el-form-item>
+          <el-form-item label="核" prop="simulation.cores" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.simulation.cores" :min="1" class="input-number" /> </el-form-item>
+          <el-form-item label="步数" prop="simulation.steps" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.simulation.steps" :min="1" class="input-number" /> </el-form-item>
+          <el-form-item label="时间步长" prop="simulation.deltaT" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.simulation.deltaT" :min="0.001" class="input-number" /> </el-form-item>
         </el-form-item>
-
-        <!-- 后处理 -->
         <el-form-item label="后处理" class="parent-form-item">
-          <!-- Labels for postProcessing parameters are kept as is, as they are not in the provided table snippet -->
-          <el-form-item
-            label="结果层数"
-            prop="postProcessing.resultLayers"
-            :inline="true"
-            class="child-form-item"
-          >
-            <el-input-number
-              v-model="caseStore.parameters.postProcessing.resultLayers"
-              :min="1"
-              class="input-number"
-              :disabled="caseStore.infoExists"
-            />
-          </el-form-item>
-          <el-form-item
-            label="层数间距 (m)"
-            prop="postProcessing.layerSpacing"
-            :inline="true"
-            class="child-form-item"
-          >
-            <el-input-number
-              v-model="caseStore.parameters.postProcessing.layerSpacing"
-              :min="0"
-              class="input-number"
-              :disabled="caseStore.infoExists"
-            />
-          </el-form-item>
+          <el-form-item label="结果层数" prop="postProcessing.resultLayers" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.postProcessing.resultLayers" :min="1" class="input-number" :disabled="caseStore.infoExists" /> </el-form-item>
+          <el-form-item label="层数间距 (m)" prop="postProcessing.layerSpacing" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.postProcessing.layerSpacing" :min="0" class="input-number" :disabled="caseStore.infoExists" /> </el-form-item>
         </el-form-item>
 
-        <!-- 添加中心经纬度展示（只读） -->
-        <el-form-item label="中心经纬度" class="parent-form-item"> <!-- KEPT (This is a summary label for a computed value, not a direct parameter from the table's "参数描述" list that's editable here) -->
-          <el-input readonly :value="centerCoordinates" clearable class="location-input" />
-        </el-form-item>
+        <!-- 风机性能曲线 - 最终修复版 -->
+        <el-form-item label="风机性能曲线" class="parent-form-item">
+          <div class="performance-curve-section">
+            <!-- 输入指导 -->
+            <div class="curve-input-guidance">
+              <el-alert title="性能曲线数据格式要求" type="info" :closable="false" show-icon>
+                 <template #default>
+                  <div class="guidance-content">
+                    <p><strong>文件命名格式：</strong> 1-U-P-Ct.txt, 2-U-P-Ct.txt, ...</p>
+                    <p><strong>文件内容格式：</strong> 制表符或空格分隔的三列数据</p>
+                    <ul>
+                      <li>第1列：风速 (m/s)</li>
+                      <li>第2列：功率 (kW)</li>
+                      <li>第3列：推力系数 (Ct)</li>
+                    </ul>
+                  </div>
+                </template>
+              </el-alert>
+            </div>
 
-        <!-- 按钮区域 -->
+            <!-- 文件上传与预览区域 -->
+            <div class="curve-input-area">
+              <div class="input-left">
+                <el-upload drag ref="curveUploader" :auto-upload="false" :limit="10" :file-list="curveFileList" :on-remove="handleCurveRemove" :on-change="handleCurveAdd" accept=".txt,.csv" multiple :disabled="caseStore.infoExists">
+                  <el-icon><UploadFilled /></el-icon>
+                  <div class="el-upload__text">将 <b>1-U-P-Ct.txt</b> 等文件拖到此处，或<em>点击上传</em></div>
+                  <template #tip>
+                    <div class="el-upload__tip" v-if="caseStore.infoExists">
+                      <el-icon><Warning /></el-icon> 如需修改，请先点击下方的"修改参数"按钮。
+                    </div>
+                  </template>
+                </el-upload>
+                
+                <!-- 组合文件列表 -->
+                <div v-if="allCurveData.length" class="uploaded-files-list">
+                  <div class="files-header">
+                    <h4>性能曲线文件:</h4>
+                    <div class="header-actions">
+                      <el-button 
+                        v-if="hasPreviewedFiles" 
+                        @click="clearAllPreviews" 
+                        size="small" 
+                        type="warning" 
+                        plain
+                      >
+                        清空预览
+                      </el-button>
+                    </div>
+                  </div>
+                  <el-table :data="allCurveData" size="small" style="width: 100%">
+                    <el-table-column label="文件名" width="200">
+                      <template #default="scope">
+                        <div class="filename-cell">
+                          <span 
+                            :class="['filename', { 
+                              'clickable': !scope.row.isNew && !scope.row.isPreviewed,
+                              'previewed': scope.row.isPreviewed,
+                              'new-file': scope.row.isNew
+                            }]"
+                            @click="handleFilenameClick(scope.row)"
+                            :title="scope.row.isNew ? '新上传文件' : scope.row.isPreviewed ? '点击取消预览' : '点击预览文件内容'"
+                          >
+                            {{ scope.row.filename }}
+                          </span>
+                          <el-icon v-if="previewingFiles.has(scope.row.filename)" class="loading-icon is-loading"><Loading /></el-icon>
+                        </div>
+                      </template>
+                    </el-table-column>
+                    <el-table-column prop="dataPoints" label="数据点" width="80">
+                      <template #default="scope">
+                        <span v-if="scope.row.dataPoints === 'N/A'" class="na-hint">点击文件名查看</span>
+                        <span v-else>{{ scope.row.dataPoints }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column prop="windSpeedRange" label="风速范围(m/s)">
+                      <template #default="scope">
+                        <span v-if="scope.row.windSpeedRange === 'N/A'" class="na-hint">点击文件名查看</span>
+                        <span v-else>{{ scope.row.windSpeedRange }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column prop="maxPower" label="最大功率(kW)">
+                      <template #default="scope">
+                        <span v-if="scope.row.maxPower === 'N/A'" class="na-hint">点击文件名查看</span>
+                        <span v-else>{{ scope.row.maxPower }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="状态" width="80">
+                      <template #default="scope">
+                        <el-tag :type="getStatusTagType(scope.row)" size="small">
+                          {{ getStatusText(scope.row) }}
+                        </el-tag>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="操作" width="100">
+                      <template #default="scope">
+                        <div class="file-actions">
+                          <el-button 
+                            v-if="!scope.row.isNew"
+                            @click="deleteExistingFile(scope.row.filename)"
+                            size="small"
+                            type="danger"
+                            plain
+                            :disabled="caseStore.infoExists"
+                            title="删除文件"
+                          >
+                            <el-icon><Delete /></el-icon>
+                          </el-button>
+                          <el-button 
+                            v-if="scope.row.isPreviewed"
+                            @click="cancelPreview(scope.row.filename)"
+                            size="small"
+                            type="warning"
+                            plain
+                            title="取消预览"
+                          >
+                            <el-icon><Hide /></el-icon>
+                          </el-button>
+                        </div>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                </div>
+              </div>
+
+              <div class="preview-right">
+                <div class="chart-preview">
+                  <div class="chart-header">
+                    <h4>性能曲线预览</h4>
+                    <el-radio-group v-model="chartDisplayMode" size="small" v-if="currentChartData.datasets.length">
+                      <el-radio-button label="power">功率曲线</el-radio-button>
+                      <el-radio-button label="thrust">推力系数</el-radio-button>
+                      <el-radio-button label="both">双轴显示</el-radio-button>
+                    </el-radio-group>
+                  </div>
+
+                  <div v-if="!currentChartData.datasets.length" class="no-preview">
+                    <el-icon><PieChart /></el-icon>
+                    <p>请上传新文件或点击文件名预览</p>
+                    <p v-if="existingFilesList.length" class="existing-files-hint">
+                      点击左侧列表中的文件名可加载预览
+                    </p>
+                  </div>
+                  <div v-else class="chart-container">
+                    <Line ref="chartRef" :data="currentChartData" :options="currentChartOptions" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </el-form-item>
+        
+        <!-- 按钮区域保持不变... -->
         <el-form-item class="form-actions">
-          <el-button
-            type="primary"
-            @click="handleGenerateClick"
-            :disabled="isSubmitting || caseStore.infoExists || !hasTurbines"
-            class="submit-button"
-          >
-            <template v-if="isSubmitting">
-              <el-icon><Loading /></el-icon>
-              提交中...
-            </template>
+           <el-button type="primary" @click="handleGenerateClick" :disabled="isSubmitting || caseStore.infoExists || !hasTurbines" class="submit-button">
+            <template v-if="isSubmitting && !caseStore.infoExists"> <el-icon class="is-loading"><Loading /></el-icon> <span>提交中...</span> </template>
             <span v-else>提交参数</span>
           </el-button>
-          <el-button
-            type="success"
-            @click="handleDownloadClick"
-            v-if="caseStore.infoExists"
-            class="download-button"
-          >
-            下载 info.json
-          </el-button>
-          <el-button @click="forceRefresh" type="warning" size="small">刷新数据</el-button>
+          <template v-if="caseStore.infoExists">
+            <el-button type="warning" @click="handleModifyClick" :disabled="isSubmitting" class="modify-button">
+              <template v-if="isSubmitting"> <el-icon class="is-loading"><Loading /></el-icon> <span>解锁中...</span> </template>
+              <span v-else>修改参数</span>
+            </el-button>
+            <el-button type="success" @click="handleDownloadClick" class="download-button"> 下载 info.json </el-button>
+          </template>
         </el-form-item>
-
-        <div
-          v-if="submissionMessage"
-          :class="{
-            'message-box': true,
-            'success-message': submissionSuccess,
-            'error-message': !submissionSuccess,
-          }"
-        >
+        <div v-if="submissionMessage" :class="['message-box', submissionSuccess ? 'success-message' : 'error-message']">
           {{ submissionMessage }}
         </div>
       </el-form>
@@ -396,442 +260,508 @@
 </template>
 
 <script setup>
-  import { ref, computed, onMounted } from "vue";
-  import { ElMessage } from "element-plus";
-  import { Loading } from '@element-plus/icons-vue';
-  import { useRoute } from "vue-router";
-  import { useCaseStore } from "../store/caseStore";
-  import { knownTasks } from '../utils/tasks.js';
-  import { isRef, isReactive } from 'vue'; // 修改导入
-  import { storeToRefs } from 'pinia'; 
+import { ref, computed, onMounted, reactive, watch, nextTick } from "vue";
+import { InfoFilled, UploadFilled, Loading, Warning, PieChart, Delete, Hide } from '@element-plus/icons-vue';
+import { ElMessage, ElMessageBox } from "element-plus";
+import { useRoute } from "vue-router";
+import { useCaseStore } from "../store/caseStore";
+import { storeToRefs } from 'pinia'; 
+import axios from 'axios';
 
-  const route = useRoute();
-  const caseStore = useCaseStore();
-  const { windTurbines, infoExists } = storeToRefs(caseStore); // 使用 storeToRefs 解构
+// Chart.js imports
+import {
+  Chart as ChartJS, CategoryScale, LinearScale, PointElement,
+  LineElement, Title, Tooltip, Legend
+} from 'chart.js'
+import { Line } from 'vue-chartjs'
 
-  const caseId = route.params.caseId;
-  const formRef = ref(null);
-  const submissionMessage = ref("");
-  const submissionSuccess = ref(true);
-  const isSubmitting = ref(false);
-  const isLoading = ref(true); // Loading 状态
+ChartJS.register(
+  CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend
+);
 
-  // 直接使用 caseStore 中的 caseName
-  const caseName = computed(() => caseStore.caseName);
+const route = useRoute();
+const caseStore = useCaseStore();
+const { infoExists, geographicSize, windTurbines } = storeToRefs(caseStore); 
 
-  // 计算中心经纬度
-  const centerCoordinates = computed(() => {
-    console.log("计算centerCoordinates，风机数量:", caseStore.windTurbines?.length || 0);
+// 响应式变量
+const formRef = ref(null);
+const chartRef = ref(null);
+const curveFileList = reactive([]);
+const parsedCurveData = ref([]); // 新上传文件的解析数据
+const existingParsedData = ref([]); // 已存在文件的解析数据
+const existingFilesList = ref([]); // 已存在文件的元数据
+const chartDisplayMode = ref('both');
+const isLoading = ref(true);
+const isSubmitting = ref(false);
+const submissionMessage = ref("");
+const submissionSuccess = ref(true);
+const previewingFiles = ref(new Set()); // 跟踪正在预览的文件
 
-    if (caseStore.windTurbines && caseStore.windTurbines.length > 0) {
-      // 验证第一个风机数据有效性
-      const firstTurbine = caseStore.windTurbines[0];
-      if (!firstTurbine.longitude || !firstTurbine.latitude) {
-        console.warn("风机数据不完整:", firstTurbine);
-        return "经度: N/A, 纬度: N/A";
-      }
+const colorPalette = [
+  '#409EFF', '#67C23A', '#E6A23C', '#F56C6C', '#909399',
+  '#17a2b8', '#6f42c1', '#fd7e14', '#28a745', '#dc3545'
+];
 
-      // 原有的计算逻辑
-      const longitudes = caseStore.windTurbines.map(turbine => turbine.longitude);
-      const latitudes = caseStore.windTurbines.map(turbine => turbine.latitude);
+// 计算属性：是否有预览的文件
+const hasPreviewedFiles = computed(() => {
+  return existingParsedData.value.length > 0;
+});
 
-      // 添加检查，确保数组不为空
-      if (longitudes.length === 0 || latitudes.length === 0) {
-        return "经度: N/A, 纬度: N/A";
-      }
+// 文件处理逻辑
+const handleCurveAdd = async (file, fileList) => {
+  curveFileList.splice(0, curveFileList.length, ...fileList);
+  const newFiles = fileList.filter(f => f.raw instanceof File);
+  caseStore.setCurveFiles(newFiles.map(f => f.raw));
+  await parseNewFiles(newFiles);
+};
 
-      const minLon = Math.min(...longitudes);
-      const maxLon = Math.max(...longitudes);
-      const minLat = Math.min(...latitudes);
-      const maxLat = Math.max(...latitudes);
-      const centerLon = (minLon + maxLon) / 2;
-      const centerLat = (minLat + maxLat) / 2;
+const handleCurveRemove = async (file, fileList) => {
+  curveFileList.splice(0, curveFileList.length, ...fileList);
+  const newFiles = fileList.filter(f => f.raw instanceof File);
+  caseStore.setCurveFiles(newFiles.map(f => f.raw));
+  await parseNewFiles(newFiles);
+};
 
-      return `经度: ${centerLon.toFixed(6)}, 纬度: ${centerLat.toFixed(6)}`;
+const parseNewFiles = async (fileList) => {
+  const parsed = [];
+  for (const file of fileList) {
+    if (!file.raw || !(file.raw instanceof File)) continue;
+    try {
+      const data = await parseFile(file.raw);
+      parsed.push(createParsedDataObject(file.name, data, true));
+    } catch (error) {
+      ElMessage.error(`文件 ${file.name} 格式错误: ${error.message}`);
     }
-    return "经度: N/A, 纬度: N/A";
+  }
+  parsedCurveData.value = parsed.sort((a, b) => a.filename.localeCompare(b.filename));
+};
+
+// 按需预览已存在的文件
+const previewExistingFile = async (filename) => {
+  if (previewingFiles.value.has(filename)) return;
+  previewingFiles.value.add(filename);
+  try {
+    const response = await axios.get(`/api/cases/${caseStore.caseId}/curve-files/${filename}`);
+    if (response.data.success) {
+      const data = parseTextData(response.data.content);
+      const parsedObj = createParsedDataObject(filename, data, false);
+      const existingIndex = existingParsedData.value.findIndex(item => item.filename === filename);
+      if (existingIndex >= 0) existingParsedData.value[existingIndex] = parsedObj;
+      else existingParsedData.value.push(parsedObj);
+      
+      const fileInfoIndex = existingFilesList.value.findIndex(item => item.filename === filename);
+      if (fileInfoIndex >= 0) {
+        existingFilesList.value[fileInfoIndex] = {
+          ...existingFilesList.value[fileInfoIndex],
+          dataPoints: data.points.length,
+          windSpeedRange: `${data.minWindSpeed.toFixed(1)} - ${data.maxWindSpeed.toFixed(1)}`,
+          maxPower: data.maxPower.toFixed(1),
+          status: data.warnings.length > 0 ? 'warning' : 'valid',
+          isPreviewed: true
+        };
+      }
+      ElMessage.success(`已加载文件 ${filename} 的预览`);
+    }
+  } catch (error) {
+    ElMessage.error(`预览文件 ${filename} 失败: ${error.response?.data?.message || error.message}`);
+  } finally {
+    previewingFiles.value.delete(filename);
+  }
+};
+
+// 新增：删除已存在的文件
+const deleteExistingFile = async (filename) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除文件 ${filename} 吗？此操作不可恢复。`,
+      '删除确认',
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
+    );
+    
+    const response = await axios.delete(`/api/cases/${caseStore.caseId}/curve-files/${filename}`);
+    if (response.data.success) {
+      // 从列表中移除
+      existingFilesList.value = existingFilesList.value.filter(file => file.filename !== filename);
+      existingParsedData.value = existingParsedData.value.filter(file => file.filename !== filename);
+      ElMessage.success(`文件 ${filename} 删除成功`);
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(`删除文件 ${filename} 失败: ${error.response?.data?.message || error.message}`);
+    }
+  }
+};
+
+// 新增：取消单个文件预览
+const cancelPreview = (filename) => {
+  existingParsedData.value = existingParsedData.value.filter(file => file.filename !== filename);
+  const fileInfoIndex = existingFilesList.value.findIndex(item => item.filename === filename);
+  if (fileInfoIndex >= 0) {
+    existingFilesList.value[fileInfoIndex] = {
+      ...existingFilesList.value[fileInfoIndex],
+      dataPoints: 'N/A',
+      windSpeedRange: 'N/A',
+      maxPower: 'N/A',
+      status: 'existing',
+      isPreviewed: false
+    };
+  }
+  ElMessage.info(`已取消文件 ${filename} 的预览`);
+};
+
+// 新增：清空所有预览
+const clearAllPreviews = () => {
+  existingParsedData.value = [];
+  existingFilesList.value.forEach(file => {
+    if (file.isPreviewed) {
+      file.dataPoints = 'N/A';
+      file.windSpeedRange = 'N/A';
+      file.maxPower = 'N/A';
+      file.status = 'existing';
+      file.isPreviewed = false;
+    }
   });
+  ElMessage.info('已清空所有文件预览');
+};
 
-  // Initialize case in the store
-  const initialize = async () => {
-    await caseStore.initializeCase(caseId);
-  };
-
-  const forceRefresh = () => {
-    console.log("强制刷新，当前风机数量:", caseStore.windTurbines.length);
-    caseStore.windTurbines.forEach(turbine => {
-      console.log(turbine.id, turbine.name);
-    });
-  };
-
-  onMounted(async () => {
-  const routeCaseId = route.params.caseId;
-  console.log("组件挂载，从路由获取的caseId:", routeCaseId);
-  
-  if (!routeCaseId) {
-    ElMessage.error('无效的工况ID');
+const handleFilenameClick = (fileInfo) => {
+  if (fileInfo.isNew) {
+    // 新上传的文件，不需要处理
     return;
   }
   
+  if (fileInfo.isPreviewed) {
+    // 已预览的文件，点击取消预览
+    cancelPreview(fileInfo.filename);
+  } else {
+    // 未预览的文件，点击预览
+    previewExistingFile(fileInfo.filename);
+  }
+};
+
+// 状态显示辅助函数
+const getStatusTagType = (row) => {
+  if (row.status === 'valid') return 'success';
+  if (row.status === 'warning') return 'warning';
+  if (row.isNew) return 'primary';
+  return 'info';
+};
+
+const getStatusText = (row) => {
+  if (row.status === 'valid') return '正常';
+  if (row.status === 'warning') return '警告';
+  if (row.isNew) return '新上传';
+  if (row.isPreviewed) return '已预览';
+  return '未预览';
+};
+
+// 辅助函数与解析（保持不变）
+const createParsedDataObject = (filename, data, isNew) => ({
+  filename, data: data.points, dataPoints: data.points.length,
+  windSpeedRange: `${data.minWindSpeed.toFixed(1)} - ${data.maxWindSpeed.toFixed(1)}`,
+  maxPower: data.maxPower.toFixed(1),
+  status: data.warnings.length > 0 ? 'warning' : 'valid',
+  warnings: data.warnings, turbineType: extractTurbineTypeFromFilename(filename),
+  isNew, isPreviewed: !isNew
+});
+
+const parseFile = async (file) => {
+  if (!(file instanceof Blob)) throw new Error('无效的文件对象类型');
+  const text = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = () => reject(new Error('文件读取失败'));
+    reader.readAsText(file, 'utf-8');
+  });
+  return parseTextData(text);
+};
+
+const extractTurbineTypeFromFilename = (filename) => {
+  const match = filename.match(/^(\d+)-U-P-Ct\./);
+  return match ? `风机类型 ${match[1]}` : filename;
+};
+
+const parseTextData = (text) => {
+  const lines = text.split('\n').filter(line => line.trim());
+  if (lines.length === 0) throw new Error("文件为空或不包含有效数据");
+  const points = [];
+  const warnings = [];
+  for (let i = 0; i < lines.length; i++) {
+    const values = lines[i].trim().split(/\s+/).filter(v => v);
+    if (values.length !== 3) throw new Error(`第 ${i + 1} 行: 应有3列数据，当前为 ${values.length} 列`);
+    const [windSpeed, power, thrustCoeff] = values.map(parseFloat);
+    if ([windSpeed, power, thrustCoeff].some(isNaN)) throw new Error(`第 ${i + 1} 行: 包含非数字数据`);
+    if (windSpeed < 0) throw new Error(`第 ${i + 1} 行: 风速不能为负`);
+    if (power < 0) warnings.push(`第 ${i + 1} 行: 功率为负 (${power} kW)`);
+    if (thrustCoeff < 0 || thrustCoeff > 3) warnings.push(`第 ${i + 1} 行: 推力系数 ${thrustCoeff} 超出常规范围 [0, 3]`);
+    points.push({ windSpeed, power, thrustCoeff });
+  }
+  points.sort((a, b) => a.windSpeed - b.windSpeed);
+  const windSpeeds = points.map(p => p.windSpeed);
+  const powers = points.map(p => p.power);
+  return {
+    points, warnings,
+    minWindSpeed: Math.min(...windSpeeds), maxWindSpeed: Math.max(...windSpeeds),
+    maxPower: Math.max(...powers)
+  };
+};
+
+// 页面加载与数据组合
+const loadExistingFiles = async () => {
+  if (!caseStore.caseId) return;
   try {
-    // 确保调用initializeCase来更新store中的caseId
-    await caseStore.initializeCase(routeCaseId);
-    console.log("store初始化后的caseId:", caseStore.caseId);
-    
-    // 现在store.caseId应该已经设置为routeCaseId
-    if (caseStore.caseId !== routeCaseId) {
-      console.error("初始化失败，store中的caseId未更新:", caseStore.caseId);
-      ElMessage.error("初始化工况失败");
-      return;
-    }
-    
-    // 初始化成功后再加载其他数据
-    if (caseStore.windTurbines.length === 0) {
-      await caseStore.fetchWindTurbines();
+    const response = await axios.get(`/api/cases/${caseStore.caseId}/curve-files`);
+    if (response.data.success && response.data.files.length > 0) {
+      existingFilesList.value = response.data.files.map(fileInfo => ({
+        filename: fileInfo.name, size: fileInfo.size,
+        turbineType: extractTurbineTypeFromFilename(fileInfo.name),
+        status: 'existing', isNew: false, isPreviewed: false,
+        dataPoints: 'N/A', windSpeedRange: 'N/A', maxPower: 'N/A'
+      }));
+      if (existingFilesList.value.length > 0) {
+        ElMessage({ message: `发现 ${existingFilesList.value.length} 个已上传的文件，点击文件名可预览`, type: 'info', duration: 4000 });
+      }
     }
   } catch (error) {
-    console.error("初始化store失败:", error);
+    if (error.response?.status !== 404) console.warn('加载现有性能曲线文件失败:', error);
+  }
+};
+
+const allCurveData = computed(() => {
+  return [...existingFilesList.value, ...parsedCurveData.value]
+    .sort((a, b) => a.filename.localeCompare(b.filename));
+});
+
+// 图表配置与渲染（保持不变）
+const currentChartData = computed(() => {
+  const allParsedData = [...existingParsedData.value, ...parsedCurveData.value];
+  if (!allParsedData.length) return { labels: [], datasets: [] };
+  const allWindSpeeds = Array.from(new Set(allParsedData.flatMap(c => c.data.map(p => p.windSpeed)))).sort((a, b) => a - b);
+  const datasets = [];
+  allParsedData.forEach((curve, index) => {
+    const color = colorPalette[index % colorPalette.length];
+    const createDataset = (label, dataKey, yAxisID, borderDash = []) => {
+      const data = allWindSpeeds.map(speed => curve.data.find(p => p.windSpeed === speed)?.[dataKey] ?? null);
+      return { label, data, borderColor: color, backgroundColor: color + '20', tension: 0.1, spanGaps: true, yAxisID, borderDash };
+    };
+    if (['power', 'both'].includes(chartDisplayMode.value)) datasets.push(createDataset(`${curve.turbineType} - 功率 (kW)`, 'power', 'y'));
+    if (['thrust', 'both'].includes(chartDisplayMode.value)) datasets.push(createDataset(`${curve.turbineType} - 推力系数 (Ct)`, 'thrustCoeff', chartDisplayMode.value === 'both' ? 'y1' : 'y', chartDisplayMode.value === 'both' ? [5, 5] : []));
+  });
+  return { labels: allWindSpeeds, datasets };
+});
+
+const currentChartOptions = computed(() => {
+  const baseOptions = {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { title: { display: false }, legend: { position: 'top', maxHeight: 60, labels: { boxWidth: 12, padding: 8 } }, tooltip: { mode: 'index', intersect: false } },
+    scales: { x: { display: true, title: { display: true, text: '风速 (m/s)' } }, y: { type: 'linear', display: true, position: 'left', title: { display: true, text: chartDisplayMode.value === 'power' ? '功率 (kW)' : chartDisplayMode.value === 'thrust' ? '推力系数 (Ct)' : '功率 (kW)' }, beginAtZero: true } },
+    interaction: { mode: 'nearest', axis: 'x', intersect: false },
+    layout: { padding: { top: 10, bottom: 10, left: 10, right: 10 } }
+  };
+  if (chartDisplayMode.value === 'both') baseOptions.scales.y1 = { type: 'linear', display: true, position: 'right', title: { display: true, text: '推力系数 (Ct)' }, grid: { drawOnChartArea: false }, beginAtZero: true };
+  return baseOptions;
+});
+
+watch([parsedCurveData, existingParsedData, chartDisplayMode], async () => {
+  const allParsedData = [...existingParsedData.value, ...parsedCurveData.value];
+  if (allParsedData.length > 0) {
+    await nextTick();
+    if (chartRef.value?.chart) chartRef.value.chart.resize();
+  }
+}, { deep: true });
+
+onMounted(async () => {
+  const routeCaseId = route.params.caseId;
+  isLoading.value = true;
+  if (!routeCaseId) {
+    ElMessage.error('无效的工况ID');
+    isLoading.value = false; return;
+  }
+  try {
+    await caseStore.initializeCase(routeCaseId);
+    await loadExistingFiles();
+  } catch (error) {
     ElMessage.error("初始化工况失败");
   } finally {
     isLoading.value = false;
   }
 });
 
-  // Validation rules
-  const rules = {
-    "calculationDomain.width": [
-      { required: true, message: "请输入计算域宽度", trigger: "blur" },
-      { type: "number", min: 1, message: "宽度必须大于0", trigger: "blur" },
-    ],
-    "calculationDomain.height": [
-      { required: true, message: "请输入计算域高度", trigger: "blur" },
-      { type: "number", min: 1, message: "高度必须大于0", trigger: "blur" },
-    ],
-    "conditions.windDirection": [
-      { required: true, message: "请输入风向角", trigger: "blur" },
-      {
-        type: "number",
-        min: 0,
-        max: 360,
-        message: "风向角必须在0到360之间",
-        trigger: "blur",
-      },
-    ],
-    "conditions.inletWindSpeed": [
-      { required: true, message: "请输入入口风速", trigger: "blur" },
-      { type: "number", min: 0, message: "风速必须大于0", trigger: "blur" },
-    ],
-    "grid.encryptionHeight": [
-      { required: true, message: "请输入加密区高度", trigger: "blur" },
-      { type: "number", min: 0, message: "高度必须大于0", trigger: "blur" },
-    ],
-    "grid.encryptionLayers": [
-      { required: true, message: "请输入加密层数", trigger: "blur" },
-      { type: "number", min: 0, message: "层数必须大于0", trigger: "blur" },
-    ],
-    "grid.gridGrowthRate": [
-      { required: true, message: "请输入网格生长率", trigger: "blur" },
-      { type: "number", min: 0, message: "生长率必须大于0", trigger: "blur" },
-    ],
-    "grid.maxExtensionLength": [
-      { required: true, message: "请输入最大特征长度", trigger: "blur" },
-      { type: "number", min: 0, message: "长度必须大于0", trigger: "blur" },
-    ],
-    "grid.encryptionRadialLength": [
-      { required: true, message: "请输入加密区径向长度", trigger: "blur" },
-      { type: "number", min: 0, message: "长度必须大于0", trigger: "blur" },
-    ],
-    "grid.downstreamRadialLength": [
-      { required: true, message: "请输入尾流区径向长度", trigger: "blur" },
-      { type: "number", min: 0, message: "长度必须大于0", trigger: "blur" },
-    ],
-    "grid.encryptionRadius": [
-      { required: true, message: "请输入加密半径", trigger: "blur" },
-      { type: "number", min: 0, message: "半径必须大于0", trigger: "blur" },
-    ],
-    "grid.encryptionTransitionRadius": [
-      { required: true, message: "请输入加密过渡半径", trigger: "blur" },
-      { type: "number", min: 0, message: "半径必须大于0", trigger: "blur" },
-    ],
-    "grid.terrainRadius": [
-      { required: true, message: "请输入地形半径", trigger: "blur" },
-      { type: "number", min: 0, message: "半径必须大于0", trigger: "blur" },
-    ],
-    "grid.terrainTransitionRadius": [
-      { required: true, message: "请输入地形过渡半径", trigger: "blur" },
-      { type: "number", min: 0, message: "半径必须大于0", trigger: "blur" },
-    ],
-    "grid.downstreamLength": [
-      { required: true, message: "请输入尾流区长度", trigger: "blur" },
-      { type: "number", min: 0, message: "长度必须大于0", trigger: "blur" },
-    ],
-    "grid.downstreamWidth": [
-      { required: true, message: "请输入尾流区宽度", trigger: "blur" },
-      { type: "number", min: 0, message: "宽度必须大于0", trigger: "blur" },
-    ],
-    "grid.scale": [
-      { required: true, message: "请输入缩放比", trigger: "blur" },
-      { type: "number", min: 0, max: 1, message: "缩放比必须在0到1之间", trigger: "blur" },
-    ],
-    "simulation.cores": [
-      { required: true, message: "请输入仿真核心数", trigger: "blur" },
-      { type: "number", min: 1, message: "核心数必须大于0", trigger: "blur" },
-    ],
-    "simulation.steps": [
-      { required: true, message: "请输入仿真步数", trigger: "blur" },
-      { type: "number", min: 1, message: "步数必须大于0", trigger: "blur" },
-    ],
-    "simulation.deltaT": [
-      { required: true, message: "请输入时间步长", trigger: "blur" },
-      { type: "number", min: 0, message: "时间步长必须大于0", trigger: "blur" },
-    ],
-    "postProcessing.resultLayers": [
-      { required: true, message: "请输入结果层数", trigger: "blur" },
-      { type: "number", min: 1, message: "结果层数必须大于0", trigger: "blur" },
-    ],
-    "postProcessing.layerSpacing": [
-      { required: true, message: "请输入层数间距", trigger: "blur" },
-      { type: "number", min: 0, message: "间距必须大于0", trigger: "blur" },
-    ],
-    "postProcessing.layerDataWidth": [
-      { required: true, message: "请输入各层数据宽度", trigger: "blur" },
-      { type: "number", min: 0, message: "宽度必须大于0", trigger: "blur" },
-    ],
-    "postProcessing.layerDataHeight": [
-      { required: true, message: "请输入各层数据高度", trigger: "blur" },
-      { type: "number", min: 0, message: "高度必须大于0", trigger: "blur" },
-    ],
-  };
+// 页面控制与提交（保持不变）
+const handleGenerateClick = async () => {
+  if (!hasTurbines.value) return ElMessage.error("请先上传风机布局数据");
+  const hasNewFiles = caseStore.curveFiles.length > 0;
+  const hasExistingFiles = existingFilesList.value.length > 0;
+  if (!hasNewFiles && !hasExistingFiles) return ElMessage.error("请先上传风机性能曲线文件");
 
-  // Handle parameter submission
-  const handleGenerateClick = async () => {
-    if (caseStore.windTurbines.length === 0) {
-      ElMessage.error("请先上传风机数据");
-      return;
-    }
+  isSubmitting.value = true;
+  submissionMessage.value = "";
+  try {
+    await formRef.value.validate();
+    if (hasNewFiles) await caseStore.uploadCurveFiles();
+    const submitData = {
+      parameters: caseStore.parameters, windTurbines: caseStore.windTurbines,
+      geographicBounds: { minLat: caseStore.minLatitude, maxLat: caseStore.maxLatitude, minLon: caseStore.minLongitude, maxLon: caseStore.maxLongitude }
+    };
+    await caseStore.submitParameters(submitData);
+    await caseStore.generateInfoJson(submitData);
+    submissionSuccess.value = true;
+    submissionMessage.value = "参数提交成功，info.json 已生成";
+  } catch (error) {
+    submissionSuccess.value = false;
+    submissionMessage.value = error.response?.data?.message || error.message || "参数提交失败";
+  } finally {
+    isSubmitting.value = false;
+  }
+};
+
+const handleModifyClick = async () => {
+  try {
+    await ElMessageBox.confirm('修改参数将删除已生成的 info.json，可能导致现有计算结果失效。确定继续吗？', '警告', { confirmButtonText: '确定修改', cancelButtonText: '取消', type: 'warning' });
     isSubmitting.value = true;
-    try {
-      await formRef.value.validate();
-      await caseStore.submitParameters();
-      // 添加这一行，确保生成 info.json
-      await caseStore.generateInfoJson();
+    await caseStore.unlockParameters();
+    ElMessage.success('参数已解锁，您可以重新编辑和提交。');
+  } catch (error) {
+    if (error !== 'cancel') console.error('解锁操作失败:', error);
+    else ElMessage.info('已取消修改操作。');
+  } finally {
+    isSubmitting.value = false;
+  }
+};
 
-      submissionSuccess.value = true;
-      submissionMessage.value = "参数提交成功，info.json 已生成";
-      ElMessage.success("参数提交成功，info.json 已生成");
-    } catch (error) {
-      submissionSuccess.value = false;
-      submissionMessage.value = error.message || "参数提交失败";
-      ElMessage.error(submissionMessage.value);
-    } finally {
-      isSubmitting.value = false;
-    }
-  };
+const handleDownloadClick = () => caseStore.downloadInfoJson();
 
-  // Handle info.json download
-  const handleDownloadClick = async () => {
-    await caseStore.downloadInfoJson();
-  };
+const recommendedDomainSize = computed(() => {
+  const size = geographicSize.value;
+  return size ? Math.ceil(Math.max(size.width, size.height)) : 0;
+});
+const showDomainSizeHint = computed(() => recommendedDomainSize.value > 0 && caseStore.parameters.calculationDomain.width < recommendedDomainSize.value);
+const domainSizeHintText = computed(() => `建议大于地形尺寸最大值 (${recommendedDomainSize.value} m)`);
+const hasTurbines = computed(() => windTurbines.value?.length > 0);
 
-  // 添加额外的计算属性，增强稳定性
-  const hasTurbines = computed(() => {
-    return caseStore.windTurbines && caseStore.windTurbines.length > 0;
-  });
+const rules = reactive({
+    'calculationDomain.width': [{ required: true, message: '请输入计算域长度', trigger: 'blur' }],
+    'calculationDomain.height': [{ required: true, message: '请输入计算域高度', trigger: 'blur' }],
+    'conditions.windDirection': [{ required: true, message: '请输入风向角', trigger: 'blur' }],
+    'conditions.inletWindSpeed': [{ required: true, message: '请输入入口风速', trigger: 'blur' }],
+    'grid.encryptionHeight': [{ required: true, message: '请输入粗糙层高度', trigger: 'blur' }],
+    'simulation.cores': [{ required: true, message: '请输入核心数', trigger: 'blur' }],
+    'simulation.steps': [{ required: true, message: '请输入步数', trigger: 'blur' }],
+    'simulation.deltaT': [{ required: true, message: '请输入时间步长', trigger: 'blur' }],
+});
 </script>
 
 <style scoped>
-.parameter-settings {
-  padding: 24px;
-  background-color: #f9fafc;
-  border-radius: 8px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.05);
-  max-width: 1200px;
-  margin: 0 auto;
+/* 原有样式保持不变，新增以下样式 */
+.files-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
 }
 
-.header {
-  margin-bottom: 24px;
-  text-align: center;
-}
-
-.header h2 {
-  color: #303133;
-  font-weight: 600;
+.files-header h4 {
   margin: 0;
-  padding-bottom: 12px;
-  position: relative;
+  color: #303133;
+  font-size: 15px;
 }
 
-.header h2::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 60px;
-  height: 3px;
-  background-color: #409EFF;
-  border-radius: 3px;
+.header-actions {
+  display: flex;
+  gap: 8px;
 }
 
-.case-info-container {
-  margin-bottom: 20px;
-  background-color: #f0f7ff;
-  padding: 16px;
-  border-radius: 6px;
-  border-left: 4px solid #409EFF;
-}
-
-.case-info {
-  margin-bottom: 0;
-}
-
-.el-divider {
-  margin: 28px 0;
-}
-
-.parameter-form {
-  margin-top: 20px;
-}
-
-/* 父子表单项样式 */
-.parent-form-item {
-  margin-bottom: 28px;
-  padding: 20px;
-  background-color: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  position: relative;
-}
-
-.parent-form-item::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 4px;
-  height: 100%;
-  background-color: #409EFF;
-  border-radius: 4px 0 0 4px;
-}
-
-.parent-form-item > .el-form-item__label {
+.filename.new-file {
   color: #409EFF;
-  font-weight: 600;
-  font-size: 16px;
-}
-
-.grid-section {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 15px;
-  margin-top: 5px;
-}
-
-.child-form-item {
-  margin-right: 20px;
-  margin-bottom: 10px;
-  min-width: 300px;
-}
-
-.input-number {
-  width: 120px !important;
-}
-
-.location-input {
-  font-family: monospace;
-  font-size: 14px;
-  width: 100%;
-  max-width: 400px;
-}
-
-.form-actions {
-  display: flex;
-  justify-content: center;
-  margin-top: 30px;
-  padding: 0 !important;
-  background: none !important;
-  box-shadow: none !important;
-}
-
-.form-actions::before {
-  display: none;
-}
-
-.submit-button {
-  min-width: 180px;
-  height: 44px;
-  font-size: 16px;
-  font-weight: 500;
-  background-color: #409EFF;
-  border-color: #409EFF;
-  transition: all 0.3s;
-}
-
-.submit-button:hover:not(:disabled) {
-  background-color: #66b1ff;
-  border-color: #66b1ff;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(64, 158, 255, 0.3);
-}
-
-.download-button {
-  margin-left: 16px;
-  height: 44px;
-  font-size: 16px;
   font-weight: 500;
 }
 
-.message-box {
-  margin-top: 24px;
-  padding: 16px;
-  border-radius: 6px;
-  font-size: 14px;
-  text-align: center;
+.filename.clickable {
+  color: #909399;
+  cursor: pointer;
+  text-decoration: underline;
 }
 
-.success-message {
-  background-color: #f0f9eb;
+.filename.clickable:hover {
+  color: #409EFF;
+}
+
+.filename.previewed {
   color: #67c23a;
-  border: 1px solid #c2e7b0;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: underline;
 }
 
-.error-message {
-  background-color: #fef0f0;
-  color: #f56c6c;
-  border: 1px solid #fbc4c4;
+.filename.previewed:hover {
+  color: #85ce61;
 }
 
-.loading-placeholder {
-  padding: 24px;
+.na-hint {
+  color: #c0c4cc;
+  font-style: italic;
+  font-size: 12px;
 }
 
-/* 响应式调整 */
-@media (max-width: 768px) {
-  .parameter-settings {
-    padding: 16px;
-  }
+.file-actions {
+  display: flex;
+  gap: 4px;
+}
 
-  .child-form-item {
-    min-width: 100%;
-    margin-right: 0;
-  }
+.file-actions .el-button {
+  padding: 4px 6px;
+}
 
-  .grid-section {
-    flex-direction: column;
-  }
-
-  .form-actions {
-    flex-direction: column;
-  }
-
-  .download-button {
-    margin-left: 0;
-    margin-top: 12px;
-  }
-
-  .parent-form-item {
-    padding: 15px;
-  }
+/* 基础布局样式保持不变 */
+.parameter-settings { padding: 24px; background-color: #f9fafc; border-radius: 8px; box-shadow: 0 2px 12px 0 rgba(0,0,0,0.05); max-width: 1400px; margin: 0 auto; }
+.header { text-align: center; margin-bottom: 24px; }
+.header h2 { color: #303133; font-weight: 600; margin: 0; padding-bottom: 12px; position: relative; }
+.header h2::after { content: ''; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 60px; height: 3px; background-color: #409EFF; border-radius: 3px; }
+.case-info-container { margin-bottom: 20px; background-color: #f0f7ff; padding: 16px; border-radius: 6px; border-left: 4px solid #409EFF; }
+.el-divider { margin: 28px 0; }
+.parameter-form { --el-form-label-font-size: 14px; }
+.parent-form-item { margin-bottom: 28px; padding: 20px; background-color: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); position: relative; }
+.parent-form-item::before { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; background-color: #409EFF; border-radius: 4px 0 0 4px; }
+:deep(.parent-form-item > .el-form-item__label) { color: #409EFF; font-weight: 600; font-size: 16px; }
+.grid-section { display: flex; flex-wrap: wrap; gap: 15px; margin-top: 5px; }
+.child-form-item { margin-right: 20px; margin-bottom: 10px; min-width: 300px; }
+.input-number { width: 120px !important; }
+.input-with-hint { display: flex; align-items: center; gap: 10px; width: 100%; }
+.form-item-hint { display: flex; align-items: center; padding: 4px 8px; border-radius: 4px; font-size: 12px; white-space: nowrap; color: #E6A23C; background-color: #fdf6ec; border: 1px solid #faecd8; }
+.form-item-hint .el-icon { margin-right: 5px; }
+.performance-curve-section { width: 100%; }
+.curve-input-guidance { margin-bottom: 20px; }
+.guidance-content p { margin: 8px 0; font-size: 14px; }
+.guidance-content ul { margin: 8px 0; padding-left: 20px; }
+.guidance-content li { margin: 4px 0; font-size: 14px; }
+.curve-input-area { display: flex; gap: 24px; min-height: 500px; max-height: 700px; }
+.input-left { flex: 1.2; min-width: 400px; }
+.preview-right { flex: 2; min-width: 450px; }
+.uploaded-files-list { margin-top: 20px; padding: 16px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; max-height: 250px; overflow-y: auto; }
+.filename-cell { display: flex; align-items: center; gap: 8px; }
+.filename { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview-hint, .loading-icon { color: #409EFF; font-size: 14px; }
+.chart-preview { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); height: 100%; display: flex; flex-direction: column; max-height: 600px; }
+.chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.chart-header h4 { margin: 0; color: #303133; font-size: 16px; font-weight: 600; }
+.chart-container { flex: 1; position: relative; height: 450px; max-height: 450px; overflow: hidden; }
+.chart-container canvas { max-height: 100% !important; max-width: 100% !important; }
+.no-preview { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #909399; gap: 12px; background-color: #f5f7fa; border-radius: 6px; text-align: center; }
+.no-preview .el-icon { font-size: 48px; }
+.no-preview p { margin: 0; font-size: 14px; }
+.existing-files-hint { font-size: 12px; color: #909399; margin-top: 8px; }
+.form-actions { display: flex; justify-content: center; margin-top: 30px; padding: 0 !important; background: none !important; box-shadow: none !important; }
+.form-actions::before { display: none; }
+.submit-button, .modify-button, .download-button { min-width: 150px; height: 44px; font-size: 16px; font-weight: 500; }
+.modify-button, .download-button { margin-left: 16px; }
+.message-box { margin-top: 24px; padding: 16px; border-radius: 6px; font-size: 14px; text-align: center; }
+.success-message { background-color: #f0f9eb; color: #67c23a; border: 1px solid #c2e7b0; }
+.error-message { background-color: #fef0f0; color: #f56c6c; border: 1px solid #fbc4c4; }
+.loading-placeholder { padding: 24px; }
+.el-upload__tip .el-icon { vertical-align: middle; margin-right: 4px; }
+@media (max-width: 1200px) {
+  .curve-input-area { flex-direction: column; max-height: none; }
+  .input-left, .preview-right { min-width: unset; flex: 1; }
+  .chart-container { height: 350px; }
 }
 </style>

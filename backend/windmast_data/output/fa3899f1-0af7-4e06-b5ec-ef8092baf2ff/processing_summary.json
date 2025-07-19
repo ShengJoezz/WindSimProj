@@ -1,0 +1,70 @@
+{
+  "analysisId": "fa3899f1-0af7-4e06-b5ec-ef8092baf2ff",
+  "analysisName": "测风分析-0707_092352",
+  "description": "",
+  "status": "completed_with_warnings",
+  "startTime": "2025-07-07T09:23:58.857985",
+  "endTime": "2025-07-07T09:24:02.427882",
+  "totalDurationSec": 3.57,
+  "inputDataFolder": "/home/joe/wind_project/WindSimProj/backend/windmast_data/input",
+  "outputDataFolder": "/home/joe/wind_project/WindSimProj/backend/windmast_data/output/fa3899f1-0af7-4e06-b5ec-ef8092baf2ff",
+  "parameters": {
+    "enableFiltering": true,
+    "threshold": 60,
+    "method": "standard",
+    "chartTypes": [
+      "wind_rose",
+      "wind_frequency",
+      "wind_energy",
+      "stability_distribution"
+    ]
+  },
+  "files_requested": 1,
+  "files_processed": 1,
+  "success_files": 0,
+  "warning_files": 1,
+  "error_files": 0,
+  "processed_files_details": [
+    {
+      "file": "1751851429202-meteoforce_W001PADINGLIANGZI_2021010106_weather.csv",
+      "farm_id": "W001PADINGLIANGZI",
+      "date_str": "1751851429202",
+      "status": "warning",
+      "plots_created": [
+        "windrose_10m",
+        "wind_frequency_10m",
+        "wind_energy_10m",
+        "windrose_30m",
+        "wind_frequency_30m",
+        "wind_energy_30m",
+        "windrose_50m",
+        "wind_frequency_50m",
+        "wind_energy_50m",
+        "windrose_70m",
+        "wind_frequency_70m",
+        "wind_energy_70m",
+        "windrose_80m",
+        "wind_frequency_80m",
+        "wind_energy_80m",
+        "windrose_90m",
+        "wind_frequency_90m",
+        "wind_energy_90m",
+        "windrose_110m",
+        "wind_frequency_110m",
+        "wind_energy_110m",
+        "stability_distribution"
+      ],
+      "output_folder": "/home/joe/wind_project/WindSimProj/backend/windmast_data/output/fa3899f1-0af7-4e06-b5ec-ef8092baf2ff",
+      "warnings": [
+        "date_time 列不是日期时间格式",
+        "保存统计信息失败: NDFrame.describe() got an unexpected keyword argument 'datetime_is_numeric'"
+      ],
+      "error": null,
+      "rows_processed": 1320,
+      "processing_time_sec": 3.5
+    }
+  ],
+  "unique_farm_ids": [
+    "W001PADINGLIANGZI"
+  ]
+}

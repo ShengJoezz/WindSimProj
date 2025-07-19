@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-03-30 14:43:20
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-05-17 00:51:17
+ * @LastEditTime: 2025-05-26 15:49:16
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\router\index.js
  * @Description: 
  * 
@@ -24,8 +24,9 @@ const routes = [
   { path: "/new", name: "NewCase", component: NewCase },
   { path: "/cases", name: "Cases", component: Cases },
   { path: "/terrainTest", name: "terrainTest", component: () => import("../components/TerrainMap/SingleTurbineTest_zh.vue")},
-  { path: "/comprehensive-test", name: "ComprehensiveVizTester", component: () => import("../components/ComprehensiveVizTester.vue")},
-  {path: "/terrainClip", name: "ComprehensiveVizTester", component: () => import("../components/TerrainClippingTester.vue")},
+  { path: "/terrainClip", name: "TerrainClipPage", component: () => import("../components/TerrainClippingTester.vue")},
+  { path: "/comprehensive-test", name: "ComprehensiveTestPage", component: () => import("../components/ComprehensiveVizTester.vue")},
+  { path: "/3Dtest", name: "3DTestPage", component: () => import("../components/3DtestOld.vue")},
   
   {
     path: "/cases/:caseId",

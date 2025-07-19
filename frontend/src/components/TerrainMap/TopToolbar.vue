@@ -1,3 +1,14 @@
+<!--
+ * @Author: joe 847304926@qq.com
+ * @Date: 2025-03-19 22:23:16
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-05-17 01:49:05
+ * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\TopToolbar.vue
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+-->
+
 <!-- frontend/src/components/TerrainMap/TopToolbar.vue -->
 <template>
   <div class="top-toolbar" role="toolbar">
@@ -23,9 +34,11 @@
         风机管理
       </el-button>
 
+      <!-- Removed Terrain Clipping Button -->
+      <!--
       <el-button
         type="primary"
-        @click="$emit('toggle-terrain-clipping')" 
+        @click="$emit('toggle-terrain-clipping')"
         class="toolbar-button"
         aria-label="打开地形修建"
         tabindex="0"
@@ -33,6 +46,7 @@
         <el-icon><Crop /></el-icon>
         修建地形
       </el-button>
+      -->
       <el-button
         type="success"
         @click="$emit('add-turbine')"
@@ -52,9 +66,9 @@
  * TopToolbar.vue
  * 顶部工具栏，包含控制面板、风机管理和添加风机的按钮。
  */
-import { Menu, Setting, Plus, Crop } from '@element-plus/icons-vue' // 引入 Crop 图标
+import { Menu, Setting, Plus } from '@element-plus/icons-vue' // Removed Crop icon import
 
-const emit = defineEmits(['toggle-sidebar', 'add-turbine', 'toggle-terrain-clipping']);
+const emit = defineEmits(['toggle-sidebar', 'add-turbine']); // Removed 'toggle-terrain-clipping'
 </script>
 
 <style scoped>

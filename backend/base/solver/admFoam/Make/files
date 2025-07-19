@@ -1,0 +1,4 @@
+cJSON.c
+admFoam.C
+
+EXE = $(FOAM_APPBIN)/admFoam

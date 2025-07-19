@@ -1,3 +1,14 @@
+<!--
+ * @Author: joe 847304926@qq.com
+ * @Date: 2025-03-16 19:00:33
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-06-19 17:35:02
+ * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\ErrorBoundary.vue
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+-->
+
 <!-- ErrorBoundary.vue -->
 <template>
   <div>

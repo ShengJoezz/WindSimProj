@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-01-12 20:47:17
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-03-16 19:00:44
+ * @LastEditTime: 2025-07-05 19:36:35
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\TerrainInfo.vue
  * @Description: 
  * 
@@ -31,7 +31,7 @@
 
         <!-- Geographic Bounds Section -->
         <section class="bounds-section">
-          <h3 class="section-heading">地理范围</h3>
+          <h3 class="section-heading">地理信息</h3> <!-- 标题可以改得更通用 -->
           <div class="bounds-grid">
             <div class="bound-item">
               <span class="bound-label">经度范围</span>
@@ -45,6 +45,18 @@
                 {{ geographicBounds.minLat }}° ~ {{ geographicBounds.maxLat }}°
               </span>
             </div>
+
+            <!-- ==================================== -->
+            <!--            [新增] 地理尺寸显示         -->
+            <!-- ==================================== -->
+            <div class="bound-item">
+              <span class="bound-label">地形尺寸</span>
+              <span class="bound-value">
+                {{ formattedGeoSize }}
+              </span>
+            </div>
+            <!-- ==================================== -->
+            
           </div>
         </section>
       </div>
@@ -54,6 +66,7 @@
 
 <script setup>
 import { computed } from "vue";
+import { useCaseStore } from '../../store/caseStore'; // <--- 引入 caseStore
 
 const props = defineProps({
   elevationLabels: {
@@ -66,10 +79,30 @@ const props = defineProps({
   },
 });
 
+const caseStore = useCaseStore(); // <--- 初始化 store
+
 const elevationLabels = computed(() => {
   const sorted = [...props.elevationLabels].sort((a, b) => a - b);
   return sorted;
 });
+
+// [新增] 格式化地理尺寸的函数
+const formatDistance = (meters) => {
+  if (meters >= 1000) {
+    return `${(meters / 1000).toFixed(2)} km`;
+  }
+  return `${meters.toFixed(0)} m`;
+};
+
+// [新增] 用于模板的计算属性
+const formattedGeoSize = computed(() => {
+  const size = caseStore.geographicSize;
+  if (!size || size.width === 0 || size.height === 0) {
+    return "N/A";
+  }
+  return `${formatDistance(size.width)} × ${formatDistance(size.height)} `;
+});
+
 </script>
 
 <style scoped>

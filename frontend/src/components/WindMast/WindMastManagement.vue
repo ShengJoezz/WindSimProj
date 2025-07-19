@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-03-30 19:30:37
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-03-30 20:04:59
+ * @LastEditTime: 2025-06-19 17:35:02
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\WindMast\WindMastManagement.vue
  * @Description: Wind Mast data and analysis management component with fixes (including HTML structure).
  *

@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-03-16 19:11:25
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-03-31 10:21:36
+ * @LastEditTime: 2025-07-03 19:26:31
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\views\Cases.vue
  * @Description: 
  * 
@@ -76,7 +76,7 @@
         <div v-if="cases.length === 0 && !loading" class="empty-state">
           <i class="el-icon-wind-power empty-icon"></i>
           <p>暂无工况数据</p>
-          <el-button type="primary" @click="router.push('/new-case')">创建第一个工况</el-button>
+          <el-button type="primary" @click="router.push('/new')">创建第一个工况</el-button>
         </div>
       </el-card>
     </div>

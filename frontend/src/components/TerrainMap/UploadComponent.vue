@@ -1,3 +1,14 @@
+<!--
+ * @Author: joe 847304926@qq.com
+ * @Date: 2025-04-01 11:26:36
+ * @LastEditors: joe 847304926@qq.com
+ * @LastEditTime: 2025-07-14 19:46:13
+ * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\UploadComponent.vue
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by joe, All Rights Reserved.
+-->
+
 <template>
   <div class="upload-section">
     <el-upload
@@ -14,11 +25,12 @@
         拖拽文件到此处或 <em>点击上传</em>
       </div>
       <template #tip>
-        <div class="el-upload__tip">
-          支持 .txt 或 .csv 格式，每行包含: 名称,经度,纬度,高度,直径,模型 (可选)
-          <br>经纬度支持十进制度数(116.3912)或度分秒格式(103°14'42" 或 103°14′42″)，中国区域经度为东经（正值），纬度为北纬（正值）
-        </div>
-      </template>
+  <div class="el-upload__tip">
+    支持 .txt 或 .csv 格式，每行包含: 名称,经度,纬度,高度,直径,模型ID (可选，默认为1)
+    <br>经纬度支持十进制度数(116.3912)或度分秒格式(103°14'42" 或 103°14′42″)，中国区域经度为东经（正值），纬度为北纬（正值）
+    <br><strong>模型ID示例:</strong> 1, 2, 3... (对应1-U-P-Ct.txt, 2-U-P-Ct.txt等性能曲线文件)
+  </div>
+</template>
     </el-upload>
 
     <el-progress
@@ -254,8 +266,9 @@ const handleFileChange = (file) => {
           latitude: decimalLat,
           hubHeight: parseFloat(hubHeight),
           rotorDiameter: parseFloat(rotorDiameter),
-          model: model ? model.trim() : '',
-        };
+          model: model ? model.trim() : '1', // 默认为'1'而不是空字符串
+    type: model ? parseInt(model.trim()) : 1, // 同时提供数字版本
+  };
       });
 
       // 在emit前后添加log

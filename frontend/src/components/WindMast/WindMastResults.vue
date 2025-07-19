@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-03-30 19:26:23
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-03-30 19:26:23
+ * @LastEditTime: 2025-07-03 18:17:41
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\WindDataAnalysis\WindMastResults.vue
  * @Description: 
  * 
@@ -66,10 +66,15 @@
         >
           <el-table-column prop="name" label="分析名称" min-width="200" sortable>
             <template #default="scope">
+              <!-- 调试信息 -->
+              <div style="font-size: 12px; color: #999; margin-bottom: 4px;" v-if="false">
+                状态: {{ scope.row.status }} | ID: {{ scope.row.id }}
+              </div>
+              
               <el-link 
                 type="primary" 
-                @click="$router.push(`/windmast/results/${scope.row.id}`)"
-                :disabled="scope.row.status !== 'completed'"
+                @click="handleResultClick(scope.row)"
+                :disabled="!canViewResult(scope.row)"
               >
                 {{ scope.row.name }}
               </el-link>
@@ -151,11 +156,13 @@
   
   <script setup>
   import { ref, computed, onMounted } from 'vue';
+  import { useRouter } from 'vue-router';
   import { Refresh, Plus, Search } from '@element-plus/icons-vue';
-  import { ElMessageBox } from 'element-plus';
+  import { ElMessageBox, ElMessage } from 'element-plus';
   import { useWindMastStore } from '@/store/windMastStore';
-  
+  import axios from 'axios';
   const store = useWindMastStore();
+  const router = useRouter();
   const searchQuery = ref('');
   const statusFilter = ref('');
   const dateRange = ref([]);
@@ -167,8 +174,37 @@
   });
   
   const refreshAnalyses = async () => {
-    await store.fetchSavedAnalyses();
-  };
+  console.log('手动刷新分析列表 - 强制扫描目录');
+  
+  // 先尝试强制扫描
+  try {
+    const scanResponse = await axios.get('/api/windmast/analyses/scan');
+    if (scanResponse.data.success) {
+      store.savedAnalyses = scanResponse.data.analyses || [];
+      console.log(`强制扫描获取到 ${store.savedAnalyses.length} 条记录`);
+      ElMessage.success(`刷新完成，找到 ${store.savedAnalyses.length} 条分析记录`);
+      return;
+    }
+  } catch (scanError) {
+    console.error('强制扫描失败:', scanError);
+  }
+  
+  // 扫描失败则回退到普通刷新
+  await store.fetchSavedAnalyses();
+};
+
+onMounted(async () => {
+  console.log('WindMastResults 页面加载，当前分析数量:', store.savedAnalyses.length);
+  await refreshAnalyses();
+  console.log('刷新后分析数量:', store.savedAnalyses.length);
+});
+
+// 在 WindMastResults.vue 中添加临时调试信息
+onMounted(async () => {
+  console.log('WindMastResults 页面加载，当前分析数量:', store.savedAnalyses.length);
+  await refreshAnalyses();
+  console.log('刷新后分析数量:', store.savedAnalyses.length);
+});
   
   const filteredAnalyses = computed(() => {
     let result = [...store.savedAnalyses];
@@ -253,6 +289,20 @@
       if (error !== 'cancel') {
         console.error('删除分析时出错:', error);
       }
+    }
+  };
+
+  const canViewResult = (row) => {
+    // 更宽松的条件：只要有ID且状态不是pending就允许查看
+    return row.id && row.status && row.status !== 'pending' && row.status !== 'running';
+  };
+
+  const handleResultClick = (row) => {
+    console.log('点击结果行:', row); // 调试用
+    if (canViewResult(row)) {
+      router.push(`/windmast/results/${row.id}`);
+    } else {
+      ElMessage.warning(`分析状态为 ${row.status}，暂时无法查看详细结果`);
     }
   };
   </script>
