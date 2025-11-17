@@ -1,0 +1,14 @@
+# mapping.yaml
+clcd_to_z0:
+  1: 0.10   # Cropland
+  2: 0.50   # Forest
+  3: 0.07   # Shrubland
+  4: 0.05   # Grassland
+  5: 0.0002 # Water
+  6: 0.001  # Snow/Ice
+  7: 0.02   # Barren
+  8: 0.40   # Impervious/Urban
+  9: 0.07   # Wetland
+a_factor: 20.0        # h = a * z0
+quant_step_m: 0.5     # 将 h 量化到 0.5 m 档，用于分组
+default_z0: 0.0

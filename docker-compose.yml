@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: windsim-backend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    volumes:
+      # 1. 命名卷 (Named Volume): 用于持久化用户上传和生成的数据。
+      #    数据由 Docker 管理，即使容器被删除，数据依然安全保留。
+      - windsim_data:/app/uploads
+
+      # 2. 绑定挂载 (Bind Mount): 用于将主机上的“数据库”文件夹映射到容器中。
+      #    这是管理大型、静态数据集的最佳方式。
+      #    将主机当前目录下的 China_DEM 文件夹，挂载到容器内的 /data/dem 路径，并设为只读。
+      - ./China_Dem:/data/dem:ro
+    networks:
+      - windsim-net
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: windsim-frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    networks:
+      - windsim-net
+
+networks:
+  windsim-net:
+    driver: bridge
+
+volumes:
+  # 这里只定义了命名卷。绑定挂载的主机路径是相对的，无需在此处定义。
+  windsim_data:

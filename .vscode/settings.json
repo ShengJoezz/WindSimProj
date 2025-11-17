@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "admFoam.C": "cpp",
+        "ostream": "cpp",
+        "iostream": "cpp",
+        "xlocale": "cpp"
+    }
+}

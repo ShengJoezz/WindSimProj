@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>风机性能数据分析报告</title>
+  <style>
+    body {
+      font-family: "Microsoft YaHei", Arial, sans-serif;
+      color: #333;
+      line-height: 1.5;
+      margin: 0;
+      padding: 20px;
+    }
+    .report-header {
+      text-align: center;
+      margin-bottom: 30px;
+      border-bottom: 2px solid #4285f4;
+      padding-bottom: 20px;
+    }
+    h1 {
+      color: #4285f4;
+      font-size: 24px;
+      margin-bottom: 10px;
+    }
+    h2 {
+      color: #4285f4;
+      font-size: 20px;
+      margin-top: 30px;
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #eee;
+    }
+    .report-metadata {
+      display: flex;
+      justify-content: space-between;
+      margin: 20px 0;
+      color: #666;
+      font-size: 14px;
+    }
+    .section {
+      margin-bottom: 30px;
+    }
+    .section-title {
+      font-size: 18px;
+      color: #4285f4;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 10px;
+      margin-bottom: 15px;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+    .stats-card {
+      background-color: #f8f9fa;
+      padding: 15px;
+      text-align: center;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    .stats-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: #4285f4;
+      margin: 10px 0;
+    }
+    .stats-label {
+      font-size: 14px;
+      color: #666;
+    }
+    .chart-container {
+      width: 100%;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+    .chart-title {
+      font-size: 16px;
+      margin-bottom: 10px;
+      color: #5f6368;
+    }
+    .chart-image {
+      max-width: 100%;
+      height: auto;
+      display: block;
+      margin: 0 auto;
+      border: 1px solid #eee;
+      border-radius: 8px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+      border: 1px solid #eee; /* 表格边框 */
+    }
+    th, td {
+      padding: 10px;
+      text-align: left;
+      border-bottom: 1px solid #eee;
+    }
+    th {
+      background-color: #f1f3f4;
+      font-weight: 600;
+      color: #5f6368;
+    }
+    tr:nth-child(even) {
+      background-color: #f8f9fa;
+    }
+    .chart-placeholder {
+      width: 100%;
+      height: 300px;
+      background-color: #f1f3f4;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: #5f6368;
+      border-radius: 8px;
+    }
+    .page-break {
+      page-break-after: always;
+    }
+    .footer {
+      margin-top: 30px;
+      font-size: 12px;
+      color: #999;
+      text-align: center;
+    }
+
+    /* 工况信息样式 */
+    .case-info-section {
+      background-color: #f0f7ff;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 30px;
+      border-left: 4px solid #4285f4;
+    }
+
+    .parameter-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 20px;
+    }
+
+    .parameter-card {
+      background-color: white;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    .parameter-title {
+      font-size: 16px;
+      font-weight: bold;
+      color: #4285f4;
+      margin-bottom: 15px;
+      padding-bottom: 5px;
+      border-bottom: 1px dashed #e0e0e0;
+    }
+
+    .parameter-items {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+
+    .parameter-item {
+      margin-bottom: 8px;
+    }
+
+    .parameter-label {
+      font-size: 13px;
+      color: #666;
+    }
+
+    .parameter-value {
+      font-size: 14px;
+      font-weight: 500;
+      color: #333;
+    }
+
+    /* 风机分布图样式 */
+    .turbine-distribution {
+      width: 100%;
+      height: 400px;
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-top: 20px;
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+  <div class="report-header">
+    <h1>风机性能数据分析报告</h1>
+    <div>工况ID: {{caseId}}</div>
+  </div>
+
+  <div class="report-metadata">
+    <div>生成时间: {{dateGenerated}} {{timeGenerated}}</div>
+    <div>工况名称: {{caseName}}</div>
+    <div>中心经纬度: {{centerCoordinates}}</div>
+  </div>
+
+  <!-- 工况参数信息 -->
+  <h2>工况参数</h2>
+  <div class="case-info-section">
+    <div class="parameter-grid">
+      <!-- 基本信息 -->
+      <div class="parameter-card">
+        <div class="parameter-title">基本信息</div>
+        <div class="parameter-items">
+          <div class="parameter-item">
+            <div class="parameter-label">工况名称</div>
+            <div class="parameter-value">{{caseName}}</div>
+          </div>
+          <div class="parameter-item">
+            <div class="parameter-label">风机数量</div>
+            <div class="parameter-value">{{turbineStats.turbineCount}}</div>
+          </div>
+          <div class="parameter-item">
+            <div class="parameter-label">计算状态</div>
+            <div class="parameter-value">{{status.statusText}}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 计算域与工况 -->
+      <div class="parameter-card">
+        <div class="parameter-title">计算域与工况</div>
+        <div class="parameter-items">
+          <div class="parameter-item">
+            <div class="parameter-label">计算域宽度</div>
+            <div class="parameter-value">{{parameters.calculationDomain.width}} m</div>
+          </div>
+          <div class="parameter-item">
+            <div class="parameter-label">计算域高度</div>
+            <div class="parameter-value">{{parameters.calculationDomain.height}} m</div>
+          </div>
+          <div class="parameter-item">
+            <div class="parameter-label">风向角</div>
+            <div class="parameter-value">{{parameters.conditions.windDirection}}°</div>
+          </div>
+          <div class="parameter-item">
+            <div class="parameter-label">入口风速</div>
+            <div class="parameter-value">{{parameters.conditions.inletWindSpeed}} m/s</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 网格参数 -->
+      <div class="parameter-card">
+        <div class="parameter-title">网格参数</div>
+        <div class="parameter-items">
+          <div class="parameter-item">
+            <div class="parameter-label">加密区高度</div>
+            <div class="parameter-value">{{parameters.grid.encryptionHeight}} m</div>
+          </div>
+          <div class="parameter-item">
+            <div class="parameter-label">加密层数</div>
+            <div class="parameter-value">{{parameters.grid.encryptionLayers}}</div>
+          </div>
+          <div class="parameter-item">
+            <div class="parameter-label">网格生长率</div>
+            <div class="parameter-value">{{parameters.grid.gridGrowthRate}}</div>
+          </div>
+          <div class="parameter-item">
+            <div class="parameter-label">地形半径</div>
+            <div class="parameter-value">{{parameters.grid.terrainRadius}} m</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 仿真参数 -->
+      <div class="parameter-card">
+        <div class="parameter-title">仿真与后处理</div>
+        <div class="parameter-items">
+          <div class="parameter-item">
+            <div class="parameter-label">核心数</div>
+            <div class="parameter-value">{{parameters.simulation.cores}}</div>
+          </div>
+          <div class="parameter-item">
+            <div class="parameter-label">计算步数</div>
+            <div class="parameter-value">{{parameters.simulation.steps}}</div>
+          </div>
+          <div class="parameter-item">
+            <div class="parameter-label">结果层数</div>
+            <div class="parameter-value">{{parameters.postProcessing.resultLayers}}</div>
+          </div>
+          <div class="parameter-item">
+            <div class="parameter-label">层数间距</div>
+            <div class="parameter-value">{{parameters.postProcessing.layerSpacing}} m</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 风机二维分布 -->
+  <h2>风机空间分布</h2>
+  <div class="chart-container">
+    <div class="chart-title">风机平面位置分布</div>
+    {{#if charts.turbineDistribution}}
+      <img src="{{charts.turbineDistribution}}" alt="风机分布图" class="chart-image">
+    {{else}}
+      <div class="chart-placeholder">风机分布图将在此处显示</div>
+    {{/if}}
+  </div>
+
+  <div class="page-break"></div>
+
+  <div class="section">
+    <div class="section-title">总览数据</div>
+    <div class="stats-grid">
+      <div class="stats-card">
+        <div class="stats-label">风机数量</div>
+        <div class="stats-value">{{turbineStats.turbineCount}}</div>
+      </div>
+      <div class="stats-card">
+        <div class="stats-label">平均风速(调整后)</div>
+        <div class="stats-value">{{turbineStats.avgSpeed}}</div>
+        <div class="stats-label">m/s</div>
+      </div>
+      <div class="stats-card">
+        <div class="stats-label">总功率(调整后)</div>
+        <div class="stats-value">{{turbineStats.totalPower}}</div>
+        <div class="stats-label">kW</div>
+      </div>
+      <div class="stats-card">
+        <div class="stats-label">平均推力系数</div>
+        <div class="stats-value">{{turbineStats.avgCt}}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">风速调整前后对比</div>
+    <div class="chart-container">
+      <div class="chart-title">风机风速调整前后对比</div>
+      {{#if charts.speedComparison}}
+        <img src="{{charts.speedComparison}}" alt="风速对比图" class="chart-image">
+      {{else}}
+        <div class="chart-placeholder">风速对比数据图表将在此处显示</div>
+      {{/if}}
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">功率调整前后对比</div>
+    <div class="chart-container">
+      <div class="chart-title">风机功率调整前后对比</div>
+      {{#if charts.powerComparison}}
+        <img src="{{charts.powerComparison}}" alt="功率对比图" class="chart-image">
+      {{else}}
+        <div class="chart-placeholder">功率对比数据图表将在此处显示</div>
+      {{/if}}
+    </div>
+  </div>
+
+  <div class="page-break"></div>
+
+  <div class="section">
+    <div class="section-title">风机位置与高度数据</div>
+    <table>
+      <thead>
+        <tr>
+          <th>风机编号</th>
+          <th>MPI节点</th>
+          <th>Dxy (m)</th>
+          <th>X (m)</th>
+          <th>Y (m)</th>
+          <th>Z (m)</th>
+          <th>真实高度 (m)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each realHighData}}
+        <tr>
+          <td>{{id}}</td>
+          <td>{{node}}</td>
+          <td>{{dxy}}</td>
+          <td>{{x}}</td>
+          <td>{{y}}</td>
+          <td>{{z}}</td>
+          <td>{{height}}</td>
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="page-break"></div>
+
+  <div class="section">
+    <div class="section-title">风机初始与调整后性能数据</div>
+    <table>
+      <thead>
+        <tr>
+          <th>风机编号</th>
+          <th>初始风速 (m/s)</th>
+          <th>调整后风速 (m/s)</th>
+          <th>初始功率 (kW)</th>
+          <th>调整后功率 (kW)</th>
+          <th>初始推力系数</th>
+          <th>调整后推力系数</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each combinedData}}
+        <tr>
+          <td>{{id}}</td>
+          <td>{{initSpeed}}</td>
+          <td>{{adjSpeed}}</td>
+          <td>{{initPower}}</td>
+          <td>{{adjPower}}</td>
+          <td>{{initCt}}</td>
+          <td>{{adjCt}}</td>
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="footer">
+    © 2025 风机性能分析平台 - 报告生成于 {{dateGenerated}} {{timeGenerated}}
+  </div>
+</body>
+</html>

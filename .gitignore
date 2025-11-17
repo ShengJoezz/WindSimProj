@@ -1,0 +1,31 @@
+backend/uploads/
+backend/batch_1
+backend/batch_2
+backend/node_modules
+
+# Root vendor/runtime artifacts
+node_modules/
+venv/
+temp/
+temp_rou_files/
+clipped/
+China_Dem/
+backend/windmast_data/
+
+
+# Compiled files
+*.o
+*.so
+
+# Python cache
+__pycache__/
+
+# Binary files (if they can be regenerated)
+*.bin
+*.tif
+backend/rou/*.tif
+
+# Windows Zone Identifier files
+*:Zone.Identifier
+
+images/*.tar

@@ -1,0 +1,38 @@
+/* frontend/src/assets/styles.css */
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Arial', sans-serif;
+    background-color: #f5f5f5;
+  }
+  
+  h2 {
+    color: #333;
+  }
+  
+  .el-menu-vertical-demo {
+    background-color: #2c3e50;
+    color: #ecf0f1;
+  }
+  
+  .el-menu-vertical-demo .el-menu-item {
+    color: #ecf0f1;
+  }
+  
+  .el-menu-vertical-demo .el-menu-item:hover {
+    background-color: #34495e;
+    color: #fff;
+  }
+  
+  .app-container {
+    display: flex;
+    height: 100vh;
+  }
+  
+  .main-content {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+    background-color: #fff;
+  }
