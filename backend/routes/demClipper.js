@@ -42,7 +42,8 @@ const upload = multer({
     }
   },
   limits: {
-    fileSize: 100 * 1024 * 1024, // 限制100MB
+    // 与前端 Nginx/terrain 上传策略对齐，避免大文件裁切被错误拒绝
+    fileSize: 500 * 1024 * 1024, // 500MB
   }
 });
 
