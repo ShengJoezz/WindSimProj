@@ -32,7 +32,7 @@
           <el-input
             v-model="searchQuery"
             placeholder="搜索分析名称"
-            prefix-icon="Search"
+            :prefix-icon="Search"
             clearable
             style="width: 300px"
           ></el-input>

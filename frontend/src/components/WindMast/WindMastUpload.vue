@@ -64,7 +64,7 @@
           <el-input
             v-model="searchQuery"
             placeholder="搜索文件"
-            prefix-icon="Search"
+            :prefix-icon="Search"
             clearable
             style="width: 250px"
           ></el-input>
