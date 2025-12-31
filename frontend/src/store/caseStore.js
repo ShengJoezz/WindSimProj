@@ -636,8 +636,14 @@ export const useCaseStore = defineStore('caseStore', () => {
     
     // Wind Mast Store Listeners
     const windMastStore = useWindMastStore();
-    socket.value.on('windmast_analysis_progress', (message) => windMastStore.addProgressMessage(message));
-    socket.value.on('windmast_analysis_error', (errorMessage) => windMastStore.addProgressMessage(`后台错误: ${errorMessage}`));
+    socket.value.on('windmast_analysis_progress', (data) => {
+      const message = data?.message ?? data;
+      if (message) windMastStore.addProgressMessage(message);
+    });
+    socket.value.on('windmast_analysis_error', (data) => {
+      const message = data?.message ?? data;
+      if (message) windMastStore.addProgressMessage(`后台错误: ${message}`);
+    });
     socket.value.on('windmast_analysis_complete', (data) => {
       const analysisId = data?.analysisId;
       if (data.success) {

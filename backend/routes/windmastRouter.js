@@ -34,6 +34,30 @@ const TEMP_DIR = path.join(BASE_WINDMAST_DATA_DIR, 'temp');
 router.use(cors());
 // === 核心 API 路由 ===
 
+// --- In-memory tracking for running analyses (for progress streaming / potential control) ---
+// analysisId -> { startedAt, updatedAt }
+const runningAnalyses = new Map();
+
+async function computeDirectorySize(dirPath) {
+    let totalSize = 0;
+    let fileCount = 0;
+    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+        if (entry.name.startsWith('.')) continue;
+        const fullPath = path.join(dirPath, entry.name);
+        if (entry.isFile()) {
+            const stat = await fs.stat(fullPath);
+            totalSize += stat.size;
+            fileCount += 1;
+        } else if (entry.isDirectory()) {
+            const child = await computeDirectorySize(fullPath);
+            totalSize += child.totalSize;
+            fileCount += child.fileCount;
+        }
+    }
+    return { totalSize, fileCount };
+}
+
 /**
  * POST /api/windmast/upload
  * 处理文件上传的路由。期望一个字段名为 'file' 的单个文件。
@@ -140,34 +164,79 @@ router.post('/analyze', async (req, res, next) => {
         }
         console.log(`[API /analyze] 启动分析脚本 (Python) for ${analysisId}...`);
         console.log(`[API /analyze] 命令: python3 ${args.join(' ')}`);
+        const io = req.app.get('socketio');
         const pythonProcess = spawn('python3', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+        runningAnalyses.set(analysisId, { startedAt: Date.now(), updatedAt: Date.now() });
         let scriptOutput = '';
         pythonProcess.stdout.on('data', (data) => {
-            const chunk = data.toString(); scriptOutput += chunk; console.log(`[PyOut ${analysisId}]: ${chunk.trim()}`);
+            const chunk = data.toString();
+            scriptOutput += chunk;
+            console.log(`[PyOut ${analysisId}]: ${chunk.trim()}`);
+            runningAnalyses.set(analysisId, { ...(runningAnalyses.get(analysisId) || {}), updatedAt: Date.now() });
+            if (io) {
+                for (const line of chunk.split(/\r?\n/)) {
+                    const msg = line.trim();
+                    if (!msg) continue;
+                    io.emit('windmast_analysis_progress', { analysisId, message: msg.slice(0, 1000) });
+                }
+            }
         });
         let scriptError = '';
         pythonProcess.stderr.on('data', (data) => {
-            const chunk = data.toString(); scriptError += chunk; console.error(`[PyErr ${analysisId}]: ${chunk.trim()}`);
+            const chunk = data.toString();
+            scriptError += chunk;
+            console.error(`[PyErr ${analysisId}]: ${chunk.trim()}`);
+            runningAnalyses.set(analysisId, { ...(runningAnalyses.get(analysisId) || {}), updatedAt: Date.now() });
+            if (io) {
+                for (const line of chunk.split(/\r?\n/)) {
+                    const msg = line.trim();
+                    if (!msg) continue;
+                    io.emit('windmast_analysis_error', { analysisId, message: msg.slice(0, 1000) });
+                }
+            }
         });
         pythonProcess.on('close', async (code) => {
     console.log(`[API /analyze] Python 脚本 for ${analysisId} 退出，代码 ${code}`);
+    runningAnalyses.delete(analysisId);
     
     // 清理临时文件
     fs.unlink(fileListPath).catch(err => console.error(`删除临时列表文件失败: ${err}`));
     
-    // **新增：分析完成后立即更新索引**
-    if (code === 0) {
+    // 如果脚本失败但未生成 error.log，则补写一份，确保列表能显示为 failed
+    if (code !== 0) {
+        const errPath = path.join(analysisOutputDir, 'error.log');
         try {
-            console.log(`[API /analyze] 分析 ${analysisId} 成功完成，更新索引...`);
-            await scanAnalysesAndUpdateIndex(); // 重新扫描并更新索引
-            console.log(`[API /analyze] 索引更新完成`);
-        } catch (indexError) {
-            console.error(`[API /analyze] 更新索引失败: ${indexError}`);
+            await fs.access(errPath, fs.constants.R_OK);
+        } catch (e) {
+            const content = [
+                `Analysis ID: ${analysisId}`,
+                `Exit Code: ${code}`,
+                '',
+                'STDERR (truncated):',
+                (scriptError || '').toString().substring(0, 4000),
+                '',
+                'STDOUT (truncated):',
+                (scriptOutput || '').toString().substring(0, 4000),
+                ''
+            ].join('\n');
+            try {
+                await fs.writeFile(errPath, content, 'utf-8');
+            } catch (writeErr) {
+                console.error(`[API /analyze] 写入补充 error.log 失败: ${writeErr.message}`);
+            }
         }
+    }
+
+    // 分析完成后立即更新索引（成功/失败都需要更新）
+    try {
+        console.log(`[API /analyze] 分析 ${analysisId} 已结束，更新索引...`);
+        await scanAnalysesAndUpdateIndex();
+        console.log(`[API /analyze] 索引更新完成`);
+    } catch (indexError) {
+        console.error(`[API /analyze] 更新索引失败: ${indexError}`);
     }
     
     // 发送WebSocket事件
-    const io = req.app.get('socketio');
     const eventData = { 
         analysisId: analysisId, 
         success: code === 0,
@@ -191,6 +260,14 @@ router.post('/analyze', async (req, res, next) => {
             if (io) { io.emit('windmast_analysis_complete', { analysisId: analysisId, success: false, message: '无法启动分析脚本', error: err.message }); }
             try { fs.unlink(fileListPath).catch(() => { }); res.status(500).json({ success: false, message: '无法启动分析脚本', error: err.message }); } catch (e) { next(e); }
         });
+
+        // 立即将 pending 分析写入索引，保证结果列表能看到“处理中”条目
+        try {
+            await scanAnalysesAndUpdateIndex();
+        } catch (indexError) {
+            console.warn(`[API /analyze] 启动后更新索引失败（不影响分析启动）: ${indexError.message}`);
+        }
+
         res.status(202).json({ success: true, message: '分析任务已启动', analysisId: analysisId });
     } catch (error) {
         console.error(`[API /analyze] 启动分析 ${analysisId || '(尚未生成ID)'} 时出错:`, error);
@@ -230,6 +307,37 @@ router.get('/files/input', async (req, res, next) => {
     res.json({ success: true, files: files });
   } catch (error) {
     console.error("[API /files/input] 错误:", error);
+    next(error);
+  }
+});
+
+/**
+ * GET /api/windmast/stats
+ * 获取 windmast 输入/输出目录的真实存储占用与数量统计
+ */
+router.get('/stats', async (req, res, next) => {
+  try {
+    await ensureDirectoryExists(INPUT_DIR);
+    await ensureDirectoryExists(OUTPUT_DIR);
+
+    const input = await computeDirectorySize(INPUT_DIR);
+    const output = await computeDirectorySize(OUTPUT_DIR);
+
+    const outputEntries = await fs.readdir(OUTPUT_DIR, { withFileTypes: true });
+    const analysesCount = outputEntries.filter((e) => e.isDirectory() && !e.name.startsWith('.')).length;
+
+    res.json({
+      success: true,
+      stats: {
+        inputSize: input.totalSize,
+        inputFiles: input.fileCount,
+        outputSize: output.totalSize,
+        outputFiles: analysesCount,
+        totalSize: input.totalSize + output.totalSize,
+      },
+    });
+  } catch (error) {
+    console.error('[API /stats] 错误:', error);
     next(error);
   }
 });
@@ -347,7 +455,23 @@ async function scanAnalysesAndUpdateIndex() {
                 files: []
             };
         } catch (e) { }
-        return null;
+
+        // Pending analysis: directory exists but no summary/error yet
+        let pendingFiles = [];
+        try {
+            const listPath = path.join(dirPath, 'files_to_process.txt');
+            const content = await fs.readFile(listPath, 'utf-8');
+            pendingFiles = content.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        } catch (e) { /* ignore */ }
+
+        return {
+            id: dir,
+            name: metaName || `分析 ${dir}`,
+            description: metaDescription || '',
+            createdAt: createdAt,
+            status: 'pending',
+            files: pendingFiles,
+        };
     });
     const analyses = (await Promise.all(promises)).filter(a => a !== null);
     console.log(`[API /scan] 扫描发现 ${analyses.length} 条分析记录。`);

@@ -124,7 +124,7 @@ def optimized_csv_reader(file_path, chunksize=None):
     ]
     dtype_dict = {col: 'float32' for col in usecols if col not in ['farm_id', 'date_time']}
     dtype_dict['farm_id'] = 'str'
-    parse_dates = ['date_time']
+    dtype_dict['date_time'] = 'str'
 
     encodings_to_try = ['utf-8', 'gbk', 'gb2312', 'latin1']
     delimiters_to_try = [',', ';', '\t']
@@ -133,17 +133,30 @@ def optimized_csv_reader(file_path, chunksize=None):
         for delimiter in delimiters_to_try:
             try:
                 # print(f"尝试读取: 编码='{encoding}', 分隔符='{delimiter}'")
-                return pd.read_csv(
+                df = pd.read_csv(
                     file_path,
                     usecols=lambda c: c in usecols, # Use lambda for robustness if columns missing
                     dtype=dtype_dict,
-                    parse_dates=parse_dates,
                     chunksize=chunksize,
                     encoding=encoding,
                     sep=delimiter,
                     low_memory=False, # Often helps with mixed types or large files
                     on_bad_lines='warn' # Report problematic lines
                 )
+
+                # NOTE: The source data uses timestamps like "2021-01-01_06:00:00" (underscore separator),
+                # which is not reliably parsed by pandas' parse_dates inference. Normalize and parse here.
+                if chunksize is None and isinstance(df, pd.DataFrame) and 'date_time' in df.columns:
+                    try:
+                        if not pd.api.types.is_datetime64_any_dtype(df['date_time']):
+                            df['date_time'] = pd.to_datetime(
+                                df['date_time'].astype(str).str.replace('_', ' ', regex=False),
+                                errors='coerce'
+                            )
+                    except Exception as dt_err:
+                        print(f"警告: 解析 date_time 列失败: {dt_err}，将保留原始值。")
+
+                return df
             except (UnicodeDecodeError, pd.errors.ParserError, ValueError) as e:
                  # print(f"读取失败 ({encoding}, {delimiter}): {e}")
                  continue # Try next combination
@@ -467,7 +480,7 @@ def plot_stability_distribution(df_stability, output_dir='./output', farm_id='un
 
 
 # --- Data Validation ---
-def validate_data_format(df, filename=""):
+def validate_data_format(df, filename="", *, enable_speed_threshold_filtering=True, speed_threshold=None):
     """检查数据格式是否符合预期"""
     print(f"  验证数据格式: {filename}...")
     required_cols = ['farm_id', 'date_time', 'speed10', 'direction10'] # Minimum required
@@ -533,15 +546,35 @@ def validate_data_format(df, filename=""):
             warnings_list.append(msg)
             df.loc[df[col] < 0, col] = np.nan
             is_valid = False # Treat negative speed as data error
-        # Check for excessively high speeds (e.g., > 100 m/s)
-        high_speed_threshold = 100
-        if df[col].max() > high_speed_threshold:
-            high_count = (df[col] > high_speed_threshold).sum()
-            msg = f"{col} 列包含 {high_count} 个超高值 (> {high_speed_threshold} m/s) (已替换为 NaN)"
-            print(f"    警告: {msg}")
-            warnings_list.append(msg)
-            df.loc[df[col] > high_speed_threshold, col] = np.nan
-            is_valid = False # Treat very high speed as data error
+        # Check for excessively high speeds
+        #
+        # - If the caller enables threshold filtering and provides a positive threshold, treat this as a *user-configured*
+        #   outlier filter and DO NOT mark the file as invalid (it is an expected operation).
+        # - Otherwise, keep the original hard check (> 100 m/s) as a data format error.
+        user_threshold = None
+        if enable_speed_threshold_filtering:
+            try:
+                if speed_threshold is not None and float(speed_threshold) > 0:
+                    user_threshold = float(speed_threshold)
+            except Exception:
+                user_threshold = None
+
+        if user_threshold is not None:
+            if df[col].max() > user_threshold:
+                high_count = (df[col] > user_threshold).sum()
+                msg = f"{col} 列包含 {high_count} 个超阈值 (> {user_threshold} m/s) (已替换为 NaN)"
+                print(f"    警告: {msg}")
+                warnings_list.append(msg)
+                df.loc[df[col] > user_threshold, col] = np.nan
+        else:
+            high_speed_threshold = 100
+            if df[col].max() > high_speed_threshold:
+                high_count = (df[col] > high_speed_threshold).sum()
+                msg = f"{col} 列包含 {high_count} 个超高值 (> {high_speed_threshold} m/s) (已替换为 NaN)"
+                print(f"    警告: {msg}")
+                warnings_list.append(msg)
+                df.loc[df[col] > high_speed_threshold, col] = np.nan
+                is_valid = False # Treat very high speed as data error
 
 
     direction_cols = [col for col in df.columns if col.startswith('direction')]
@@ -560,7 +593,7 @@ def validate_data_format(df, filename=""):
 
 
 # --- Main Processing Function (Single File) ---
-def process_csv_file(file_path, base_output_folder, sample_for_plots=10000):
+def process_csv_file(file_path, base_output_folder, sample_for_plots=10000, parameters=None):
     """Process a single CSV file, creating output within the base_output_folder."""
     file_name = os.path.basename(file_path)
     print(f"\n开始处理文件: {file_name}")
@@ -623,8 +656,15 @@ def process_csv_file(file_path, base_output_folder, sample_for_plots=10000):
         print(f"  优化内存使用...")
         df = reduce_memory_usage(df)
 
-        # Validate data format
-        is_valid, validation_warnings = validate_data_format(df, file_name)
+        # Validate and (optionally) apply outlier filtering based on analysis parameters
+        enable_filtering = bool(parameters.get("enableFiltering", True)) if isinstance(parameters, dict) else True
+        threshold = parameters.get("threshold") if isinstance(parameters, dict) else None
+        is_valid, validation_warnings = validate_data_format(
+            df,
+            file_name,
+            enable_speed_threshold_filtering=enable_filtering,
+            speed_threshold=threshold,
+        )
         file_info["warnings"].extend(validation_warnings)
         if not is_valid:
              # Decide if processing should stop based on validation warnings
@@ -642,7 +682,10 @@ def process_csv_file(file_path, base_output_folder, sample_for_plots=10000):
         # Save basic statistics
         print(f"  计算并保存统计信息...")
         try:
-             stats_df = df.describe(include='all', datetime_is_numeric=True).transpose() # Get comprehensive stats
+             try:
+                 stats_df = df.describe(include='all', datetime_is_numeric=True).transpose() # pandas >= 2.0
+             except TypeError:
+                 stats_df = df.describe(include='all').transpose()
              stats_df.to_csv(stats_path)
         except Exception as stats_err:
              msg = f"保存统计信息失败: {stats_err}"
@@ -667,11 +710,47 @@ def process_csv_file(file_path, base_output_folder, sample_for_plots=10000):
         # df.to_csv(processed_data_path, index=False, compression='gzip')
 
         # Generate Plots (using sampled data for performance)
-        print(f"  准备生成图表 (采样 {min(sample_for_plots, len(df))} 点)...")
-        df_sample = df.sample(min(sample_for_plots, len(df)), random_state=42) if len(df) > sample_for_plots else df
+        method = (parameters.get("method") if isinstance(parameters, dict) else None) or "standard"
+        method_key = str(method).strip().lower()
+        if method_key == "fast":
+            # Fewer samples and fewer heights for faster turnaround
+            sample_for_plots = min(int(sample_for_plots or 2000), 2000)
+            heights = [10, 70, 110]
+        elif method_key == "high_precision":
+            # Use full data (no sampling)
+            sample_for_plots = None
+            heights = [10, 30, 50, 70, 80, 90, 110]
+        else:
+            heights = [10, 30, 50, 70, 80, 90, 110]
+
+        # Chart type selection
+        selected_types = parameters.get("chartTypes") if isinstance(parameters, dict) else None
+        selected_norm = set()
+        if isinstance(selected_types, list):
+            selected_norm = {str(t).strip().lower() for t in selected_types if str(t).strip()}
+
+        def wants(chart_key: str) -> bool:
+            if not selected_norm:
+                return True
+            chart_key = chart_key.lower()
+            if chart_key in selected_norm:
+                return True
+            # Backwards/forwards compatibility between 'wind_rose' and 'windrose'
+            if chart_key == "windrose" and "wind_rose" in selected_norm:
+                return True
+            if chart_key == "wind_rose" and "windrose" in selected_norm:
+                return True
+            return False
+
+        # Determine sampling strategy
+        if sample_for_plots is None:
+            print(f"  准备生成图表 (method={method_key}, 使用全量数据)...")
+            df_sample = df
+        else:
+            print(f"  准备生成图表 (method={method_key}, 采样 {min(sample_for_plots, len(df))} 点)...")
+            df_sample = df.sample(min(sample_for_plots, len(df)), random_state=42) if len(df) > sample_for_plots else df
         font_prop = set_font_for_plot() # Set font before plotting loop
 
-        heights = [10, 30, 50, 70, 80, 90, 110]
         plot_functions = {
             "windrose": plot_wind_rose,
             "wind_frequency": plot_wind_frequency,
@@ -681,13 +760,16 @@ def process_csv_file(file_path, base_output_folder, sample_for_plots=10000):
         for height in heights:
             print(f"  生成 {height}m 高度图表:")
             for plot_type, plot_func in plot_functions.items():
+                if not wants(plot_type):
+                    continue
                 print(f"    - {plot_type}...")
                 if plot_func(df_sample, height=height, output_dir=base_output_folder, farm_id=file_info["farm_id"], date_str=date_str, font_prop=font_prop):
                     plots_created.append(f"{plot_type}_{height}m")
 
-        print(f"  生成大气稳定度分布图:")
-        if plot_stability_distribution(df, output_dir=base_output_folder, farm_id=file_info["farm_id"], date_str=date_str, font_prop=font_prop):
-            plots_created.append("stability_distribution")
+        if wants("stability_distribution"):
+            print(f"  生成大气稳定度分布图:")
+            if plot_stability_distribution(df, output_dir=base_output_folder, farm_id=file_info["farm_id"], date_str=date_str, font_prop=font_prop):
+                plots_created.append("stability_distribution")
 
         file_info["plots_created"] = plots_created
         # If status was 'processing' or 'warning', and we reached here without fatal errors, mark as success/warning
@@ -774,42 +856,66 @@ def process_wind_data_parallel(
     start_run_time = time.time()
 
     results_list = [] # Store results from each file processing task
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        # Submit tasks: pass the analysis_output_dir as the base for each file
-        future_to_file = {
-            executor.submit(process_csv_file, file, analysis_output_dir): file
-            for file in csv_files
-        }
 
-        # Progress reporting (optional using tqdm if installed)
-        try:
-            from tqdm import tqdm
-            progress_iterator = tqdm(as_completed(future_to_file), total=len(future_to_file), desc=f"分析 {analysis_id}")
-        except ImportError:
-            progress_iterator = as_completed(future_to_file)
-            print("开始处理文件 (无进度条)...")
+    # Try multi-process execution; if the environment forbids semaphores/process pools, fallback to sequential mode.
+    try:
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            # Submit tasks: pass the analysis_output_dir as the base for each file
+            future_to_file = {
+                executor.submit(process_csv_file, file, analysis_output_dir, 10000, parameters): file
+                for file in csv_files
+            }
 
-        for i, future in enumerate(progress_iterator):
-            file_path = future_to_file[future]
+            # Progress reporting (optional using tqdm if installed)
+            try:
+                from tqdm import tqdm
+                progress_iterator = tqdm(as_completed(future_to_file), total=len(future_to_file), desc=f"分析 {analysis_id}")
+            except ImportError:
+                progress_iterator = as_completed(future_to_file)
+                print("开始处理文件 (无进度条)...")
+
+            for i, future in enumerate(progress_iterator):
+                file_path = future_to_file[future]
+                file_name = os.path.basename(file_path)
+                try:
+                    result = future.result() # Get result from process_csv_file
+                    results_list.append(result)
+                    # Update progress description if using tqdm
+                    if 'tqdm' in sys.modules:
+                        progress_iterator.set_postfix({
+                            "状态": result['status'],
+                            "文件": file_name[-20:] # Show last part of filename
+                        })
+                    else: # Basic console logging without tqdm
+                        print(f"  ({i+1}/{len(csv_files)}) 完成: {file_name} - 状态: {result['status']} ({result['processing_time_sec']:.2f}s)")
+                        if result['status'] == 'warning':
+                             for warn in result.get('warnings', []): print(f"    警告: {warn}")
+                        elif result['status'] == 'error':
+                             print(f"    错误: {result.get('error', '未知错误')}")
+
+                except Exception as exc:
+                    # Handle errors where the future itself failed (e.g., process crash)
+                    print(f"处理文件 {file_name} 时发生严重异常: {exc}")
+                    import traceback
+                    traceback.print_exc()
+                    results_list.append({
+                        "file": file_name,
+                        "status": "error",
+                        "error": f"处理过程中发生未捕获的异常: {exc}",
+                        "output_folder": analysis_output_dir,
+                        "processing_time_sec": 0,
+                        "warnings": [],
+                        "plots_created": []
+                    })
+    except (PermissionError, OSError) as pool_err:
+        print(f"警告: 无法启动多进程并行处理 ({pool_err})，将回退到单进程顺序处理。")
+        for i, file_path in enumerate(csv_files):
             file_name = os.path.basename(file_path)
             try:
-                result = future.result() # Get result from process_csv_file
+                result = process_csv_file(file_path, analysis_output_dir, 10000, parameters)
                 results_list.append(result)
-                # Update progress description if using tqdm
-                if 'tqdm' in sys.modules:
-                    progress_iterator.set_postfix({
-                        "状态": result['status'],
-                        "文件": file_name[-20:] # Show last part of filename
-                    })
-                else: # Basic console logging without tqdm
-                    print(f"  ({i+1}/{len(csv_files)}) 完成: {file_name} - 状态: {result['status']} ({result['processing_time_sec']:.2f}s)")
-                    if result['status'] == 'warning':
-                         for warn in result.get('warnings', []): print(f"    警告: {warn}")
-                    elif result['status'] == 'error':
-                         print(f"    错误: {result.get('error', '未知错误')}")
-
+                print(f"  ({i+1}/{len(csv_files)}) 完成: {file_name} - 状态: {result['status']} ({result['processing_time_sec']:.2f}s)")
             except Exception as exc:
-                # Handle errors where the future itself failed (e.g., process crash)
                 print(f"处理文件 {file_name} 时发生严重异常: {exc}")
                 import traceback
                 traceback.print_exc()

@@ -209,13 +209,13 @@
 
           <div v-else>
              <el-alert
-                title="注意：存储统计信息为估算值"
+                title="提示：存储统计来自后端扫描"
                 type="info"
                 show-icon
                 :closable="false"
                 style="margin-bottom: 20px;"
               >
-                输出文件大小是基于输入文件大小的粗略估计，实际大小可能不同。精确统计需后端支持。
+                统计结果会随文件数量增长而略有延迟；如需最新数据可点击“刷新”。
               </el-alert>
             <el-row :gutter="24">
               <el-col :xs="24" :sm="12" :md="8" :lg="8">
@@ -463,40 +463,12 @@ const refreshAnalyses = async () => {
 const refreshStats = async () => {
   isLoadingStats.value = true;
   try {
-    // Ensure dependent data is loaded first - use checks on array status
-    if (!Array.isArray(store.inputFiles) || (store.inputFiles.length === 0 && !store.isLoadingFiles)) {
-        await store.scanInputFolder();
+    const response = await axios.get('/api/windmast/stats');
+    if (response.data?.success && response.data?.stats) {
+      storageStats.value = response.data.stats;
+    } else {
+      throw new Error(response.data?.message || '获取统计信息失败');
     }
-    if (!Array.isArray(store.savedAnalyses) || (store.savedAnalyses.length === 0 && !store.isLoadingAnalyses)) {
-        await store.fetchSavedAnalyses();
-    }
-
-    let inputSize = 0;
-    // Ensure inputFiles is an array before iterating
-    if (Array.isArray(store.inputFiles)) {
-        store.inputFiles.forEach(file => {
-            // Ensure size is a number before adding
-            if (file && typeof file.size === 'number') {
-                inputSize += file.size;
-            }
-        });
-    }
-
-    // Estimate output size - NEEDS BACKEND SUPPORT FOR ACCURACY
-    // Simple estimation: assume output is 50% of input size per analysis, capped by number of files
-    const inputFilesCount = Array.isArray(store.inputFiles) ? store.inputFiles.length : 0;
-    const analysesCount = Array.isArray(store.savedAnalyses) ? store.savedAnalyses.length : 0;
-
-    const estimatedOutputPerAnalysis = (inputSize / (inputFilesCount || 1)) * 0.5; // Avoid division by zero
-    const outputSize = analysesCount * estimatedOutputPerAnalysis;
-
-    storageStats.value = {
-      inputSize,
-      outputSize, // This is an estimate
-      totalSize: inputSize + outputSize,
-      inputFiles: inputFilesCount,
-      outputFiles: analysesCount
-    };
 
   } catch (error) {
     console.error('加载存储统计失败:', error);
@@ -529,7 +501,7 @@ const initStorageChart = () => {
       // Prepare chart data, ensuring values are numbers and filtering zero values
       const chartDataRaw = [
           { value: parseFloat(inputMB.toFixed(2)), name: '输入文件', itemStyle: { color: '#5470c6' } },
-          { value: parseFloat(outputMB.toFixed(2)), name: '输出文件 (估)', itemStyle: { color: '#91cc75' } }
+          { value: parseFloat(outputMB.toFixed(2)), name: '输出文件', itemStyle: { color: '#91cc75' } }
       ];
 
       const chartData = chartDataRaw.filter(item => !isNaN(item.value) && item.value > 0);
@@ -637,6 +609,7 @@ const getStatusType = (status) => {
   // Keep this function as previously corrected
   switch (status?.toLowerCase()) {
     case 'completed': return 'success';
+    case 'completed_with_warnings': return 'warning';
     case 'pending': case 'running': return 'warning';
     case 'failed': case 'error': return 'danger';
     default: return 'info';
@@ -647,6 +620,7 @@ const getStatusText = (status) => {
   // Keep this function as previously corrected
   switch (status?.toLowerCase()) {
     case 'completed': return '已完成';
+    case 'completed_with_warnings': return '完成(有警告)';
     case 'pending': return '排队中';
     case 'running': return '执行中';
     case 'failed': case 'error': return '失败';

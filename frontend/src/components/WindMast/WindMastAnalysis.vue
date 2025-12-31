@@ -117,15 +117,15 @@
         <el-divider content-position="left">分析参数配置</el-divider>
 
         <el-form-item label="数据过滤阈值 (异常值剔除)" prop="threshold">
-            <el-slider
-              v-model="analysisConfig.threshold"
-              :min="0"
-              :max="100"
-              :step="1"
-              show-input
-              :disabled="!analysisConfig.enableFiltering"
-              style="flex-grow: 1; margin-right: 20px;"
-            />
+	            <el-slider
+	              v-model="analysisConfig.threshold"
+	              :min="1"
+	              :max="100"
+	              :step="1"
+	              show-input
+	              :disabled="!analysisConfig.enableFiltering"
+	              style="flex-grow: 1; margin-right: 20px;"
+	            />
            <el-switch
               v-model="analysisConfig.enableFiltering"
               inline-prompt
@@ -135,13 +135,15 @@
             />
           <div class="form-item-help">
             <el-icon><InfoFilled /></el-icon>
-            <span>
-              启用后，可设置过滤强度 (0-100)。值越高，过滤越严格，可能移除更多数据点。
-              0 表示启用过滤但强度最低，100 表示最严格过滤。推荐值：50-70。
-              <strong v-if="!analysisConfig.enableFiltering">当前已禁用数据过滤。</strong>
-            </span>
-          </div>
-        </el-form-item>
+	            <span>
+	              启用后，会将超过该风速阈值 (m/s) 的数据视为异常并剔除（置为缺失值），用于图表与统计。
+	              阈值越低，过滤越严格。建议阈值：50-70 m/s（按数据质量调整）。
+	              <strong v-if="!analysisConfig.enableFiltering">
+	                当前已禁用阈值过滤（系统仍会自动剔除明显无效值，如负风速/风向越界）。
+	              </strong>
+	            </span>
+	          </div>
+	        </el-form-item>
 
 
         <el-form-item label="高级参数设置" prop="showAdvanced">
@@ -202,7 +204,7 @@
           size="large" plain
         >
           <el-icon><RefreshLeft /></el-icon>
-           {{ store.isPending ? '取消/重置' : '重置状态' }}
+           {{ store.isPending ? '重置界面' : '重置状态' }}
         </el-button>
       </div>
     </el-card>
@@ -389,10 +391,21 @@ const setupWebSocket = () => {
   });
 
   // Listen for analysis progress updates
-  socket.on('windmast_progress', (data) => {
+  socket.on('windmast_analysis_progress', (data) => {
       console.log('收到进度消息:', data);
-      if (store.currentAnalysisId && data.analysisId === store.currentAnalysisId) {
-          store.addProgressMessage(data.message);
+      // data can be { analysisId, message } or a plain string
+      const analysisId = data?.analysisId;
+      const message = data?.message ?? data;
+      if (store.currentAnalysisId && analysisId === store.currentAnalysisId && message) {
+          store.addProgressMessage(message);
+      }
+  });
+
+  socket.on('windmast_analysis_error', (data) => {
+      const analysisId = data?.analysisId;
+      const message = data?.message ?? data;
+      if (store.currentAnalysisId && analysisId === store.currentAnalysisId && message) {
+          store.addProgressMessage(`后台错误: ${message}`);
       }
   });
 
@@ -429,7 +442,8 @@ const setupWebSocket = () => {
 const cleanupWebSocket = () => {
   if (socket) {
     console.log("清理 WebSocket 连接...");
-    socket.off('windmast_progress');
+    socket.off('windmast_analysis_progress');
+    socket.off('windmast_analysis_error');
     socket.off('windmast_analysis_complete');
     socket.disconnect();
     socket = null;

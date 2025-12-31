@@ -40,6 +40,7 @@
           <el-select v-model="statusFilter" placeholder="状态筛选" clearable style="width: 150px">
             <el-option label="全部" value=""></el-option>
             <el-option label="已完成" value="completed"></el-option>
+            <el-option label="完成(有警告)" value="completed_with_warnings"></el-option>
             <el-option label="处理中" value="pending"></el-option>
             <el-option label="失败" value="failed"></el-option>
           </el-select>
@@ -234,7 +235,13 @@
     
     // Apply status filter
     if (statusFilter.value) {
-      result = result.filter(analysis => analysis.status === statusFilter.value);
+      if (statusFilter.value === 'completed') {
+        result = result.filter((analysis) =>
+          analysis.status === 'completed' || analysis.status === 'completed_with_warnings'
+        );
+      } else {
+        result = result.filter(analysis => analysis.status === statusFilter.value);
+      }
     }
     
     // Apply date range filter
@@ -281,7 +288,8 @@
   const getStatusType = (status) => {
     switch (status) {
       case 'completed': return 'success';
-      case 'pending': return 'warning';
+      case 'completed_with_warnings': return 'warning';
+      case 'pending': case 'running': return 'warning';
       case 'failed': return 'danger';
       default: return 'info';
     }
@@ -290,7 +298,9 @@
   const getStatusText = (status) => {
     switch (status) {
       case 'completed': return '已完成';
-      case 'pending': return '处理中';
+      case 'completed_with_warnings': return '完成(有警告)';
+      case 'pending': return '排队中';
+      case 'running': return '处理中';
       case 'failed': return '失败';
       default: return '未知';
     }

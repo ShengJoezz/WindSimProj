@@ -180,8 +180,8 @@
     return {
       totalFiles: store.inputFiles.length,
       totalAnalyses: store.savedAnalyses.length,
-      completedAnalyses: store.savedAnalyses.filter(a => a.status === 'completed').length,
-      pendingAnalyses: store.savedAnalyses.filter(a => a.status === 'pending').length
+      completedAnalyses: store.savedAnalyses.filter(a => a.status === 'completed' || a.status === 'completed_with_warnings').length,
+      pendingAnalyses: store.savedAnalyses.filter(a => a.status === 'pending' || a.status === 'running').length
     };
   });
   
@@ -205,7 +205,8 @@
   const getStatusType = (status) => {
     switch (status) {
       case 'completed': return 'success';
-      case 'pending': return 'warning';
+      case 'completed_with_warnings': return 'warning';
+      case 'pending': case 'running': return 'warning';
       case 'failed': return 'danger';
       default: return 'info';
     }
@@ -214,7 +215,9 @@
   const getStatusText = (status) => {
     switch (status) {
       case 'completed': return '已完成';
-      case 'pending': return '处理中';
+      case 'completed_with_warnings': return '完成(有警告)';
+      case 'pending': return '排队中';
+      case 'running': return '处理中';
       case 'failed': return '失败';
       default: return '未知';
     }
