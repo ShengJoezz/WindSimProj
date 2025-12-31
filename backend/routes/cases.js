@@ -171,18 +171,20 @@ const curveStorage = multer.diskStorage({
       cb(null, dst);
     },
     filename: (req, file, cb) => {
-        // 直接使用原始文件名 (例如 1-U-P-Ct.txt)
-        cb(null, file.originalname);
+        // 直接使用原始文件名 (例如 1-U-P-Ct.txt)，并去除任何路径部分
+        cb(null, path.basename(file.originalname));
     }
 });
 const uploadCurves = multer({
     storage: curveStorage,
     fileFilter: (req, file, cb) => {
-        // 可选：验证文件扩展名
-        const allowedExt = ['.txt', '.csv'];
-        const ext = path.extname(file.originalname).toLowerCase();
-        if (!allowedExt.includes(ext)) {
-            return cb(new Error(`仅支持 ${allowedExt.join(', ')} 文件`), false);
+        // 验证文件扩展名与命名格式（与 run.sh 要求保持一致）
+        const allowedExt = ['.txt'];
+        const original = path.basename(file.originalname);
+        const ext = path.extname(original).toLowerCase();
+        if (!allowedExt.includes(ext)) return cb(new Error(`仅支持 ${allowedExt.join(', ')} 文件`), false);
+        if (!/^\d+-U-P-Ct\.txt$/i.test(original)) {
+            return cb(new Error('性能曲线文件名必须为 "<模型ID>-U-P-Ct.txt"（例如 1-U-P-Ct.txt）'), false);
         }
         cb(null, true);
     },

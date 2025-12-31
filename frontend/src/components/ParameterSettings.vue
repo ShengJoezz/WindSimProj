@@ -158,26 +158,46 @@
                   </template>
               </el-upload>
 
-              <!-- 显示已存在的文件信息 -->
-              <div v-if="!roughnessFileList.length && existingRoughnessFile" class="existing-file-info">
-                  <el-icon><Document /></el-icon>
-                  <span>已存在文件: <strong>{{ existingRoughnessFile.name }}</strong> ({{ (existingRoughnessFile.size / 1024).toFixed(2) }} KB)</span>
-                  <el-button
-                      type="danger"
-                      size="small"
-                      plain
-                      @click="deleteExistingRoughnessFile"
-                      :disabled="caseStore.infoExists"
-                      title="删除已存在的粗糙度文件"
-                      style="margin-left: 15px;"
-                  >
-                      <el-icon><Delete /></el-icon> 删除
-                  </el-button>
-              </div>
-            </div>
-          </el-form-item>
-          <!-- ======================================================== -->
-        </el-form-item>
+	              <!-- 显示已存在的文件信息 -->
+	              <div v-if="!roughnessFileList.length && existingRoughnessFile" class="existing-file-info">
+	                  <el-icon><Document /></el-icon>
+	                  <span>已存在文件: <strong>{{ existingRoughnessFile.name }}</strong> ({{ (existingRoughnessFile.size / 1024).toFixed(2) }} KB)</span>
+	                  <el-button
+	                      type="danger"
+	                      size="small"
+	                      plain
+	                      @click="deleteExistingRoughnessFile"
+	                      :disabled="caseStore.infoExists"
+	                      title="删除已存在的粗糙度文件"
+	                      style="margin-left: 15px;"
+	                  >
+	                      <el-icon><Delete /></el-icon> 删除
+	                  </el-button>
+	              </div>
+
+	              <!-- 新增：上传文件的解析摘要（上传当下就能发现格式/坐标问题） -->
+	              <div v-if="roughnessPreview" class="roughness-preview">
+	                <el-alert title="粗糙度文件解析摘要" type="success" :closable="false" show-icon>
+	                  <template #default>
+	                    <div class="roughness-preview-content">
+	                      <p>数据块数：<strong>{{ roughnessPreview.blocks }}</strong>，总点数：<strong>{{ roughnessPreview.totalPoints }}</strong></p>
+	                      <p>
+	                        坐标范围：
+	                        X[{{ roughnessPreview.minX.toFixed(3) }}, {{ roughnessPreview.maxX.toFixed(3) }}]，
+	                        Y[{{ roughnessPreview.minY.toFixed(3) }}, {{ roughnessPreview.maxY.toFixed(3) }}]
+	                      </p>
+	                      <p>粗糙度长度 z0 范围：[{{ roughnessPreview.minZ0.toFixed(3) }}, {{ roughnessPreview.maxZ0.toFixed(3) }}] m</p>
+	                      <ul v-if="roughnessPreview.warnings.length" class="roughness-preview-warnings">
+	                        <li v-for="(w, idx) in roughnessPreview.warnings" :key="idx">{{ w }}</li>
+	                      </ul>
+	                    </div>
+	                  </template>
+	                </el-alert>
+	              </div>
+	            </div>
+	          </el-form-item>
+	          <!-- ======================================================== -->
+	        </el-form-item>
 
         <el-form-item label="仿真" class="parent-form-item">
           <el-form-item label="核" prop="simulation.cores" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.simulation.cores" :min="1" class="input-number" /> </el-form-item>
@@ -212,7 +232,7 @@
             <!-- 文件上传与预览区域 -->
             <div class="curve-input-area">
               <div class="input-left">
-                <el-upload drag ref="curveUploader" :auto-upload="false" :limit="10" :file-list="curveFileList" :on-remove="handleCurveRemove" :on-change="handleCurveAdd" accept=".txt,.csv" multiple :disabled="caseStore.infoExists">
+                <el-upload drag ref="curveUploader" :auto-upload="false" :limit="10" :file-list="curveFileList" :on-remove="handleCurveRemove" :on-change="handleCurveAdd" accept=".txt" multiple :disabled="caseStore.infoExists">
                   <el-icon><UploadFilled /></el-icon>
                   <div class="el-upload__text">将 <b>1-U-P-Ct.txt</b> 等文件拖到此处，或<em>点击上传</em></div>
                   <template #tip>
@@ -405,16 +425,122 @@ const previewingFiles = ref(new Set()); // 跟踪正在预览的文件
 const roughnessUploader = ref(null);
 const roughnessFileList = reactive([]); // 用于管理 el-upload 组件的文件列表
 const existingRoughnessFile = ref(null); // 用于显示服务器上已存在的文件信息
+const roughnessPreview = ref(null);
+
+const readFileAsText = (file) => {
+  if (!(file instanceof Blob)) return Promise.reject(new Error('无效的文件对象类型'));
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(String(e.target?.result ?? ''));
+    reader.onerror = () => reject(new Error('文件读取失败'));
+    reader.readAsText(file, 'utf-8');
+  });
+};
+
+const parseRouTextSummary = (text) => {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+  if (lines.length < 6) throw new Error('文件内容过少，无法解析 .rou');
+
+  const warnings = [];
+  if (!lines[0].startsWith('+rou')) {
+    warnings.push('首行不是以 "+rou" 开头（仍可继续，但建议使用标准格式）。');
+  }
+
+  // 头部 4 行：第 2~4 行通常是 4 列数字（solver 会跳过，但这里做弱校验给提示）
+  for (let i = 1; i < 4 && i < lines.length; i++) {
+    const tokens = lines[i].split(/\s+/).filter(Boolean);
+    if (tokens.length < 4 || tokens.some((t) => !Number.isFinite(Number(t)))) {
+      warnings.push(`头部第 ${i + 1} 行看起来不是 4 列数字（可能仍可用，但建议对照标准文件）。`);
+    }
+  }
+
+  let idx = 4; // 从第 5 行开始解析块
+  let blocks = 0;
+  let totalPoints = 0;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  let minZ0 = Infinity, maxZ0 = -Infinity;
+
+  while (idx < lines.length) {
+    const header = lines[idx].split(/\s+/).filter(Boolean);
+    if (header.length < 3) throw new Error(`第 ${idx + 1} 行: 数据块头应至少包含 3 列`);
+
+    const z0 = Number(header[1]);
+    const nRaw = Number(header[2]);
+    if (!Number.isFinite(z0)) throw new Error(`第 ${idx + 1} 行: 粗糙度长度 (第2列) 不是有效数字`);
+    if (!Number.isFinite(nRaw) || !Number.isInteger(nRaw) || nRaw <= 0) {
+      throw new Error(`第 ${idx + 1} 行: 点数量 (第3列) 必须是正整数`);
+    }
+
+    minZ0 = Math.min(minZ0, z0);
+    maxZ0 = Math.max(maxZ0, z0);
+
+    idx += 1;
+    for (let j = 0; j < nRaw; j++) {
+      if (idx >= lines.length) {
+        throw new Error(`数据块点数量不足：期望 ${nRaw} 行坐标点，但文件提前结束`);
+      }
+      const pt = lines[idx].split(/\s+/).filter(Boolean);
+      if (pt.length < 2) throw new Error(`第 ${idx + 1} 行: 坐标点应至少包含 2 列 (X Y)`);
+      const x = Number(pt[0]);
+      const y = Number(pt[1]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error(`第 ${idx + 1} 行: 坐标点包含非数字`);
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+      idx += 1;
+    }
+
+    blocks += 1;
+    totalPoints += nRaw;
+  }
+
+  if (blocks === 0 || totalPoints === 0) throw new Error('未解析到任何有效数据块');
+
+  // UTM 范围 sanity check（仅提示，不作为硬错误）
+  if (maxX < 1000 || maxY < 1000) {
+    warnings.push('坐标范围过小，看起来不像 UTM（单位应为米）。');
+  }
+  if (minX < 0 || maxX > 1_000_000) {
+    warnings.push('X 坐标超出常见 UTM Easting 范围（0 ~ 1,000,000）。请确认坐标系/单位。');
+  }
+  if (minY < 0 || maxY > 10_000_000) {
+    warnings.push('Y 坐标超出常见 UTM Northing 范围（0 ~ 10,000,000）。请确认坐标系/单位。');
+  }
+
+  return { blocks, totalPoints, minX, maxX, minY, maxY, minZ0, maxZ0, warnings };
+};
 
 // 处理粗糙度文件选择/变化
-const handleRoughnessFileChange = (file, fileList) => {
+const handleRoughnessFileChange = async (file, fileList) => {
   // 保证列表里只有一个文件
   if (fileList.length > 1) {
     fileList.splice(0, 1);
   }
   roughnessFileList.splice(0, roughnessFileList.length, ...fileList);
-  // 将文件对象存入 store，以便提交时使用
-  caseStore.setRoughnessFile(file.raw);
+  roughnessPreview.value = null;
+
+  const raw = file?.raw;
+  if (!(raw instanceof File)) {
+    caseStore.setRoughnessFile(null);
+    return;
+  }
+
+  try {
+    const text = await readFileAsText(raw);
+    roughnessPreview.value = parseRouTextSummary(text);
+    // 将文件对象存入 store，以便提交时使用
+    caseStore.setRoughnessFile(raw);
+  } catch (error) {
+    // 清理无效选择
+    roughnessFileList.splice(0, roughnessFileList.length);
+    caseStore.setRoughnessFile(null);
+    ElMessage.error(`粗糙度文件格式错误: ${error.message}`);
+  }
 };
 
 // 处理粗糙度文件移除
@@ -422,6 +548,7 @@ const handleRoughnessFileRemove = (file, fileList) => {
   roughnessFileList.splice(0, roughnessFileList.length, ...fileList);
   // 从 store 中清除文件对象
   caseStore.setRoughnessFile(null);
+  roughnessPreview.value = null;
 };
 
 // 删除服务器上已存在的粗糙度文件
@@ -639,8 +766,94 @@ const parseFile = async (file) => {
 };
 
 const extractTurbineTypeFromFilename = (filename) => {
-  const match = filename.match(/^(\d+)-U-P-Ct\./);
+  const match = filename.match(/^(\d+)-U-P-Ct\./i);
   return match ? `风机类型 ${match[1]}` : filename;
+};
+
+const curveFilenameToModelId = (filename) => {
+  const match = String(filename || '').trim().match(/^(\d+)-U-P-Ct\.txt$/i);
+  return match ? match[1] : null;
+};
+
+const getTurbineModelId = (turbine) => {
+  const model = String(turbine?.model ?? '').trim();
+  if (model) return model;
+  const type = turbine?.type;
+  if (type === null || type === undefined || type === '') return '';
+  return String(type).trim();
+};
+
+const getCurveValidationErrors = () => {
+  const errors = [];
+
+  const turbines = Array.isArray(windTurbines.value) ? windTurbines.value : [];
+  if (turbines.length === 0) return errors;
+
+  const missingModelTurbines = turbines
+    .map((t, idx) => ({ turbine: t, idx, modelId: getTurbineModelId(t) }))
+    .filter(({ modelId }) => !modelId);
+
+  if (missingModelTurbines.length > 0) {
+    const examples = missingModelTurbines
+      .slice(0, 5)
+      .map(({ turbine, idx }) => turbine?.name || turbine?.id || `#${idx + 1}`)
+      .join('、');
+    errors.push(
+      `存在 ${missingModelTurbines.length} 个风机未设置模型ID（model/type）。` +
+      `示例：${examples}。请在“风机管理/上传”中补全模型ID。`
+    );
+    return errors;
+  }
+
+  const requiredModelIds = Array.from(
+    new Set(
+      turbines
+        .map(getTurbineModelId)
+        .map((id) => id.trim())
+        .filter(Boolean)
+    )
+  );
+
+  const invalidModelIds = requiredModelIds.filter((id) => !/^\d+$/.test(id));
+  if (invalidModelIds.length > 0) {
+    errors.push(`风机模型ID必须为纯数字（用于匹配性能曲线文件名）：${invalidModelIds.join(', ')}`);
+    return errors;
+  }
+
+  const existingCurveIds = (existingFilesList.value || [])
+    .map((f) => curveFilenameToModelId(f.filename))
+    .filter(Boolean);
+
+  const newCurveFiles = Array.isArray(caseStore.curveFiles) ? caseStore.curveFiles : [];
+  const newCurveNames = newCurveFiles.map((f) => f?.name).filter(Boolean);
+
+  const invalidNewCurveNames = newCurveNames.filter((name) => !curveFilenameToModelId(name));
+  if (invalidNewCurveNames.length > 0) {
+    errors.push(
+      `性能曲线文件命名不规范（必须为 "<模型ID>-U-P-Ct.txt"）：` +
+      invalidNewCurveNames.join(', ')
+    );
+    return errors;
+  }
+
+  const parsedNames = new Set((parsedCurveData.value || []).map((p) => p.filename));
+  const unparsedNames = newCurveNames.filter((name) => !parsedNames.has(name));
+  if (unparsedNames.length > 0) {
+    errors.push(`以下新上传的性能曲线文件解析失败，请修正文件内容后重新上传：${unparsedNames.join(', ')}`);
+    return errors;
+  }
+
+  const availableIds = new Set([
+    ...existingCurveIds,
+    ...newCurveNames.map((name) => curveFilenameToModelId(name)).filter(Boolean),
+  ]);
+
+  const missingCurves = requiredModelIds.filter((id) => !availableIds.has(id));
+  if (missingCurves.length > 0) {
+    errors.push(`缺少以下模型ID对应的性能曲线文件：${missingCurves.map((id) => `${id}-U-P-Ct.txt`).join(', ')}`);
+  }
+
+  return errors;
 };
 
 const parseTextData = (text) => {
@@ -770,6 +983,12 @@ const handleGenerateClick = async () => {
   const hasNewFiles = caseStore.curveFiles.length > 0;
   const hasExistingFiles = existingFilesList.value.length > 0;
   if (!hasNewFiles && !hasExistingFiles) return ElMessage.error("请先上传风机性能曲线文件");
+
+  const curveErrors = getCurveValidationErrors();
+  if (curveErrors.length > 0) {
+    ElMessage.error(curveErrors[0]);
+    return;
+  }
 
   // ===== [新增] 检查粗糙度文件是否已上传 =====
   if (!caseStore.roughnessFile && !existingRoughnessFile.value) {
