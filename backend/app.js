@@ -19,7 +19,6 @@ const { Server } = require('socket.io');
 
 // --- Routers ---
 const casesRouter = require('./routes/cases'); // Existing Cases Router
-const windTurbinesRouter = require('./routes/windTurbinesRouter'); // Existing Wind Turbines Router
 const terrainRouter = require('./routes/terrain'); // Existing Terrain Router
 const windMastRouter = require('./routes/windmastRouter');
 const errorHandler = require('./middleware/errorHandler'); // Existing Error Handler
@@ -68,7 +67,6 @@ app.use((req, res, next) => {
 // --- API Routes ---
 // Mount routers - Order might matter depending on specificity, but this looks okay
 app.use('/api/cases', casesRouter);
-app.use('/api/cases/:caseId/wind-turbines', windTurbinesRouter);
 app.use('/api/cases', terrainRouter); // Check path if it includes :caseId implicitly or explicitly
 app.use('/api/windmast', windMastRouter);
 app.use('/api/dem', demClipperRouter);
