@@ -1,36 +1,14 @@
-# 1. 忽略 Node.js 依赖和日志
-#--------------------------------
+# Node / logs
 node_modules
-npm-debug.log*
+npm-debug.log
 yarn-error.log
 
-# 2. 忽略 Git 和项目文档
-#--------------------------------
-.git
-.gitignore
-README.md
-
-# 3. 忽略 Docker 构建自身相关文件
-#--------------------------------
-Dockerfile
-.dockerignore
-
-# 4. 忽略你明确指出的大型数据和脚本 (根据你的截图和描述)
-#--------------------------------
+# Runtime / user data (mounted via volume in docker-compose)
 uploads
-batch_2
-utils_full
 windmast_data
-generate_data.sh
-generate_data_2.sh
-China_Dem
-# 6. 忽略通用的 Python 缓存文件 (好习惯)
-#--------------------------------
-__pycache__
-*.pyc
+batch_1
+batch_2
 
-# 7. 忽略通用的操作系统和IDE配置文件
-#--------------------------------
-.vscode
-.idea
-*.DS_Store
+# Windows ADS junk files
+*:Zone.Identifier
+*Zone.Identifier*

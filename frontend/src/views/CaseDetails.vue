@@ -26,7 +26,7 @@
 import { computed, onBeforeUnmount, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useCaseStore } from '@/store/caseStore';
-import { ElMessage } from 'element-plus';
+import { notifyError } from '@/utils/notify.js';
 
 const route = useRoute();
 const caseStore = useCaseStore();
@@ -42,7 +42,7 @@ const ensureCaseInitialized = async (caseId) => {
     await caseStore.initializeCase(caseId);
   } catch (error) {
     console.error('CaseDetails 初始化工况失败:', error);
-    ElMessage.error('初始化工况失败，请返回工况列表重试');
+    notifyError(error, '初始化工况失败，请返回工况列表重试');
   }
 };
 

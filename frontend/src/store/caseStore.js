@@ -12,10 +12,11 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
-import { ElMessage, ElNotification } from 'element-plus';
+import { ElNotification } from 'element-plus';
 import { knownTasks } from '../utils/tasks.js';
 import { io } from 'socket.io-client';
 import { useWindMastStore } from './windMastStore';
+import { notifyError, notifySuccess } from '../utils/notify.js';
 
 export const useCaseStore = defineStore('caseStore', () => {
   // --- State ---
@@ -125,8 +126,7 @@ export const useCaseStore = defineStore('caseStore', () => {
       }
     } catch (error) {
       console.error('解锁参数时出错:', error);
-      const errorMessage = error.response?.data?.message || '解锁参数时发生未知错误';
-      ElMessage.error(errorMessage);
+      notifyError(error, '解锁参数失败');
       throw error;
     }
   };
@@ -149,14 +149,13 @@ export const useCaseStore = defineStore('caseStore', () => {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       if (response.data.success) {
-        ElMessage.success(`成功上传 ${response.data.files.length} 个性能曲线文件`);
+        notifySuccess(`成功上传 ${response.data.files.length} 个性能曲线文件`);
       } else {
         throw new Error(response.data.message || '曲线文件上传失败');
       }
     } catch (error) {
       console.error('上传性能曲线时出错:', error);
-      const errorMessage = error.response?.data?.message || error.message || '上传性能曲线时发生未知错误';
-      ElMessage.error(errorMessage);
+      notifyError(error, '上传性能曲线失败');
       throw error;
     }
   }
@@ -179,15 +178,14 @@ export const useCaseStore = defineStore('caseStore', () => {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       if (response.data.success) {
-        ElMessage.success('粗糙度数据文件上传成功');
+        notifySuccess('粗糙度数据文件上传成功');
         roughnessFile.value = null; // 上传成功后清除
       } else {
         throw new Error(response.data.message || '粗糙度文件上传失败');
       }
     } catch (error) {
       console.error('上传粗糙度文件时出错:', error);
-      const errorMessage = error.response?.data?.message || error.message || '上传粗糙度文件时发生未知错误';
-      ElMessage.error(errorMessage);
+      notifyError(error, '上传粗糙度文件失败');
       throw error;
     }
   }
@@ -201,8 +199,7 @@ export const useCaseStore = defineStore('caseStore', () => {
         }
     } catch (error) {
         console.error('删除粗糙度文件时出错:', error);
-        const errorMessage = error.response?.data?.message || '删除粗糙度文件失败';
-        ElMessage.error(errorMessage);
+        notifyError(error, '删除粗糙度文件失败');
         throw error;
     }
   }
@@ -211,7 +208,7 @@ export const useCaseStore = defineStore('caseStore', () => {
   const initializeCase = async (id, name) => {
     return new Promise(async (resolve, reject) => {
       if (!id) {
-        ElMessage.error('缺少工况ID');
+        notifyError('缺少工况ID');
         reject('缺少工况ID');
         return;
       }
@@ -240,6 +237,11 @@ export const useCaseStore = defineStore('caseStore', () => {
         const infoResponse = await axios.get(`/api/cases/${caseId.value}/info-exists`);
         infoExists.value = infoResponse.data.exists;
         await fetchCalculationStatus();
+        try {
+          await loadCalculationProgress();
+        } catch (e) {
+          console.warn('加载持久化进度失败（将继续使用实时进度）:', e?.message || e);
+        }
         connectSocket(id);
 
         const windMastStore = useWindMastStore();
@@ -247,7 +249,7 @@ export const useCaseStore = defineStore('caseStore', () => {
         resolve();
       } catch (error) {
         console.error('Failed to initialize case:', error);
-        ElMessage.error('初始化失败');
+        notifyError(error, '初始化失败');
         reject(error);
       }
     });
@@ -287,14 +289,14 @@ export const useCaseStore = defineStore('caseStore', () => {
       isSubmittingParameters.value = true;
       const response = await axios.post(`/api/cases/${caseId.value}/parameters`, parameters.value);
       if (response.data.success) {
-        ElMessage.success('参数保存成功');
+        notifySuccess('参数保存成功');
         infoExists.value = false;
       } else {
         throw new Error(response.data.message || '参数保存失败');
       }
     } catch (error) {
       console.error('Error submitting parameters:', error);
-      ElMessage.error(error.message || '参数提交失败');
+      notifyError(error, '参数提交失败');
       throw error;
     } finally {
       isSubmittingParameters.value = false;
@@ -328,14 +330,14 @@ export const useCaseStore = defineStore('caseStore', () => {
 
       const response = await axios.post(`/api/cases/${caseId.value}/info`, payload);
       if (response.data.success) {
-        ElMessage.success('info.json 生成成功');
+        notifySuccess('info.json 生成成功');
         infoExists.value = true;
       } else {
         throw new Error(response.data.message || '生成 info.json 失败');
       }
     } catch (error) {
       console.error('Error generating info.json:', error);
-      ElMessage.error('生成 info.json 失败');
+      notifyError(error, '生成 info.json 失败');
       throw error;
     }
   };
@@ -351,10 +353,10 @@ export const useCaseStore = defineStore('caseStore', () => {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
-      ElMessage.success('info.json 已下载');
+      notifySuccess('info.json 已下载');
     } catch (error) {
       console.error('Error downloading info.json:', error);
-      ElMessage.error('下载 info.json 失败');
+      notifyError(error, '下载 info.json 失败');
     }
   };
 
@@ -365,13 +367,13 @@ export const useCaseStore = defineStore('caseStore', () => {
       if (response.data.success) {
         windTurbines.value = [...windTurbines.value, response.data.turbine];
         infoExists.value = false;
-        ElMessage.success('风力涡轮机添加成功');
+        notifySuccess('风力涡轮机添加成功');
       } else {
         throw new Error(response.data.message || '保存风机数据失败');
       }
     } catch (error) {
       console.error('Error adding wind turbine:', error);
-      ElMessage.error('添加风机失败: ' + error.message);
+      notifyError(error, '添加风机失败');
       throw error;
     }
   };
@@ -431,13 +433,13 @@ export const useCaseStore = defineStore('caseStore', () => {
       if (response.data.success) {
         windTurbines.value = windTurbines.value.filter(t => t.id !== turbineId);
         infoExists.value = false;
-        ElMessage.success('风力涡轮机删除成功');
+        notifySuccess('风力涡轮机删除成功');
       } else {
         throw new Error(response.data.message || '删除风机数据失败');
       }
     } catch (error) {
       console.error('Error deleting wind turbine:', error);
-      ElMessage.error('删除风机失败: ' + error.message);
+      notifyError(error, '删除风机失败');
       throw error;
     }
   };
@@ -453,13 +455,13 @@ export const useCaseStore = defineStore('caseStore', () => {
             windTurbines.value.push(response.data.turbine);
         }
         infoExists.value = false;
-        ElMessage.success('风力涡轮机更新成功');
+        notifySuccess('风力涡轮机更新成功');
       } else {
         throw new Error(response.data.message || '更新风机数据失败');
       }
     } catch (error) {
       console.error('Error updating wind turbine:', error);
-      ElMessage.error('更新风机失败: ' + error.message);
+      notifyError(error, '更新风机失败');
       throw error;
     }
   };

@@ -76,7 +76,6 @@
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import VTKViewer from '@/components/VTKViewer.vue';
 import VelocityFieldDisplay from '@/components/VelocityFieldDisplay.vue';
-import PDFReportGenerator from '@/components/PDFReportGenerator.vue';
 import { useCaseStore } from '@/store/caseStore';
 import { useRouter } from 'vue-router'; // 引入 useRouter
 
@@ -86,7 +85,6 @@ const router = useRouter(); // 初始化 router
 // 用于获取组件实例的引用
 const vtkViewerRef = ref(null);
 const velocityRef = ref(null);
-const pdfGeneratorRef = ref(null);
 
 // 通知反馈状态
 const notification = ref({

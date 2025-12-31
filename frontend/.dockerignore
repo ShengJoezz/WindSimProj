@@ -1,0 +1,12 @@
+# Node / build artifacts
+node_modules
+dist
+
+# Local env files
+.env
+.env.*
+
+# Windows ADS junk files
+*:Zone.Identifier
+*Zone.Identifier*
+

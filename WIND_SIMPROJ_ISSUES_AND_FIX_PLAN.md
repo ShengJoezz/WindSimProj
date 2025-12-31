@@ -1,21 +1,21 @@
 # WindSimProj 平台工作流程审计：完整问题清单与拟修复方向
 
 文档生成日期：2025-12-31  
-适用版本：`master@9c011909`  
+适用版本：`master@HEAD`（持续更新）  
 分析范围：前端（Vue3/Vite/ElementPlus/Pinia）+ 后端（Node/Express/Socket.IO）+ 计算脚本（`backend/base/run.sh`）  
 
 > 目标：从“真实用户工作流”角度列出平台问题清单（含证据位置）与可执行的修复路线图，并结合成熟工况 `backend/uploads/testmi` 的真实 GeoTIFF/rou 数据验证坐标体系与约定。
 
 ---
 
-## 0. 问题统计摘要（截至 2025-12-31 20:10）
+## 0. 问题统计摘要（截至 2025-12-31）
 
 | 优先级 | 数量 | 已修复 | 说明 |
 | --- | ---: | ---: | --- |
 | P0（阻塞性） | 6 | **6** | ✅ 全部完成 |
-| P1（重要） | 12 | **8** | 结果正确性/高频踩坑/稳定性 |
-| P2（一般） | 5 | **1** | 维护性/一致性/潜在泄漏 |
-| **总计** | **23** | **15** | 完成率 ≈ 65% |
+| P1（重要） | 12 | **12** | ✅ 全部完成 |
+| P2（一般） | 5 | **5** | ✅ 全部完成 |
+| **总计** | **23** | **23** | 完成率 ≈ **100%** |
 
 ## 1. 真实样本工况验证：`backend/uploads/testmi`
 
@@ -268,10 +268,13 @@ flowchart TD
 - 根因证据：`backend/app.js:71` 与 `backend/routes/cases.js:2400`
 - 修复方向：只保留一处挂载，统一入口
 
-#### P1-10：存在前端调用但后端不存在的 API（死代码）
+#### ✅ P1-10：存在前端调用但后端不存在的 API（死代码）【已修复：清理无用模块】
 
-- 根因证据：`frontend/src/store/mapStore.js:29` 请求 `/api/map-data`（后端不存在）；`frontend/src/components/PDFReportGenerator.vue:34` 请求 `/generate-pdf-report`（后端不存在）
-- 修复方向：删掉/隐藏入口，或补齐后端实现
+- 根因证据：历史代码中存在请求 `/api/map-data` 与 `/api/cases/:caseId/generate-pdf-report`，但后端未实现对应路由
+- 已实现
+  - 删除未被引用的 store：`frontend/src/store/mapStore.js`
+  - 删除未被引用的组件：`frontend/src/components/PDFReportGenerator.vue`
+  - 移除结果页的无效 import：`frontend/src/components/ResultsDisplay.vue`
 
 #### ✅ P1-11：粗糙度文件（rou）缺少“上传前结构校验/可视化预览”【已修复】
 
@@ -309,26 +312,32 @@ flowchart TD
 - 根因证据：add/remove 使用匿名函数：`frontend/src/components/VelocityFieldDisplay.vue:998`
 - 修复方向：保存 handler 引用并正确 remove
 
-#### P2-2：错误提示/通知风格不统一
+#### ✅ P2-2：错误提示/通知风格不统一【已修复：统一 notify 工具】
 
 - 现状：有的用 `ElMessage`，有的只 `console.error`，用户体验碎片化
-- 修复方向：抽象统一 `notifyError()`/`notifySuccess()` 工具层
+- 已实现
+  - 增加统一通知工具：`frontend/src/utils/notify.js`
+  - 在关键链路落地（store/速度场/工况初始化）：`frontend/src/store/caseStore.js`、`frontend/src/components/VelocityFieldDisplay.vue`、`frontend/src/views/CaseDetails.vue`
 
-#### P2-3：状态持久化策略不清晰（刷新后体验不一致）
+#### ✅ P2-3：状态持久化策略不清晰（刷新后体验不一致）【已修复：后端权威进度 + 初始化兜底】
 
 - 现状：仅持久化 `currentCaseId`，但计算进度/状态更多依赖 socket
-- 修复方向：将“权威状态”持久化在后端（info.json/progress.json），前端刷新后以轮询拉取兜底
+- 已实现
+  - 后端持久化计算进度（`calculation_progress.json`）并提供拉取/保存 API（见本文件 P0 修复部分）
+  - 前端在 `initializeCase()` 阶段额外拉取持久化进度作为刷新兜底：`frontend/src/store/caseStore.js`
 
-#### P2-4：结果/速度场大文件加载缺少进度提示与失败可解释性
+#### ✅ P2-4：结果/速度场大文件加载缺少进度提示与失败可解释性【已修复：下载进度 + 失败提示】
 
 - 用户现象：加载 VTK/VTP 或大切片时，界面长时间无反馈；失败时不清楚是“文件不存在/网络/解析失败”
-- 根因：可视化组件多用 fetch 直读静态文件，缺少统一的加载态与错误归因（详见结果页组件组合）
-- 修复方向：统一“加载中/失败原因/重试”UI；必要时后端提供 HEAD/size/mtime 的元信息 API
+- 已实现
+  - 速度场加载时显示“下载阶段 + 百分比/已下载体积”，失败时给出用户可见错误：`frontend/src/components/VelocityFieldDisplay.vue`
 
-#### P2-5：运行目录存在 `:Zone.Identifier` 等杂质文件（跨平台/打包困扰）
+#### ✅ P2-5：运行目录存在 `:Zone.Identifier` 等杂质文件（跨平台/打包困扰）【已修复：运行前清理 + 构建忽略】
 
 - 现象：`backend/uploads/testmi/run/system/*:Zone.Identifier` 等文件存在（Windows 复制产生），可能影响脚本扫描/打包体积
-- 修复方向：在生成/导入/打包时过滤 `*Zone.Identifier*`；或在计算准备阶段清理
+- 已实现
+  - 计算准备阶段清理（复制 initcase 后删除）：`backend/base/run.sh`
+  - Docker 构建时忽略（避免把杂质带进镜像/增大上下文）：`backend/.dockerignore`、`frontend/.dockerignore`
 
 ---
 

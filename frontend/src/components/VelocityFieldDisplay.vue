@@ -63,7 +63,8 @@
     
     <div v-if="loading" class="loading-indicator">
       <div class="loading-spinner"></div>
-      <div>加载中...</div>
+      <div>{{ loadingText }}</div>
+      <div v-if="loadingPercent !== null" class="loading-progress">{{ loadingPercent }}%</div>
     </div>
     
     <!-- 删除了 class="legend" 的风速显示板块 -->
@@ -74,6 +75,7 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
 import axios from 'axios';
+import { notifyError } from '@/utils/notify.js';
 
 // VTK.js 导入
 import '@kitware/vtk.js/Rendering/Profiles/Geometry';
@@ -104,6 +106,8 @@ const props = defineProps({
 // 组件状态 - 界面与控制
 const vtkContainer = ref(null);
 const loading = ref(false);
+const loadingText = ref('加载中...');
+const loadingPercent = ref(null);
 const isControlsCollapsed = ref(false);
 
 const CONTROLS_COLLAPSE_KEY = 'windsim.velocity.controlsCollapsed';
@@ -436,13 +440,46 @@ async function loadData() {
   }
   
   loading.value = true;
+  loadingText.value = '加载中...';
+  loadingPercent.value = null;
   try {
     clearScene();
     
-    await loadTerrainData();
+    loadingText.value = '正在下载速度场数据...';
+    await loadTerrainData((evt) => {
+      if (!evt) return;
+      const total = Number(evt.total);
+      const loaded = Number(evt.loaded);
+      if (Number.isFinite(total) && total > 0 && Number.isFinite(loaded)) {
+        loadingPercent.value = Math.min(100, Math.round((loaded / total) * 100));
+        return;
+      }
+      if (Number.isFinite(loaded)) {
+        loadingPercent.value = null;
+        const mb = (loaded / (1024 * 1024)).toFixed(1);
+        loadingText.value = `正在下载速度场数据...（已下载 ${mb} MB）`;
+      }
+    });
     
     const streamlineUrl = getStreamlineUrl();
-    const streamlineResponse = await axios.get(streamlineUrl, { responseType: 'arraybuffer' });
+    loadingText.value = '正在下载流线数据...';
+    loadingPercent.value = null;
+    const streamlineResponse = await axios.get(streamlineUrl, {
+      responseType: 'arraybuffer',
+      onDownloadProgress: (evt) => {
+        const total = Number(evt.total);
+        const loaded = Number(evt.loaded);
+        if (Number.isFinite(total) && total > 0 && Number.isFinite(loaded)) {
+          loadingPercent.value = Math.min(100, Math.round((loaded / total) * 100));
+          return;
+        }
+        if (Number.isFinite(loaded)) {
+          const mb = (loaded / (1024 * 1024)).toFixed(1);
+          loadingText.value = `正在下载流线数据...（已下载 ${mb} MB）`;
+        }
+      }
+    });
+    loadingText.value = '正在解析流线数据...';
     const reader = vtkXMLPolyDataReader.newInstance();
     reader.parseAsArrayBuffer(streamlineResponse.data);
     streamlinesData = reader.getOutputData(0);
@@ -450,7 +487,7 @@ async function loadData() {
     const bounds = streamlinesData.getBounds();
     modelScale = Math.sqrt(Math.pow(bounds[1] - bounds[0], 2) + Math.pow(bounds[3] - bounds[2], 2) + Math.pow(bounds[5] - bounds[4], 2)) / 100;
     
-    extractStreamlinesFromVTP(); 
+    extractStreamlinesFromVTP();
 
     const mapper = vtkMapper.newInstance();
     mapper.setInputData(streamlinesData);
@@ -485,16 +522,22 @@ async function loadData() {
     safeRender();
     
   } catch (error) { 
-    console.error('加载数据失败:', error); 
+    console.error('加载数据失败:', error);
+    notifyError(error, '加载速度场失败');
   } finally { 
     loading.value = false; 
+    loadingPercent.value = null;
+    loadingText.value = '加载中...';
   }
 }
 
-async function loadTerrainData() {
+async function loadTerrainData(onDownloadProgress) {
   try {
     const terrainUrl = getTerrainUrl();
-    const response = await axios.get(terrainUrl, { responseType: 'arraybuffer' });
+    const response = await axios.get(terrainUrl, {
+      responseType: 'arraybuffer',
+      onDownloadProgress
+    });
     const reader = vtkXMLPolyDataReader.newInstance();
     reader.parseAsArrayBuffer(response.data);
     terrainData = reader.getOutputData(0);
@@ -1169,6 +1212,12 @@ defineExpose({ exportLayerPhotos });
   align-items: center;
   gap: 12px;
   border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.loading-progress {
+  margin-left: 6px;
+  font-weight: 700;
+  color: #1f2937;
 }
 
 .loading-spinner {

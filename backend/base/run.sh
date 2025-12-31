@@ -32,6 +32,8 @@ sleep 1
 # Step 3: Copy initial case files
 emit_task_start "copy_files"
 cp -r ../../base/initcase/* ./run
+# 清理 Windows 复制/解压产生的杂质文件，避免影响求解器与打包分发
+find ./run -type f \( -name '*:Zone.Identifier' -o -name '*Zone.Identifier*' \) -delete 2>/dev/null || true
 emit_progress 30 "copy_files"
 sleep 1
 # Step 4: Change to run directory
