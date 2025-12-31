@@ -275,6 +275,10 @@ flowchart TD
   - 删除未被引用的 store：`frontend/src/store/mapStore.js`
   - 删除未被引用的组件：`frontend/src/components/PDFReportGenerator.vue`
   - 移除结果页的无效 import：`frontend/src/components/ResultsDisplay.vue`
+  - 删除未被引用且指向不存在 API 的遗留文件：
+    - `frontend/src/api/windTurbines.js`（`/api/wind-turbines/upload` 未挂载）
+    - `frontend/src/components/FlowVisualization.vue`（`/api/cases/:caseId/results-vtk` 不存在）
+    - `frontend/src/components/WindMast/WindMastImageViewer.vue`（`/api/windmast/scan-images/*` 不存在）
 
 #### ✅ P1-11：粗糙度文件（rou）缺少“上传前结构校验/可视化预览”【已修复】
 

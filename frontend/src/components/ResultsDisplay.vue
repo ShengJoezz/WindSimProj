@@ -32,7 +32,10 @@
           <i class="fa fa-download"></i> 导出网格文件
         </button>
         <button class="export-button" @click="exportLayerPhotos">
-          <i class="fa fa-image"></i>  导出速度场文件
+          <i class="fa fa-image"></i>  导出当前层速度场
+        </button>
+        <button class="export-button" @click="exportAllVelocityLayers">
+          <i class="fa fa-download"></i> 导出全部速度场（ZIP）
         </button>
       </div>
     </div>
@@ -149,6 +152,31 @@ const exportLayerPhotos = async () => {
     }
   } catch (error) {
     console.error('导出速度场照片出错:', error);
+    showNotification(`导出错误: ${error.message}`, 'error');
+  }
+};
+
+// 导出全部速度场（ZIP）
+const exportAllVelocityLayers = async () => {
+  const caseId = caseStore.currentCaseId;
+  if (!caseId) {
+    showNotification('未检测到工况ID，无法导出', 'error');
+    return;
+  }
+
+  showNotification('正在准备导出全部速度场（ZIP）...', 'info');
+
+  try {
+    const url = `/api/cases/${caseId}/export-velocity-layers`;
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showNotification('已开始导出下载（如未开始请检查浏览器下载/弹窗设置）', 'success');
+  } catch (error) {
+    console.error('导出全部速度场出错:', error);
     showNotification(`导出错误: ${error.message}`, 'error');
   }
 };
