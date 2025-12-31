@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-03-16 19:08:49
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-07-22 20:54:21
+ * @LastEditTime: 2025-12-02 21:34:41
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\views\Home.vue
  * @Description: 
  * 
@@ -20,11 +20,11 @@
       <div id="particles-js"></div>
       <!-- LOGO -->
       <div class="logo-container">
-        <img src="/HUST_LOGO.png" alt="HUST Logo" class="logo" />
+        <img src="/HUST_LOGO.svg" alt="HUST Logo" class="logo" />
       </div>
       <div class="title-group">
         <h1 class="title" data-text="风流场模拟平台">风流场模拟平台</h1>
-        <h2 class="subtitle">中国长江三峡集团有限公司</h2>
+        <h2 class="subtitle">华中科技大学刘震卿教授课题组</h2>
       </div>
       <p class="description">
         致力于前沿技术研究，提供高效、精准的复杂地形风流场仿真解决方案。

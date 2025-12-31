@@ -8,8 +8,21 @@
     <div ref="vtkContainer" class="vtk-container"></div>
     
     <!-- 修改后的控制面板 -->
-    <div class="controls">
-      <div class="control-content">
+    <div class="controls" :class="{ collapsed: isControlsCollapsed }">
+      <div class="controls-header">
+        <div class="controls-title">显示设置</div>
+        <button
+          type="button"
+          class="controls-collapse-button"
+          @click="toggleControls"
+          :aria-expanded="!isControlsCollapsed"
+          :aria-label="isControlsCollapsed ? '展开显示设置' : '折叠显示设置'"
+        >
+          <span :class="['icon-panel-toggle', isControlsCollapsed ? 'collapsed' : 'expanded']"></span>
+        </button>
+      </div>
+
+      <div v-show="!isControlsCollapsed" class="control-content">
         <!-- 1. 保留显示功能中的高度选择 -->
         <div>
           <label for="height-select">选择高度:</label>
@@ -37,6 +50,14 @@
             显示流线
           </label>
         </div>
+
+        <!-- 新增：粒子效果开关（关闭时停止动画并隐藏粒子/轨迹） -->
+        <div>
+          <label>
+            <input type="checkbox" v-model="showParticles" @change="updateParticlesVisibility">
+            显示粒子
+          </label>
+        </div>
       </div>
     </div>
     
@@ -51,7 +72,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
 import axios from 'axios';
 
 // VTK.js 导入
@@ -83,6 +104,33 @@ const props = defineProps({
 // 组件状态 - 界面与控制
 const vtkContainer = ref(null);
 const loading = ref(false);
+const isControlsCollapsed = ref(false);
+
+const CONTROLS_COLLAPSE_KEY = 'windsim.velocity.controlsCollapsed';
+
+const toggleControls = () => {
+  isControlsCollapsed.value = !isControlsCollapsed.value;
+};
+
+const loadControlsState = () => {
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = window.localStorage.getItem(CONTROLS_COLLAPSE_KEY);
+    if (raw === null) return;
+    isControlsCollapsed.value = raw === '1' || raw === 'true';
+  } catch (e) {
+    console.warn('读取速度场面板折叠状态失败:', e);
+  }
+};
+
+watch(isControlsCollapsed, (val) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(CONTROLS_COLLAPSE_KEY, val ? '1' : '0');
+  } catch (e) {
+    console.warn('保存速度场面板折叠状态失败:', e);
+  }
+});
 
 // 高度选择 (根据脚本动态生成)
 const availableHeights = ref([]);
@@ -98,6 +146,7 @@ const trailLength = ref(5); // 从3增加到5，让轨迹更明显
 const particleOpacity = ref(0.95); // 从0.9增加到0.95
 const trailOpacity = ref(0.7); // 从0.6增加到0.7
 const showLines = ref(false); 
+const showParticles = ref(true);
 const useColorSpeed = ref(true); 
 const particleStyle = ref('arrow'); 
 const resetTrailsOnJump = ref(true);
@@ -241,6 +290,50 @@ function safeRender() {
   }
 }
 
+function stopParticleAnimation() {
+  if (animationFrameId) cancelAnimationFrame(animationFrameId);
+  animationFrameId = null;
+}
+
+function clearParticlesFromScene() {
+  stopParticleAnimation();
+  particles = [];
+  if (!renderer) return;
+  try {
+    if (particlesActor) { renderer.removeActor(particlesActor); particlesActor = null; }
+    if (trailsActor) { renderer.removeActor(trailsActor); trailsActor = null; }
+  } catch (e) {
+    console.warn("清理粒子/轨迹失败:", e);
+  }
+  safeRender();
+}
+
+function updateParticlesVisibility() {
+  // 关闭：停止动画并移除粒子/轨迹 actor（避免静止残影 + 节省性能）
+  if (!showParticles.value) {
+    clearParticlesFromScene();
+    return;
+  }
+
+  // 开启：如果数据已加载则重新初始化粒子系统
+  if (!renderer) return;
+  if (streamlines.length === 0) return;
+
+  if (particles.length === 0 || !particlesActor) {
+    initParticleSystem();
+    return;
+  }
+
+  // 已存在时只恢复动画与可见性
+  try {
+    if (particlesActor) particlesActor.setVisibility(true);
+    if (trailsActor) trailsActor.setVisibility(true);
+  } catch (e) {
+    console.warn("恢复粒子可见性失败:", e);
+  }
+  if (!animationFrameId) startParticleAnimation();
+}
+
 function initRenderer() {
   try {
     if (!vtkContainer.value) {
@@ -374,7 +467,11 @@ async function loadData() {
       }
     }
     
-    initParticleSystem();
+    if (showParticles.value) {
+      initParticleSystem();
+    } else {
+      clearParticlesFromScene();
+    }
     renderer.resetCamera();
     
     // 优化初始缩放比例
@@ -520,7 +617,7 @@ function clearScene() {
   if (trailsActor) { renderer.removeActor(trailsActor); trailsActor = null; }
   if (terrainActor) { renderer.removeActor(terrainActor); terrainActor = null; }
   if (scalarBarActor) { renderer.removeActor(scalarBarActor); scalarBarActor = null; }
-  if (animationFrameId) { cancelAnimationFrame(animationFrameId); animationFrameId = null; }
+  stopParticleAnimation();
   streamlines = []; 
   flowVectors = []; 
   particles = []; 
@@ -707,6 +804,7 @@ function createParticleTrails() {
 }
 
 function updateParticleData() {
+  if (!showParticles.value) return;
   if (particles.length === 0) return;
   const points = [], velocities = [], speeds = [];
   for (const p of particles) {
@@ -769,6 +867,7 @@ function updateParticleData() {
 }
 
 function initParticleSystem() {
+  if (!showParticles.value) return;
   if (streamlines.length === 0) return;
   analyzeGlobalWindDirection();
   createParticles();
@@ -802,8 +901,12 @@ function createParticles() {
 }
 
 function startParticleAnimation() {
-  if (animationFrameId) cancelAnimationFrame(animationFrameId);
+  stopParticleAnimation();
   const animate = () => {
+    if (!showParticles.value) {
+      stopParticleAnimation();
+      return;
+    }
     updateParticlePositions();
     updateTrails();
     if (particles.length > 0) updateParticleData();
@@ -884,6 +987,7 @@ const exportLayerPhotos = async () => {
 };
 
 onMounted(async () => {
+  loadControlsState();
   await nextTick();
   if (!vtkContainer.value) return;
   await fetchAvailableHeights();
@@ -936,15 +1040,86 @@ defineExpose({ exportLayerPhotos });
   transition: all 0.3s ease;
 }
 
+.controls-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.controls-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #1f2937;
+}
+
+.controls-collapse-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.controls-collapse-button:hover {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(0, 0, 0, 0.18);
+}
+
+.icon-panel-toggle {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23334155' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='15 18 9 12 15 6'/%3E%3C/svg%3E");
+  transition: transform 0.2s ease;
+}
+
+.icon-panel-toggle.expanded {
+  transform: rotate(180deg);
+}
+
+.icon-panel-toggle.collapsed {
+  transform: rotate(0deg);
+}
+
+.controls.collapsed {
+  width: 52px;
+  padding: 10px;
+  max-height: none;
+  overflow: visible;
+}
+
+.controls.collapsed .controls-header {
+  justify-content: center;
+  padding: 0;
+  border-bottom: none;
+}
+
+.controls.collapsed .controls-title {
+  display: none;
+}
+
 .control-content {
   padding: 20px;
 }
 
-.controls div {
+.control-content > div {
   margin-bottom: 16px;
 }
 
-.controls div:last-child {
+.control-content > div:last-child {
   margin-bottom: 0;
 }
 

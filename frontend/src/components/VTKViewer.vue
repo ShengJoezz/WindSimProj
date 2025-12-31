@@ -14,72 +14,87 @@
     <div ref="vtkContainer" class="vtk-viewer"></div>
 
     <!-- 控制面板 -->
-    <div class="control-panel">
-      <!-- 状态信息 -->
-      <div class="panel-section status-section">
-        <div class="status-text">
-          <span class="status-label">当前显示:</span>
-          <span class="status-value">{{ vtkFileName }}</span>
-          <span v-if="loading" class="loading-indicator">
-            <span class="loading-spinner"></span>加载中...
-          </span>
-        </div>
+    <div class="control-panel" :class="{ collapsed: isControlPanelCollapsed }">
+      <div class="panel-header">
+        <div class="panel-title">控制面板</div>
+        <button
+          type="button"
+          class="panel-collapse-button"
+          @click="toggleControlPanel"
+          :aria-expanded="!isControlPanelCollapsed"
+          :aria-label="isControlPanelCollapsed ? '展开控制面板' : '折叠控制面板'"
+        >
+          <span :class="['icon-panel-toggle', isControlPanelCollapsed ? 'collapsed' : 'expanded']"></span>
+        </button>
       </div>
 
-      <!-- 文件选择 -->
-      <div class="panel-section">
-        <h3 class="section-title">选择显示内容</h3>
-        <div class="button-group">
-          <button
-            @click="switchFile('mesh')"
-            :class="['control-button', currentFile === 'mesh' ? 'active' : '']"
-          >
-            <i class="icon-mesh"></i>网格
-          </button>
-          <button
-            @click="switchFile('bot')"
-            :class="['control-button', currentFile === 'bot' ? 'active' : '']"
-          >
-            <i class="icon-bottom"></i>底面
-          </button>
+      <div v-show="!isControlPanelCollapsed" class="panel-body">
+        <!-- 状态信息 -->
+        <div class="panel-section status-section">
+          <div class="status-text">
+            <span class="status-label">当前显示:</span>
+            <span class="status-value">{{ vtkFileName }}</span>
+            <span v-if="loading" class="loading-indicator">
+              <span class="loading-spinner"></span>加载中...
+            </span>
+          </div>
         </div>
-      </div>
 
-      <!-- 视图控制 -->
-      <div class="panel-section">
-        <h3 class="section-title">视图控制</h3>
-        <div class="button-group">
-          <button
-            @click="resetView"
-            class="control-button"
-          >
-            <i class="icon-reset"></i>重置视图
-          </button>
-          <button
-            @click="toggleAxes"
-            :class="['control-button', showAxes ? 'active' : '']"
-          >
-            <i class="icon-axes"></i>坐标轴
-          </button>
+        <!-- 文件选择 -->
+        <div class="panel-section">
+          <h3 class="section-title">选择显示内容</h3>
+          <div class="button-group">
+            <button
+              @click="switchFile('mesh')"
+              :class="['control-button', currentFile === 'mesh' ? 'active' : '']"
+            >
+              <i class="icon-mesh"></i>网格
+            </button>
+            <button
+              @click="switchFile('bot')"
+              :class="['control-button', currentFile === 'bot' ? 'active' : '']"
+            >
+              <i class="icon-bottom"></i>底面
+            </button>
+          </div>
         </div>
-      </div>
 
-      <!-- 显示选项 -->
-      <div class="panel-section">
-        <h3 class="section-title">显示选项</h3>
-        <div class="button-group">
-          <button
-            @click="toggleWireframe"
-            :class="['control-button', showWireframe ? 'active' : '']"
-          >
-            <i class="icon-wireframe"></i>线框
-          </button>
-          <button
-            @click="toggleSurface"
-            :class="['control-button', showSurface ? 'active' : '']"
-          >
-            <i class="icon-surface"></i>表面
-          </button>
+        <!-- 视图控制 -->
+        <div class="panel-section">
+          <h3 class="section-title">视图控制</h3>
+          <div class="button-group">
+            <button
+              @click="resetView"
+              class="control-button"
+            >
+              <i class="icon-reset"></i>重置视图
+            </button>
+            <button
+              @click="toggleAxes"
+              :class="['control-button', showAxes ? 'active' : '']"
+            >
+              <i class="icon-axes"></i>坐标轴
+            </button>
+          </div>
+        </div>
+
+        <!-- 显示选项 -->
+        <div class="panel-section">
+          <h3 class="section-title">显示选项</h3>
+          <div class="button-group">
+            <button
+              @click="toggleWireframe"
+              :class="['control-button', showWireframe ? 'active' : '']"
+            >
+              <i class="icon-wireframe"></i>线框
+            </button>
+            <button
+              @click="toggleSurface"
+              :class="['control-button', showSurface ? 'active' : '']"
+            >
+              <i class="icon-surface"></i>表面
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -117,6 +132,7 @@ const currentFile = ref('mesh');
 const showAxes = ref(true);
 const showWireframe = ref(true);
 const showSurface = ref(true);
+const isControlPanelCollapsed = ref(false);
 
 let fullScreenRenderer = null;
 let renderer = null;
@@ -124,6 +140,32 @@ let renderWindow = null;
 let currentActor = null;
 let axes = null;
 let isInitialized = ref(false);
+
+const CONTROL_PANEL_COLLAPSE_KEY = 'windsim.vtk.controlPanelCollapsed';
+
+const toggleControlPanel = () => {
+  isControlPanelCollapsed.value = !isControlPanelCollapsed.value;
+};
+
+const loadControlPanelState = () => {
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = window.localStorage.getItem(CONTROL_PANEL_COLLAPSE_KEY);
+    if (raw === null) return;
+    isControlPanelCollapsed.value = raw === '1' || raw === 'true';
+  } catch (e) {
+    console.warn('读取控制面板折叠状态失败:', e);
+  }
+};
+
+watch(isControlPanelCollapsed, (val) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(CONTROL_PANEL_COLLAPSE_KEY, val ? '1' : '0');
+  } catch (e) {
+    console.warn('保存控制面板折叠状态失败:', e);
+  }
+});
 
 // 初始化渲染器
 const initRenderer = () => {
@@ -325,6 +367,7 @@ watch(() => props.caseId, async (newId) => {
 
 // 生命周期钩子
 onMounted(() => {
+  loadControlPanelState();
   initRenderer();
   if (props.caseId) {
     loadVTKFile(currentFile.value);
@@ -378,6 +421,54 @@ defineExpose({ exportGrid });
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: #f1f5f9;
   transition: all 0.3s ease;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.panel-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #e2e8f0;
+}
+
+.panel-collapse-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(15, 23, 42, 0.25);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.panel-collapse-button:hover {
+  background: rgba(15, 23, 42, 0.35);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.control-panel.collapsed {
+  width: 52px;
+  padding: 10px;
+}
+
+.control-panel.collapsed .panel-title {
+  display: none;
+}
+
+.control-panel.collapsed .panel-header {
+  justify-content: center;
+  margin-bottom: 0;
 }
 
 .control-panel:hover {
@@ -556,6 +647,19 @@ defineExpose({ exportGrid });
 
 .icon-surface {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e2e8f0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z'/%3E%3C/svg%3E");
+}
+
+.icon-panel-toggle {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23e2e8f0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='15 18 9 12 15 6'/%3E%3C/svg%3E");
+  transition: transform 0.2s ease;
+}
+
+.icon-panel-toggle.expanded {
+  transform: rotate(180deg);
+}
+
+.icon-panel-toggle.collapsed {
+  transform: rotate(0deg);
 }
 
 .icon-error {

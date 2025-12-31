@@ -628,6 +628,29 @@ const getImageDisplayName = (filename, short = false) => {
   const farmId = parts[0];
   const dateStr = parts[1];
 
+  // 尝试从结果详情中找到对应的源文件名（按 farm_id + date_str 匹配）
+  let sourceFile = '';
+  if (results.value && Array.isArray(results.value.processed_files_details)) {
+    const match = results.value.processed_files_details.find(
+      (f) =>
+        f &&
+        f.farm_id === farmId &&
+        String(f.date_str) === String(dateStr)
+    );
+    if (match && match.file) {
+      sourceFile = match.file;
+    }
+  }
+
+  // 去掉前缀时间戳，只保留原始 CSV 名称部分，便于辨认
+  let sourceShort = sourceFile;
+  if (sourceShort) {
+    const dashIndex = sourceShort.indexOf('-');
+    if (dashIndex > 0 && dashIndex < sourceShort.length - 1) {
+      sourceShort = sourceShort.slice(dashIndex + 1);
+    }
+  }
+
   // 确定图表类型
   let chartType = '';
   let height = '';
@@ -636,38 +659,46 @@ const getImageDisplayName = (filename, short = false) => {
   const heightMatch = lastPart.match(/(\d+)m\.(png|jpg|jpeg|gif|svg)$/i);
 
   if (heightMatch) {
-    height = heightMatch[1] + 'm';
+    height = `${heightMatch[1]}m`;
     chartType = parts[parts.length - 2];
   } else if (lastPart.startsWith('distribution')) {
-    chartType = '稳定度分布';
+    chartType = 'stability_distribution';
   } else {
     chartType = parts[parts.length - 2];
   }
 
   // 图表类型转换为中文
-  chartType = getChartTypeText(chartType);
+  const chartText = getChartTypeText(chartType);
 
   // 根据短/长格式返回
   if (short) {
-    return `${chartType}${height ? ' ' + height : ''}`;
-  } else {
-    // 格式化日期
-    let formattedDate = dateStr;
-    if (dateStr.length === 13) { // Unix 时间戳
-      try {
-        const date = new Date(parseInt(dateStr));
-        formattedDate = date.toLocaleString('zh-CN', {
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit'
-        });
-      } catch (e) { /* 使用原始日期字符串 */ }
+    // 优先展示源文件名，保证多文件时名称可区分
+    if (sourceShort) {
+      return `${sourceShort} - ${chartText}${height ? ` ${height}` : ''}`;
     }
-
-    return `${farmId} - ${chartType}${height ? ' ' + height : ''} - ${formattedDate}`;
+    return `${farmId} - ${chartText}${height ? ` ${height}` : ''}`;
   }
+
+  // 长名称中保留时间信息
+  let formattedDate = dateStr;
+  if (dateStr.length === 13) {
+    try {
+      const date = new Date(parseInt(dateStr, 10));
+      formattedDate = date.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+    } catch (e) {
+      // 使用原始日期字符串
+    }
+  }
+
+  const baseText = sourceShort || farmId;
+  return `${baseText} - ${chartText}${height ? ` ${height}` : ''} - ${formattedDate}`;
 };
 
 const getChartTypeText = (type) => {

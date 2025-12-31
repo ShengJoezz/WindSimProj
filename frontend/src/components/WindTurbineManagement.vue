@@ -534,15 +534,15 @@ function renderPowerComparisonOverviewChart() {
       labels: combinedData.value.map(item => item.id),
       datasets: [
         {
-          label: '入流功率 (kW/100)',
-          data: combinedData.value.map(item => item.initPower / 100),
+          label: '入流功率 (kW)',
+          data: combinedData.value.map(item => item.initPower),
           backgroundColor: chartColors.initPower,
           borderColor: 'rgba(234, 67, 53, 1)',
           borderWidth: 1
         },
         {
-          label: '计算功率 (kW/100)',
-          data: combinedData.value.map(item => item.adjPower / 100),
+          label: '计算功率 (kW)',
+          data: combinedData.value.map(item => item.adjPower),
           backgroundColor: chartColors.adjPower,
           borderColor: 'rgba(234, 67, 53, 1)',
           borderWidth: 1
@@ -565,21 +565,20 @@ function renderPowerComparisonOverviewChart() {
                 label += ': ';
               }
               if (context.parsed.y !== null) {
-                // 显示实际功率值（乘以100）
-                const actualValue = context.parsed.y * 100;
-                label += actualValue.toFixed(0) + ' kW';
+                label += context.parsed.y.toFixed(0) + ' kW';
               }
               return label;
             }
           }
         },
-        scales: {
-          y: {
-            beginAtZero: false,
-            title: { display: true, text: '功率 (kW/100)' }
-          },
-          x: { title: { display: true, text: '风机编号' } }
-        }
+        scales: {}
+      },
+      scales: {
+        y: {
+          beginAtZero: false,
+          title: { display: true, text: '功率 (kW)' }
+        },
+        x: { title: { display: true, text: '风机编号' } }
       }
     }
   });
@@ -594,7 +593,7 @@ function renderPerformanceOverviewChart() {
     mode: 'markers',
     name: '风机性能',
     x: combinedData.value.map(item => item.adjSpeed),
-    y: combinedData.value.map(item => item.adjPower / 100), // 功率除以100进行绘图
+    y: combinedData.value.map(item => item.adjPower),
     text: combinedData.value.map(item => item.id),
     marker: {
       size: combinedData.value.map(item => Math.max(item.adjCt * 50, 12)), // 确保点的最小大小
@@ -624,7 +623,7 @@ function renderPerformanceOverviewChart() {
     autosize: true,
     margin: { l: 50, r: 50, b: 50, t: 50 },
     xaxis: { title: '风速 (m/s)' },
-    yaxis: { title: '功率 (kW/100)' },
+    yaxis: { title: '功率 (kW)' },
     hovermode: 'closest',
     paper_bgcolor: 'rgba(0,0,0,0)',
     plot_bgcolor: 'rgba(245,245,247,0.5)',
@@ -848,15 +847,15 @@ x: { title: { display: true, text: '风机编号' } }
         labels: combinedData.value.map(item => item.id),
         datasets: [
           {
-            label: '初始功率 (kW/100)',
-            data: combinedData.value.map(item => item.initPower / 100),
+            label: '初始功率 (kW)',
+            data: combinedData.value.map(item => item.initPower),
             backgroundColor: chartColors.initPower,
             borderColor: 'rgba(234, 67, 53, 1)',
             borderWidth: 1
           },
           {
-            label: '调整后功率 (kW/100)',
-            data: combinedData.value.map(item => item.adjPower / 100),
+            label: '调整后功率 (kW)',
+            data: combinedData.value.map(item => item.adjPower),
             backgroundColor: chartColors.adjPower,
             borderColor: 'rgba(234, 67, 53, 1)',
             borderWidth: 1
@@ -877,18 +876,17 @@ x: { title: { display: true, text: '风机编号' } }
                   label += ': ';
                 }
                 if (context.parsed.y !== null) {
-                  // 显示实际功率值（乘以100）
-                  const actualValue = context.parsed.y * 100;
-                  label += actualValue.toFixed(0) + ' kW';
+                  label += context.parsed.y.toFixed(0) + ' kW';
                 }
                 return label;
               }
             }
           },
-          scales: {
-            y: { beginAtZero: false, title: { display: true, text: '功率 (kW/100)' } },
-            x: { title: { display: true, text: '风机编号' } }
-          }
+          scales: {}
+        },
+        scales: {
+          y: { beginAtZero: false, title: { display: true, text: '功率 (kW)' } },
+          x: { title: { display: true, text: '风机编号' } }
         }
       }
     });

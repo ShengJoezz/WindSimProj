@@ -64,6 +64,31 @@
           empty-text="暂无分析记录"
           :default-sort="{ prop: 'createdAt', order: 'descending' }"
         >
+          <!-- 展开列：查看本次分析所用文件 -->
+          <el-table-column type="expand">
+            <template #default="scope">
+              <div class="analysis-detail-expand">
+                <p>
+                  <strong>分析描述：</strong>{{ scope.row.description || '无' }}
+                </p>
+                <p>
+                  <strong>文件数：</strong>{{ scope.row.files?.length || 0 }}
+                </p>
+                <div v-if="scope.row.files?.length">
+                  <p><strong>文件列表：</strong></p>
+                  <ul class="analysis-file-list">
+                    <li
+                      v-for="(file, idx) in scope.row.files"
+                      :key="idx"
+                    >
+                      {{ file }}
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </template>
+          </el-table-column>
+
           <el-table-column prop="name" label="分析名称" min-width="200" sortable>
             <template #default="scope">
               <!-- 调试信息 -->
@@ -212,9 +237,14 @@ onMounted(async () => {
     // Apply search filter
     if (searchQuery.value) {
       const query = searchQuery.value.toLowerCase();
-      result = result.filter(analysis => 
-        analysis.name.toLowerCase().includes(query)
-      );
+      result = result.filter((analysis) => {
+        const nameMatch = (analysis.name || '').toLowerCase().includes(query);
+        const files = Array.isArray(analysis.files) ? analysis.files : [];
+        const filesMatch = files.some((f) =>
+          (f || '').toLowerCase().includes(query)
+        );
+        return nameMatch || filesMatch;
+      });
     }
     
     // Apply status filter
@@ -337,6 +367,21 @@ onMounted(async () => {
     margin-top: 20px;
     display: flex;
     justify-content: flex-end;
+  }
+
+  .analysis-detail-expand {
+    padding: 10px 20px;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .analysis-file-list {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    max-height: 150px;
+    overflow-y: auto;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 12px;
   }
   
   @media (max-width: 768px) {

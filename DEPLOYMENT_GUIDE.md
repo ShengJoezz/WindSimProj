@@ -133,5 +133,6 @@ Monitor logs (`backend/combined.log`, `backend/error.log` or PM2 logs) for any i
 *   **Port Conflicts:** If the application fails to start, check if the default ports (e.g., 3000 for backend, 5173 for frontend dev server) are already in use.
 *   **Solver Issues:** If simulations fail, verify your OpenFOAM/CFD solver installation and ensure the backend has the necessary permissions to execute the solver scripts and binaries.
 *   **GDAL Issues:** If geospatial operations fail, ensure GDAL is correctly installed and its libraries are accessible to the `gdal-async` package.
+*   **413 Request Entity Too Large (GeoTIFF/DEM 上传/裁切失败):** If you see a 413 error from Nginx, increase Nginx `client_max_body_size` (Docker frontend uses `frontend/nginx.conf`) and rebuild/restart the frontend container. If you have an additional reverse proxy in front of Docker (e.g., host Nginx), that proxy must be updated too. Note the backend upload route also enforces a file-size limit via Multer (see `backend/routes/demClipper.js`).
 
 This guide provides a general overview. Specific deployment environments may require additional configurations (e.g., firewall rules, SSL certificates, database setup if applicable).
