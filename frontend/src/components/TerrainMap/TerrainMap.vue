@@ -1040,20 +1040,27 @@ const loadGeoTIFF = async (caseId) => {
     const downsampledHeight = Math.floor(height / downsampleFactor);
     const downsampledData = [];
 
-    for (let y = 0; y < height; y += downsampleFactor) {
-      for (let x = 0; x < width; x += downsampleFactor) {
-        downsampledData.push(data[y * width + x]);
-      }
-    }
+	    for (let y = 0; y < height; y += downsampleFactor) {
+	      for (let x = 0; x < width; x += downsampleFactor) {
+	        downsampledData.push(data[y * width + x]);
+	      }
+	    }
 
-    // 设置地形高程范围
-    caseStore.minElevation = Math.min(...downsampledData);
-    caseStore.maxElevation = Math.max(...downsampledData);
+	    // 设置地形高程范围
+	    let minElevation = Infinity;
+	    let maxElevation = -Infinity;
+	    for (const elevation of downsampledData) {
+	      if (typeof elevation !== "number" || Number.isNaN(elevation)) continue;
+	      if (elevation < minElevation) minElevation = elevation;
+	      if (elevation > maxElevation) maxElevation = elevation;
+	    }
+	    caseStore.minElevation = Number.isFinite(minElevation) ? minElevation : 0;
+	    caseStore.maxElevation = Number.isFinite(maxElevation) ? maxElevation : 0;
 
-    // 创建地形几何体
-    const geometry = new THREE.PlaneGeometry(
-      1000,
-      1000,
+	    // 创建地形几何体
+	    const geometry = new THREE.PlaneGeometry(
+	      1000,
+	      1000,
       downsampledWidth - 1,
       downsampledHeight - 1
     );
