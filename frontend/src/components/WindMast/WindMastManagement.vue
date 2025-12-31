@@ -357,6 +357,7 @@ import {
 } from '@element-plus/icons-vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useWindMastStore } from '@/store/windMastStore';
+import axios from 'axios';
 
 // Register ECharts components
 echarts.use([PieChart, TooltipComponent, LegendComponent, TitleComponent, CanvasRenderer]);
@@ -725,25 +726,6 @@ const confirmEditAnalysis = async () => {
       await editAnalysisFormRef.value.validate(); // Validate form
       isEditingAnalysis.value = true;
 
-      // --- TODO: Replace MOCK with actual API call ---
-      console.warn("模拟分析信息更新。需要后端API。");
-      await new Promise(resolve => setTimeout(resolve, 500)); // Simulate API delay
-      const index = store.savedAnalyses.findIndex(a => a.id === editAnalysisForm.value.id);
-      if (index !== -1) {
-          // Create a new object reference for reactivity
-          store.savedAnalyses[index] = {
-              ...store.savedAnalyses[index], // Keep existing properties
-              name: editAnalysisForm.value.name,
-              description: editAnalysisForm.value.description
-          };
-          ElMessage.success('分析信息已更新 (模拟)');
-          editAnalysisDialogVisible.value = false;
-      } else {
-          ElMessage.error('未找到要更新的分析记录');
-      }
-      // --- End MOCK ---
-
-      /* --- Replace MOCK with actual API call ---
       const response = await axios.put(`/api/windmast/analyses/${editAnalysisForm.value.id}`, {
         name: editAnalysisForm.value.name,
         description: editAnalysisForm.value.description
@@ -753,15 +735,19 @@ const confirmEditAnalysis = async () => {
         editAnalysisDialogVisible.value = false;
         await refreshAnalyses(); // Refresh list from backend
       } else { throw new Error(response.data.message || '更新分析信息失败'); }
-      */
   } catch (error) {
-      if (error && error.message) { // Check if it's an API error or validation error
-         console.error('更新分析信息时出错:', error);
-         ElMessage.error(`更新分析信息失败: ${error.message}`);
-      } else {
-         console.log('编辑分析表单验证失败 (expected if fields are invalid)');
-         // Validation errors handled by form UI
+      const apiMessage = error?.response?.data?.message;
+      if (apiMessage) {
+        console.error('更新分析信息失败:', error);
+        ElMessage.error(`更新分析信息失败: ${apiMessage}`);
+        return;
       }
+      if (error && error.message) {
+        console.error('更新分析信息时出错:', error);
+        ElMessage.error(`更新分析信息失败: ${error.message}`);
+        return;
+      }
+      // Validation errors handled by form UI
   } finally {
       isEditingAnalysis.value = false;
   }

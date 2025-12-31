@@ -297,7 +297,19 @@ async function scanAnalysesAndUpdateIndex() {
         const dirPath = path.join(OUTPUT_DIR, dir);
         const sumPath = path.join(dirPath, 'processing_summary.json');
         const errPath = path.join(dirPath, 'error.log');
+        const metaPath = path.join(dirPath, 'analysis_meta.json');
         let createdAt = new Date().toISOString();
+        let meta = null;
+        try {
+            const metaContent = await fs.readFile(metaPath, 'utf-8');
+            meta = JSON.parse(metaContent);
+        } catch (e) {
+            if (e.code !== 'ENOENT') {
+                console.warn(`[Scan] 读取分析元数据文件 ${dir} 错误: ${e.message}`);
+            }
+        }
+        const metaName = typeof meta?.name === 'string' ? meta.name.trim() : '';
+        const metaDescription = typeof meta?.description === 'string' ? meta.description : '';
         try { const s = await fs.stat(dirPath); createdAt = s.birthtimeMs ? s.birthtime.toISOString() : s.mtime.toISOString(); } catch (e) { }
         try {
             const sumC = await fs.readFile(sumPath, 'utf-8');
@@ -305,8 +317,8 @@ async function scanAnalysesAndUpdateIndex() {
             if (sumD && typeof sumD === 'object') {
                 return {
                     id: dir,
-                    name: sumD.analysisName || `分析 ${dir}`,
-                    description: sumD.description || '',
+                    name: metaName || sumD.analysisName || `分析 ${dir}`,
+                    description: metaDescription || sumD.description || '',
                     createdAt: createdAt,
                     startTime: sumD.startTime,
                     endTime: sumD.endTime,
@@ -324,7 +336,17 @@ async function scanAnalysesAndUpdateIndex() {
                 };
             }
         } catch (e) { if (e.code !== 'ENOENT') console.warn(`[Scan] 读取摘要文件 ${dir} 错误: ${e.message}`); }
-        try { await fs.access(errPath, fs.constants.R_OK); return { id: dir, name: `失败 ${dir}`, createdAt: createdAt, status: 'failed', files: [] }; } catch (e) { }
+        try {
+            await fs.access(errPath, fs.constants.R_OK);
+            return {
+                id: dir,
+                name: metaName || `失败 ${dir}`,
+                description: metaDescription || '',
+                createdAt: createdAt,
+                status: 'failed',
+                files: []
+            };
+        } catch (e) { }
         return null;
     });
     const analyses = (await Promise.all(promises)).filter(a => a !== null);
@@ -338,6 +360,74 @@ async function scanAnalysesAndUpdateIndex() {
     }
     return analyses;
 }
+
+/**
+ * PUT /api/windmast/analyses/:analysisId
+ * 更新分析记录的名称与描述（写入 analysis_meta.json，并同步 processing_summary.json（若存在））
+ */
+router.put('/analyses/:analysisId', async (req, res, next) => {
+    const { analysisId } = req.params;
+    if (!analysisId || !/^[a-zA-Z0-9-_]+$/.test(analysisId)) {
+        return res.status(400).json({ success: false, message: '无效分析ID' });
+    }
+
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+    const description = typeof req.body?.description === 'string' ? req.body.description.trim() : '';
+
+    if (!name) {
+        return res.status(400).json({ success: false, message: '分析名称不能为空' });
+    }
+    if (name.length > 50) {
+        return res.status(400).json({ success: false, message: '分析名称长度不能超过 50 个字符' });
+    }
+    if (description.length > 200) {
+        return res.status(400).json({ success: false, message: '分析描述长度不能超过 200 个字符' });
+    }
+
+    try {
+        await ensureDirectoryExists(OUTPUT_DIR);
+        const analysisDir = path.join(OUTPUT_DIR, analysisId);
+        await fs.access(analysisDir);
+
+        const metaPath = path.join(analysisDir, 'analysis_meta.json');
+        const summaryPath = path.join(analysisDir, 'processing_summary.json');
+
+        const metaPayload = {
+            name,
+            description,
+            updatedAt: new Date().toISOString(),
+        };
+
+        await fs.writeFile(metaPath, JSON.stringify(metaPayload, null, 2));
+
+        // 同步写入 processing_summary.json（若存在）
+        try {
+            const summaryContent = await fs.readFile(summaryPath, 'utf-8');
+            const summaryData = JSON.parse(summaryContent);
+            if (summaryData && typeof summaryData === 'object') {
+                summaryData.analysisName = name;
+                summaryData.description = description;
+                await fs.writeFile(summaryPath, JSON.stringify(summaryData, null, 2));
+            }
+        } catch (e) {
+            if (e.code !== 'ENOENT') {
+                console.warn(`[API /analyses/:analysisId] 更新 processing_summary.json 失败: ${e.message}`);
+            }
+        }
+
+        // 重新扫描更新索引，确保前端列表立刻同步
+        const analyses = await scanAnalysesAndUpdateIndex();
+        const updated = analyses.find(a => a.id === analysisId) || null;
+
+        return res.json({ success: true, analysis: updated });
+    } catch (error) {
+        console.error(`[API /analyses/:analysisId] 更新分析信息失败:`, error);
+        if (error.code === 'ENOENT') {
+            return res.status(404).json({ success: false, message: '分析记录不存在' });
+        }
+        next(error);
+    }
+});
 
 
 /**

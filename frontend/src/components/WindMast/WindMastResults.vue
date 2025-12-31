@@ -195,41 +195,26 @@
   const pageSize = ref(10);
   
   onMounted(() => {
-    refreshAnalyses();
+    // 页面首次加载：静默拉取列表，避免弹出“刷新完成”提示
+    store.fetchSavedAnalyses();
   });
   
   const refreshAnalyses = async () => {
-  console.log('手动刷新分析列表 - 强制扫描目录');
-  
-  // 先尝试强制扫描
-  try {
-    const scanResponse = await axios.get('/api/windmast/analyses/scan');
-    if (scanResponse.data.success) {
-      store.savedAnalyses = scanResponse.data.analyses || [];
-      console.log(`强制扫描获取到 ${store.savedAnalyses.length} 条记录`);
-      ElMessage.success(`刷新完成，找到 ${store.savedAnalyses.length} 条分析记录`);
-      return;
+    // 手动刷新：强制扫描目录，确保新分析能立刻出现在列表中
+    try {
+      const scanResponse = await axios.get('/api/windmast/analyses/scan');
+      if (scanResponse.data.success) {
+        store.savedAnalyses = scanResponse.data.analyses || [];
+        ElMessage.success(`刷新完成，找到 ${store.savedAnalyses.length} 条分析记录`);
+        return;
+      }
+    } catch (scanError) {
+      console.error('强制扫描失败:', scanError);
     }
-  } catch (scanError) {
-    console.error('强制扫描失败:', scanError);
-  }
-  
-  // 扫描失败则回退到普通刷新
-  await store.fetchSavedAnalyses();
-};
 
-onMounted(async () => {
-  console.log('WindMastResults 页面加载，当前分析数量:', store.savedAnalyses.length);
-  await refreshAnalyses();
-  console.log('刷新后分析数量:', store.savedAnalyses.length);
-});
-
-// 在 WindMastResults.vue 中添加临时调试信息
-onMounted(async () => {
-  console.log('WindMastResults 页面加载，当前分析数量:', store.savedAnalyses.length);
-  await refreshAnalyses();
-  console.log('刷新后分析数量:', store.savedAnalyses.length);
-});
+    // 扫描失败则回退到普通刷新
+    await store.fetchSavedAnalyses();
+  };
   
   const filteredAnalyses = computed(() => {
     let result = [...store.savedAnalyses];

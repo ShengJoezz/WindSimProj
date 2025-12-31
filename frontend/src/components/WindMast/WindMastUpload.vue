@@ -72,7 +72,7 @@
       </template>
       
       <el-table
-        :data="filteredFiles"
+        :data="paginatedFiles"
         style="width: 100%"
         empty-text="暂无上传文件"
         :default-sort="{ prop: 'createdAt', order: 'descending' }"
@@ -168,7 +168,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { UploadFilled, InfoFilled, Refresh, Right, Search } from '@element-plus/icons-vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useWindMastStore } from '@/store/windMastStore';
@@ -209,6 +209,15 @@ const paginatedFiles = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value;
   const end = start + pageSize.value;
   return filteredFiles.value.slice(start, end);
+});
+
+watch(searchQuery, () => {
+  currentPage.value = 1;
+});
+
+watch([() => filteredFiles.value.length, pageSize], () => {
+  const maxPage = Math.max(1, Math.ceil(filteredFiles.value.length / pageSize.value));
+  if (currentPage.value > maxPage) currentPage.value = maxPage;
 });
 
 const formatFileSize = (sizeInBytes) => {

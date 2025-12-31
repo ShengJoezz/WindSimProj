@@ -1025,9 +1025,11 @@ const exportLayerPhotos = async () => {
     const link = document.createElement('a');
     link.href = url;
     link.download = `${props.caseId}_${selectedHeight.value}m_velocity_field.vtp`;
+    link.target = '_blank';
+    document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    return { success: true };
+    return { success: true, message: `已开始导出 ${selectedHeight.value}m 速度场文件` };
   } catch (error) {
     return { success: false, message: `导出失败: ${error.message}` };
   }
