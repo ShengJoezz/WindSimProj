@@ -746,6 +746,8 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
     try {
         console.log(`执行 run.sh，工况: ${caseId}, CWD: ${casePath}`);
         const child = spawn("bash", [scriptPath], { cwd: casePath, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
+        // Keep a monotonic overall progress value for this run (avoid jumping backwards due to per-task progress resets)
+        let overallProgressValue = 0;
         
         const logFilePath = path.join(runDir, `calculation_log_${Date.now()}.txt`);
         const logStream = fs.createWriteStream(logFilePath, { flags: "a" });
@@ -759,6 +761,25 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
             logStream.write(outputString);
             if (io) io.to(caseId).emit("calculationOutput", outputString); // 实时发送原始输出
 
+            const computeOverallProgress = (currentTaskId, rawProgress) => {
+                const total = knownTasks.length || 1;
+                const completed = Object.values(taskStatuses).filter(s => s === 'completed').length;
+                let fraction = 0;
+                // Only apply a partial fraction for the currently running task (if any).
+                if (currentTaskId && taskStatuses[currentTaskId] === 'running') {
+                    const n = parseInt(rawProgress, 10);
+                    if (!Number.isNaN(n)) {
+                        // Clamp to [0, 99] while task is still running to avoid early 100 jumps.
+                        fraction = Math.max(0, Math.min(99, n)) / 100;
+                    } else {
+                        fraction = 0.5;
+                    }
+                }
+                const candidate = Math.round(((completed + fraction) / total) * 100);
+                overallProgressValue = Math.max(overallProgressValue, candidate);
+                return overallProgressValue;
+            };
+
             // 解析 JSON 格式的进度信息
             const lines = outputString.split("\n").filter(line => line.trim().startsWith('{'));
             for (const line of lines) {
@@ -771,6 +792,9 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
                         taskStatuses[msg.taskId] = "running";
                         if (io) io.to(caseId).emit("taskStarted", msg.taskId);
                         progressChanged = true;
+                        // Emit an updated overall progress on task start (monotonic).
+                        const overall = computeOverallProgress(msg.taskId);
+                        if (io) io.to(caseId).emit("calculationProgress", { progress: overall, taskId: msg.taskId });
                     } else if (msg.action === "progress" || msg.action === "taskEnd") {
                         const {taskId, progress} = msg;
                         if (knownTasks.some(t => t.id === taskId)) {
@@ -781,14 +805,17 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
                                 if (taskStatuses[taskId] !== 'error') taskStatuses[taskId] = "completed";
                                 progressChanged = true;
                             }
-                            if (io) io.to(caseId).emit("calculationProgress", { progress: parseInt(progress, 10) || 0, taskId });
+                            const overall = computeOverallProgress(taskId, progress);
+                            if (io) io.to(caseId).emit("calculationProgress", { progress: overall, taskId });
                         }
                     }
                     
                     // 如果任务状态有变，则更新并持久化
                     if (progressChanged) {
                         const progressData = {
-                            isCalculating: true, tasks: taskStatuses,
+                            isCalculating: true,
+                            progress: computeOverallProgress(msg.taskId, msg.progress),
+                            tasks: taskStatuses,
                             timestamp: Date.now(), completed: false
                         };
                         await fsPromises.writeFile(progressPath, JSON.stringify(progressData, null, 2));

@@ -1733,8 +1733,8 @@ onMounted(async () => { // Step 8: Update the onMounted Function
             await loadAndDisplayTurbines(); // Load and display turbines after scene is ready
             log(2, '[ON_MOUNTED] Turbines loaded and displayed.');
           }
-         caseStore.connectSocket(caseId);
-         log(2, '[ON_MOUNTED] Socket connected.');
+         // Socket connection is managed centrally by CaseDetails/caseStore.initializeCase
+         log(2, '[ON_MOUNTED] Socket connection handled by store initialization.');
 
 
     } catch (error) {
@@ -1784,9 +1784,7 @@ onBeforeUnmount(() => {
   log(2, '[ON_BEFORE_UNMOUNT] Queued turbines cleared.');
 
 
-  // 7. Disconnect socket
-  caseStore.disconnectSocket();
-  log(2, '[ON_BEFORE_UNMOUNT] Socket disconnected.');
+  // Socket lifecycle is managed at the case wrapper level (CaseDetails).
 
   // 8. Reset state flags
   isSceneInitialized.value = false;

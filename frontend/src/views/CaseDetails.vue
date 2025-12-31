@@ -16,18 +16,52 @@
     <div class="sub-main-content">
       <!-- 使用 v-slot 获取路由组件，再传入 caseId -->
       <router-view v-slot="{ Component }">
-        <component :is="Component" :caseId="currentCaseId" />
+        <component :is="Component" :caseId="routeCaseId" />
       </router-view>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, onBeforeUnmount, onMounted, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { useCaseStore } from '@/store/caseStore';
+import { ElMessage } from 'element-plus';
 
+const route = useRoute();
 const caseStore = useCaseStore();
-const currentCaseId = computed(() => caseStore.currentCaseId);
+
+// 唯一真源：路由参数
+const routeCaseId = computed(() => route.params.caseId || null);
+
+const ensureCaseInitialized = async (caseId) => {
+  if (!caseId) return;
+  // Pinia setup store refs are unwrapped on the store proxy
+  if (caseStore.caseId === caseId && caseStore.currentCaseId === caseId) return;
+  try {
+    await caseStore.initializeCase(caseId);
+  } catch (error) {
+    console.error('CaseDetails 初始化工况失败:', error);
+    ElMessage.error('初始化工况失败，请返回工况列表重试');
+  }
+};
+
+onMounted(() => ensureCaseInitialized(routeCaseId.value));
+
+watch(
+  () => route.params.caseId,
+  (newId, oldId) => {
+    if (!newId || newId === oldId) return;
+    ensureCaseInitialized(newId);
+  }
+);
+
+onBeforeUnmount(() => {
+  // Leaving the case wrapper: disconnect socket and clear listeners.
+  if (typeof caseStore.disconnectSocket === 'function') {
+    caseStore.disconnectSocket();
+  }
+});
 </script>
 
 <style scoped>

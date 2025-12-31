@@ -598,6 +598,14 @@ export const useCaseStore = defineStore('caseStore', () => {
         calculationOutputs.value.push({ type: 'success', message: 'Calculation completed (socket)!' });
         saveCalculationProgress();
     });
+    socket.value.on('calculationFailed', (error) => {
+        calculationStatus.value = 'error';
+        currentTask.value = null;
+        const message = error?.message || 'Calculation failed (socket)';
+        const details = error?.details ? `\n${error.details}` : '';
+        calculationOutputs.value.push({ type: 'error', message: `Calculation failed (socket): ${message}${details}` });
+        saveCalculationProgress();
+    });
     socket.value.on('calculationError', (error) => {
         calculationStatus.value = 'error';
         currentTask.value = null;

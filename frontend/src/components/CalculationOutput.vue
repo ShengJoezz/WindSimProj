@@ -42,7 +42,7 @@
           <div class="task-list-container">
             <ul class="task-list">
               <li
-                v-for="task in tasks"
+                v-for="task in tasksList"
                 :key="task.id"
                 class="task-item"
                 :class="{
@@ -133,7 +133,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch, nextTick, onBeforeUnmount, computed } from 'vue';
+import { ref, onMounted, watch, nextTick, computed } from 'vue';
 import { ElMessage } from 'element-plus';
 import { Loading, Check, Close } from '@element-plus/icons-vue';
 import axios from 'axios';
@@ -144,7 +144,7 @@ import { knownTasks } from '../utils/tasks';
 const route = useRoute();
 const router = useRouter();
 const store = useCaseStore();
-const caseId = route.params.caseId;
+const caseId = computed(() => route.params.caseId);
 
 const getCalculationStatus = () => {
   if (store && typeof store.calculationStatus !== 'undefined') {
@@ -158,13 +158,29 @@ const buttonDisabled = computed(() => {
   return status === 'running' || status === 'completed';
 });
 
-const overallProgress = ref(0);
-const computationMessage = ref('');
+const computationMessage = computed(() => {
+  const status = getCalculationStatus();
+  if (status === 'running') return '计算已启动，正在进行中...';
+  if (status === 'completed') return '计算完成';
+  if (status === 'error') return '计算失败，请查看日志';
+  return '';
+});
+
+const overallProgress = computed(() => store.overallProgress || 0);
+
+const baseLog = ref('');
 const openfoamOutput = ref('');
 const terminalContent = ref(null);
 const outputContent = ref(null);
 
-const tasks = ref(knownTasks.map(task => ({ ...task, status: 'pending' })));
+const tasksList = computed(() => {
+  const statusMap = store.tasks || {};
+  return knownTasks.map(task => ({
+    id: task.id,
+    name: task.name,
+    status: statusMap[task.id] || 'pending'
+  }));
+});
 
 // 改进的自动滚动函数
 const scrollToBottom = () => {
@@ -219,87 +235,60 @@ const messageIconClass = () => {
   return 'fa-info-circle';
 };
 
+const rebuildTerminalOutput = () => {
+  const outputs = Array.isArray(store.calculationOutputs) ? store.calculationOutputs : [];
+  const appended = outputs.map(o => o?.message ?? '').join('');
+  openfoamOutput.value = [baseLog.value, appended].filter(Boolean).join('\n');
+};
+
+const loadBaseLog = async (id) => {
+  baseLog.value = '';
+  if (!id) return;
+  try {
+    const resp = await axios.get(`/api/cases/${id}/calculation-log`);
+    if (typeof resp.data === 'string' && resp.data.trim()) baseLog.value = resp.data;
+  } catch (error) {
+    console.error("加载终端输出失败:", error);
+  }
+};
+
 onMounted(async () => {
   try {
-    await store.initializeCase(caseId);
-    store.connectSocket(caseId);
-    store.listenToSocketEvents();
-
-    const savedProgress = await store.loadCalculationProgress();
-    const currentStatus = getCalculationStatus();
-
-    if (savedProgress && currentStatus !== 'running') {
-      overallProgress.value = savedProgress.progress || 0;
-      if (savedProgress.tasks) {
-        tasks.value = knownTasks.map(task => ({
-          id: task.id,
-          name: task.name,
-          status: savedProgress.tasks[task.id] || 'pending'
-        }));
-      }
-      if (savedProgress.completed && currentStatus !== 'running') {
-        if (store && typeof store.calculationStatus !== 'undefined') {
-          store.calculationStatus = 'completed';
-        }
-        overallProgress.value = 100;
-      }
-    }
-
-    try {
-      const resp = await axios.get(`/api/cases/${caseId}/openfoam-output`);
-      if (resp.data.output) {
-        openfoamOutput.value = resp.data.output;
-        scrollToBottom();
-      }
-    } catch (error) {
-      console.error("加载终端输出失败:", error);
-    }
-
-    if (store.socket) {
-      store.socket.on('calculationOutput', (output) => {
-        openfoamOutput.value += output + "\n";
-        scrollToBottom();
-      });
-
-      store.socket.on('taskUpdate', (taskStatuses) => {
-        tasks.value = knownTasks.map(task => ({
-          id: task.id,
-          name: task.name,
-          status: taskStatuses[task.id] || tasks.value.find(t => t.id === task.id)?.status || 'pending'
-        }));
-      });
-
-      store.socket.on('calculationProgress', (data) => {
-        overallProgress.value = data.progress;
-      });
-
-      store.socket.on('calculationCompleted', () => {
-        if (store && typeof store.calculationStatus !== 'undefined') {
-          store.calculationStatus = 'completed';
-        }
-        overallProgress.value = 100;
-        openfoamOutput.value += "\n计算完成";
-        computationMessage.value = "计算完成";
-        scrollToBottom();
-        ElMessage.success("计算完成");
-      });
-
-      store.socket.on('calculationError', (error) => {
-        if (store && typeof store.calculationStatus !== 'undefined') {
-          store.calculationStatus = 'error';
-        }
-        const errorMessage = error.message || "计算发生未知错误";
-        openfoamOutput.value += "\n计算错误: " + errorMessage;
-        computationMessage.value = errorMessage;
-        scrollToBottom();
-        ElMessage.error(errorMessage);
-      });
-    }
+    if (caseId.value) await store.initializeCase(caseId.value);
+    await store.loadCalculationProgress();
+    await loadBaseLog(caseId.value);
+    rebuildTerminalOutput();
+    scrollToBottom();
   } catch (error) {
     console.error("初始化计算组件失败:", error);
     ElMessage.error("初始化计算组件失败，请检查网络或刷新页面。");
   }
 });
+
+watch(
+  () => caseId.value,
+  async (newId, oldId) => {
+    if (!newId || newId === oldId) return;
+    try {
+      await store.initializeCase(newId);
+      await store.loadCalculationProgress();
+      await loadBaseLog(newId);
+      rebuildTerminalOutput();
+      scrollToBottom();
+    } catch (error) {
+      console.error("切换工况初始化失败:", error);
+      ElMessage.error("切换工况失败");
+    }
+  }
+);
+
+watch(
+  () => (Array.isArray(store.calculationOutputs) ? store.calculationOutputs.length : 0),
+  () => {
+    rebuildTerminalOutput();
+    scrollToBottom();
+  }
+);
 
 const startComputation = async () => {
   const status = getCalculationStatus();
@@ -309,7 +298,9 @@ const startComputation = async () => {
   }
 
   try {
-    const response = await axios.post(`/api/cases/${caseId}/calculate`);
+    const id = caseId.value;
+    if (!id) throw new Error('无效的工况ID');
+    const response = await axios.post(`/api/cases/${id}/calculate`);
     if (!response.data.success) {
       throw new Error(response.data.message || '启动计算失败 (API响应错误)');
     }
@@ -318,10 +309,12 @@ const startComputation = async () => {
       store.calculationStatus = 'running';
     }
 
-    overallProgress.value = 0;
-    computationMessage.value = '计算已启动，正在进行中...';
-    openfoamOutput.value = '请求启动计算...\n';
-    tasks.value = knownTasks.map(task => ({ ...task, status: 'pending' }));
+    if (typeof store.resetCalculationProgress === 'function') {
+      store.resetCalculationProgress();
+    }
+
+    await loadBaseLog(id);
+    rebuildTerminalOutput();
 
     if (store) {
       store.startTime = Date.now();
@@ -331,15 +324,12 @@ const startComputation = async () => {
       await store.saveCalculationProgress();
     }
 
-    scrollToBottom();
     ElMessage.success("计算已成功启动");
 
   } catch (error) {
     console.error("启动计算失败:", error);
     const errorMessage = error.response?.data?.message || error.message || '计算启动失败';
-    computationMessage.value = `启动失败: ${errorMessage}`;
-    openfoamOutput.value += "\n启动失败: " + errorMessage;
-    scrollToBottom();
+    openfoamOutput.value += `\n启动失败: ${errorMessage}`;
     ElMessage.error(`启动计算失败: ${errorMessage}`);
 
     if (error.response?.status === 400 || error.response?.status === 500) {
@@ -351,25 +341,25 @@ const startComputation = async () => {
 };
 
 const viewResults = () => {
-  router.push({ name: 'ResultsDisplay', params: { caseId } });
+  router.push({ name: 'ResultsDisplay', params: { caseId: caseId.value } });
 };
 
 const resetComputation = async () => {
   try {
-    await axios.delete(`/api/cases/${caseId}/calculation-progress`);
+    const id = caseId.value;
+    if (!id) throw new Error('无效的工况ID');
+    await axios.delete(`/api/cases/${id}/calculation-progress`);
 
     if (store && typeof store.calculationStatus !== 'undefined') {
       store.calculationStatus = 'not_started';
     }
 
-    overallProgress.value = 0;
-    computationMessage.value = '';
-    openfoamOutput.value = '';
-    tasks.value = knownTasks.map(task => ({ ...task, status: 'pending' }));
-
-    if (store && typeof store.resetCalculationProgress === 'function') {
+    if (typeof store.resetCalculationProgress === 'function') {
       store.resetCalculationProgress();
     }
+
+    await loadBaseLog(id);
+    rebuildTerminalOutput();
 
     if (store && typeof store.saveCalculationProgress === 'function') {
       try {
@@ -385,12 +375,6 @@ const resetComputation = async () => {
     ElMessage.error(`重置计算失败: ${error.response?.data?.message || error.message}`);
   }
 };
-
-onBeforeUnmount(() => {
-  if (store && typeof store.disconnectSocket === 'function') {
-    store.disconnectSocket();
-  }
-});
 </script>
 
 <style scoped>
