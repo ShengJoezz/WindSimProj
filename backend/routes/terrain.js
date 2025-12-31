@@ -2,8 +2,53 @@
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
-const { spawn } = require("child_process");
+const Joi = require("joi");
+const { spawn, spawnSync } = require("child_process");
 const router = express.Router();
+
+// Validate caseId to avoid path traversal and inconsistent behavior
+const caseIdSchema = Joi.string()
+  .alphanum()
+  .min(1)
+  .max(50)
+  .required()
+  .messages({
+    "string.alphanum": "工况 ID 只能包含字母和数字",
+    "string.min": "工况 ID 至少需要 1 个字符",
+    "string.max": "工况 ID 不能超过 50 个字符",
+    "any.required": "工况 ID 是必需的",
+  });
+
+router.use("/:caseId", (req, res, next) => {
+  const { error, value } = caseIdSchema.validate(req.params.caseId);
+  if (error) {
+    return res.status(400).json({ success: false, message: error.details[0].message });
+  }
+  req.params.caseId = value;
+  next();
+});
+
+const parseRequiredNumber = (value) => {
+  if (value === undefined || value === null || value === "") return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+};
+
+const validateLatLonBox = ({ minLat, minLon, maxLat, maxLon }) => {
+  if (minLat === null || minLon === null || maxLat === null || maxLon === null) {
+    return "Missing required coordinates";
+  }
+  if (minLat < -90 || minLat > 90 || maxLat < -90 || maxLat > 90) {
+    return "Latitude out of range (-90~90)";
+  }
+  if (minLon < -180 || minLon > 180 || maxLon < -180 || maxLon > 180) {
+    return "Longitude out of range (-180~180)";
+  }
+  if (maxLat <= minLat || maxLon <= minLon) {
+    return "Invalid bbox (max must be greater than min)";
+  }
+  return null;
+};
 
 // Preview terrain crop
 router.post("/:caseId/terrain/preview-crop", async (req, res) => {
@@ -12,10 +57,21 @@ router.post("/:caseId/terrain/preview-crop", async (req, res) => {
 
   console.log("Terrain crop preview request:", { caseId, minLat, minLon, maxLat, maxLon });
 
-  if (!minLat || !minLon || !maxLat || !maxLon) {
+  const minLatNum = parseRequiredNumber(minLat);
+  const minLonNum = parseRequiredNumber(minLon);
+  const maxLatNum = parseRequiredNumber(maxLat);
+  const maxLonNum = parseRequiredNumber(maxLon);
+  const bboxError = validateLatLonBox({
+    minLat: minLatNum,
+    minLon: minLonNum,
+    maxLat: maxLatNum,
+    maxLon: maxLonNum,
+  });
+
+  if (bboxError) {
     return res.status(400).json({
       success: false,
-      message: "Missing required coordinates"
+      message: bboxError
     });
   }
 
@@ -30,7 +86,7 @@ router.post("/:caseId/terrain/preview-crop", async (req, res) => {
     const scriptPath = path.join(__dirname, "../utils/terrain_clipper.py");
     const args = [
       "--preview-only",
-      `--bbox=${minLon},${minLat},${maxLon},${maxLat}`,
+      `--bbox=${minLonNum},${minLatNum},${maxLonNum},${maxLatNum}`,
       filePath
     ];
 
@@ -90,10 +146,21 @@ router.post("/:caseId/terrain/crop", async (req, res) => {
 
   console.log("Terrain crop request:", { caseId, minLat, minLon, maxLat, maxLon });
 
-  if (!minLat || !minLon || !maxLat || !maxLon) {
+  const minLatNum = parseRequiredNumber(minLat);
+  const minLonNum = parseRequiredNumber(minLon);
+  const maxLatNum = parseRequiredNumber(maxLat);
+  const maxLonNum = parseRequiredNumber(maxLon);
+  const bboxError = validateLatLonBox({
+    minLat: minLatNum,
+    minLon: minLonNum,
+    maxLat: maxLatNum,
+    maxLon: maxLonNum,
+  });
+
+  if (bboxError) {
     return res.status(400).json({
       success: false,
-      message: "Missing required coordinates"
+      message: bboxError
     });
   }
 
@@ -159,9 +226,17 @@ router.post("/:caseId/terrain/crop", async (req, res) => {
     console.log(`7. Testing GDAL with gdalinfo on source file`);
 
     try {
-      const { execSync } = require('child_process');
       console.log('   Running gdalinfo command...');
-      const gdalInfoOutput = execSync(`gdalinfo "${sourceFilePath}"`, { encoding: 'utf8' });
+      const gdalInfoResult = spawnSync('gdalinfo', [sourceFilePath], {
+        encoding: 'utf8',
+        timeout: 30_000,
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      if (gdalInfoResult.error) throw gdalInfoResult.error;
+      if (gdalInfoResult.status !== 0) {
+        throw new Error(gdalInfoResult.stderr || `gdalinfo exited with code ${gdalInfoResult.status}`);
+      }
+      const gdalInfoOutput = gdalInfoResult.stdout || '';
       console.log('   gdalinfo successful');
 
       // Optional: Extract some useful info from gdalinfo output
@@ -180,16 +255,33 @@ router.post("/:caseId/terrain/crop", async (req, res) => {
 
     // Try the crop operation with gdal_translate
     console.log(`8. Running gdal_translate for crop operation`);
-    console.log(`   Coordinates: minLon=${minLon}, maxLat=${maxLat}, maxLon=${maxLon}, minLat=${minLat}`);
+    console.log(`   Coordinates: minLon=${minLonNum}, maxLat=${maxLatNum}, maxLon=${maxLonNum}, minLat=${minLatNum}`);
 
-    const gdal_cmd = `gdal_translate -projwin ${minLon} ${maxLat} ${maxLon} ${minLat} -of GTiff "${sourceFilePath}" "${tempFilePath}"`;
-    console.log(`   Command: ${gdal_cmd}`);
+    const gdalArgs = [
+      '-projwin',
+      String(minLonNum),
+      String(maxLatNum),
+      String(maxLonNum),
+      String(minLatNum),
+      '-of',
+      'GTiff',
+      sourceFilePath,
+      tempFilePath,
+    ];
+    console.log(`   Command: gdal_translate ${gdalArgs.join(' ')}`);
 
     try {
-      const { execSync } = require('child_process');
       console.log('   Executing gdal_translate...');
-      const cropOutput = execSync(gdal_cmd, { encoding: 'utf8' });
-      console.log('   gdal_translate output:', cropOutput);
+      const cropResult = spawnSync('gdal_translate', gdalArgs, {
+        encoding: 'utf8',
+        timeout: 5 * 60_000,
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      if (cropResult.error) throw cropResult.error;
+      if (cropResult.status !== 0) {
+        throw new Error(cropResult.stderr || `gdal_translate exited with code ${cropResult.status}`);
+      }
+      console.log('   gdal_translate output:', cropResult.stdout || cropResult.stderr || '');
 
       // Check if temp file was created
       if (!fs.existsSync(tempFilePath)) {
@@ -221,7 +313,7 @@ router.post("/:caseId/terrain/crop", async (req, res) => {
         success: false,
         message: "Error executing gdal_translate",
         error: cropError.message,
-        command: gdal_cmd
+        command: `gdal_translate ${gdalArgs.join(' ')}`
       });
     }
 
@@ -247,6 +339,13 @@ router.post("/:caseId/terrain/save", async (req, res) => {
     return res.status(400).json({
       success: false,
       message: "Filename is required"
+    });
+  }
+
+  if (typeof filename !== 'string' || filename.length > 200 || /[\\/]/.test(filename) || filename.includes('..')) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid filename"
     });
   }
 
