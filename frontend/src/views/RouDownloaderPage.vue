@@ -5,11 +5,26 @@
       <!-- 地图拾取器卡片 -->
       <el-card class="map-card" shadow="hover">
         <template #header>
-          <div class="card-header">
+          <div class="card-header card-header-row">
             <span>地图坐标拾取器</span>
+            <div class="map-toggle">
+              <el-switch
+                v-model="useMap"
+                active-text="地图开"
+                inactive-text="地图关"
+              />
+            </div>
           </div>
         </template>
-        <div id="map-container" style="height: 750px; width: 100%; border-radius: 4px;">
+        <el-alert
+          v-if="useMap && tileLoadError"
+          title="地图瓦片加载失败：可能处于离线/内网环境。你可以关闭地图，或在构建时设置 VITE_LEAFLET_TILE_URL 指向可用的瓦片服务。"
+          type="warning"
+          show-icon
+          class="tile-error-alert"
+          @close="tileLoadError = false"
+        />
+        <div v-if="useMap" id="map-container" style="height: 750px; width: 100%; border-radius: 4px;">
           <l-map
             ref="map"
             v-model:zoom="zoom"
@@ -17,13 +32,17 @@
             @moveend="onMapMoveEnd"
           >
             <l-tile-layer
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              :url="tileUrl"
               layer-type="base"
               name="OpenStreetMap"
-              attribution="&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors &copy; <a href='https://carto.com/attributions'>CARTO</a>"
+              :attribution="tileAttribution"
+              @tileerror="onTileError"
             ></l-tile-layer>
             <l-marker :lat-lng="markerLatLng" draggable @moveend="onMarkerDragEnd"></l-marker>
           </l-map>
+        </div>
+        <div v-else class="map-disabled-hint">
+          <p>地图已关闭（离线/内网部署）。你仍可直接在右侧输入经纬度与半径下载粗糙度文件。</p>
         </div>
       </el-card>
 
@@ -85,9 +104,9 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue';
+import { ref, watch, onMounted, nextTick } from 'vue';
 import axios from 'axios';
-import { ElCard, ElForm, ElFormItem, ElInputNumber, ElButton, ElAlert, ElDivider, ElTable, ElTableColumn } from 'element-plus';
+import { ElCard, ElForm, ElFormItem, ElInputNumber, ElButton, ElAlert, ElDivider, ElTable, ElTableColumn, ElSwitch } from 'element-plus';
 
 import "leaflet/dist/leaflet.css";
 import { LMap, LTileLayer, LMarker } from "@vue-leaflet/vue-leaflet";
@@ -110,9 +129,21 @@ const radius = ref(5000);
 const isLoading = ref(false);
 const errorMessage = ref('');
 
+const DEFAULT_TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+const DEFAULT_ATTRIBUTION =
+  "&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors";
+
+const tileUrl = String(import.meta.env.VITE_LEAFLET_TILE_URL || '').trim() || DEFAULT_TILE_URL;
+const tileAttribution =
+  String(import.meta.env.VITE_LEAFLET_TILE_ATTRIBUTION || '').trim() || DEFAULT_ATTRIBUTION;
+
+const useMap = ref(true);
+const tileLoadError = ref(false);
+
 const zoom = ref(10);
 const mapCenter = ref([lat.value, lon.value]);
 const markerLatLng = ref([lat.value, lon.value]);
+const map = ref(null);
 
 const mappingData = ref([]);
 const isMappingLoading = ref(true);
@@ -137,6 +168,18 @@ watch([lat, lon], ([newLat, newLon]) => {
   }
 });
 
+watch(useMap, async (enabled) => {
+  if (!enabled) {
+    tileLoadError.value = false;
+    return;
+  }
+  await nextTick();
+  const leafletMap = map.value?.leafletObject;
+  if (leafletMap && typeof leafletMap.invalidateSize === 'function') {
+    leafletMap.invalidateSize();
+  }
+});
+
 const onMarkerDragEnd = (event) => {
   const newCoords = event.target.getLatLng();
   lat.value = parseFloat(newCoords.lat.toFixed(6));
@@ -149,6 +192,10 @@ const onMapMoveEnd = (event) => {
     lat.value = parseFloat(newCenter.lat.toFixed(6));
     lon.value = parseFloat(newCenter.lng.toFixed(6));
 }
+
+const onTileError = () => {
+  tileLoadError.value = true;
+};
 
 const handleDownloadRou = async () => {
   errorMessage.value = '';
@@ -240,6 +287,17 @@ const handleDownloadRou = async () => {
   font-weight: 600;
 }
 
+.card-header-row {
+  position: relative;
+}
+
+.map-toggle {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
 .card-description {
   text-align: center;
   color: #6c757d;
@@ -254,6 +312,23 @@ const handleDownloadRou = async () => {
 
 .error-alert {
   margin-top: 10px;
+}
+
+.tile-error-alert {
+  margin-bottom: 12px;
+}
+
+.map-disabled-hint {
+  height: 750px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: #606266;
+  background: #fafafa;
+  border: 1px dashed #dcdfe6;
+  border-radius: 6px;
+  text-align: center;
 }
 
 .mapping-section {
