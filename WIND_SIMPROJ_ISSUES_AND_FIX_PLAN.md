@@ -250,10 +250,13 @@ flowchart TD
   - store complete 后错误传 caseId 拉结果：`frontend/src/store/caseStore.js:622`（`fetchResults` 需要 analysisId：`frontend/src/store/windMastStore.js:100`）
 - 修复方向：统一事件名与 payload（必须包含 analysisId）；complete 后用 analysisId 拉结果
 
-#### P1-7：粗糙度下载页依赖外网瓦片（离线/内网部署无法用）
+#### ✅ P1-7：粗糙度下载页依赖外网瓦片（离线/内网部署无法用）【已修复】
 
 - 根因证据：固定 OSM URL：`frontend/src/views/RouDownloaderPage.vue:20`
-- 修复方向：瓦片源可配置（env/后端下发）；提供无地图模式（仅输入经纬度）
+- 已实现
+  - 瓦片源可配置（构建时 env）：`VITE_LEAFLET_TILE_URL`、`VITE_LEAFLET_TILE_ATTRIBUTION`
+  - 提供“地图开/关”开关（无地图模式下仍可直接输入经纬度/半径下载）：`frontend/src/views/RouDownloaderPage.vue`
+  - 瓦片加载失败时给出可解释提示（离线/内网可关闭地图或配置内网瓦片服务）
 
 #### ✅ P1-8：rou/DEM 接口参数用 falsy 判断（0 值会被误判缺失）【已修复】
 
