@@ -741,6 +741,7 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
     const taskStatuses = {};
     knownTasks.forEach(task => { taskStatuses[task.id] = "pending"; });
     if (io) io.to(caseId).emit("taskUpdate", taskStatuses);
+    const knownTaskIds = new Set(knownTasks.map(t => t.id));
 
     // --- 执行主计算脚本 (run.sh) ---
     try {
@@ -787,8 +788,8 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
                     const msg = JSON.parse(line);
                     let progressChanged = false;
 
-                    // 处理任务状态更新
-                    if (msg.action === "taskStart" && taskStatuses[msg.taskId] !== 'running') {
+                    // 处理任务状态更新（仅接受已知 taskId，避免脚本内部动态 task 污染任务面板与进度计算）
+                    if (msg.action === "taskStart" && knownTaskIds.has(msg.taskId) && taskStatuses[msg.taskId] !== 'running') {
                         taskStatuses[msg.taskId] = "running";
                         if (io) io.to(caseId).emit("taskStarted", msg.taskId);
                         progressChanged = true;
@@ -797,7 +798,7 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
                         if (io) io.to(caseId).emit("calculationProgress", { progress: overall, taskId: msg.taskId });
                     } else if (msg.action === "progress" || msg.action === "taskEnd") {
                         const {taskId, progress} = msg;
-                        if (knownTasks.some(t => t.id === taskId)) {
+                        if (knownTaskIds.has(taskId)) {
                             if (progress === "ERROR" && taskStatuses[taskId] !== 'error') {
                                 taskStatuses[taskId] = "error";
                                 progressChanged = true;

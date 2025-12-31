@@ -27,6 +27,7 @@ const knownTasks = [
     { id: 'execute_post_script', name: '执行后处理脚本' },
     { id: 'process_vtk', name: 'VTK数据处理' },
     { id: 'multi_height_sampling', name: '多高度采样' },
+    { id: 'extract_bot_stl', name: '提取底面STL' },
     { id: 'multi_height_sampling_loop', name: '多高度采样（循环）' },
     { id: 'generate_web_streamlines', name: '生成Web流线' },
     { id: 'precompute_visualization', name: '可视化预计算' },
