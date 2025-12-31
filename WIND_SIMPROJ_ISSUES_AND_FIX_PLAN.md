@@ -8,14 +8,14 @@
 
 ---
 
-## 0. 问题统计摘要（截至本版本）
+## 0. 问题统计摘要（截至 2025-12-31 19:50）
 
-| 优先级 | 数量 | 说明 |
-| --- | ---: | --- |
-| P0（阻塞性） | 6 | 串工况/失败无提示/核心链路不可用 |
-| P1（重要） | 12 | 结果正确性/高频踩坑/稳定性 |
-| P2（一般） | 5 | 维护性/一致性/潜在泄漏 |
-| **总计** | **23** | 覆盖主流程 + 测风塔 + DEM/rou |
+| 优先级 | 数量 | 已修复 | 说明 |
+| --- | ---: | ---: | --- |
+| P0（阻塞性） | 6 | **5.8** | 串工况/失败无提示/核心链路不可用 |
+| P1（重要） | 12 | **5** | 结果正确性/高频踩坑/稳定性 |
+| P2（一般） | 5 | **1** | 维护性/一致性/潜在泄漏 |
+| **总计** | **23** | **11.8** | 完成率 ≈ 51% |
 
 ## 1. 真实样本工况验证：`backend/uploads/testmi`
 
@@ -133,7 +133,7 @@ flowchart TD
 
 ### 4.1 P0（阻塞性/高概率误用）
 
-#### P0-1：caseId 单一来源不成立（串工况/看错工况/写错工况）
+#### ✅ P0-1：caseId 单一来源不成立（串工况/看错工况/写错工况）【已修复】
 
 - 用户现象
   - 直链打开 `/cases/A/results` 可能显示 B 工况数据
@@ -151,7 +151,7 @@ flowchart TD
 - 验收标准
   - 新开标签页/刷新/复制链接访问任何子页，都不会串工况
 
-#### P0-2：计算失败事件名不一致（失败无提示）
+#### ✅ P0-2：计算失败事件名不一致（失败无提示）【已修复】
 
 - 用户现象：脚本退出码非 0，界面卡住或无错误提示
 - 根因证据
@@ -162,7 +162,7 @@ flowchart TD
   - 或后端统一 emit 名称（建议后续做“事件常量化”，见路线图）
 - 验收标准：任何失败都能在 UI 看见明确错误 + 可复制的详情
 
-#### P0-3：日志 API 路径不一致（刷新后日志必空）
+#### ✅ P0-3：日志 API 路径不一致（刷新后日志必空）【已修复】
 
 - 用户现象：刷新计算页后，日志面板空白
 - 根因证据
@@ -171,7 +171,7 @@ flowchart TD
 - 修复方向：前端改用 `/api/cases/:caseId/calculation-log`
 - 验收标准：刷新页面后仍能读取历史日志内容
 
-#### P0-4：TaskId 前后端不一致（进度/步骤完全失真）
+#### ✅ P0-4：TaskId 前后端不一致（进度/步骤完全失真）【已修复】
 
 - 用户现象：进度条不动、步骤不更新、无法定位失败点
 - 根因证据
@@ -183,7 +183,7 @@ flowchart TD
   - 后端不要静默丢弃未知 taskId（至少记录并透传 “unknown task”）
 - 验收标准：完整计算过程 UI 步骤与脚本输出一致；失败点落在正确步骤
 
-#### P0-5：Socket.IO 重复监听（日志重复/状态抖动/泄漏）
+#### ✅ P0-5：Socket.IO 重复监听（日志重复/状态抖动/泄漏）【已修复】
 
 - 用户现象：同一输出重复出现；多次进出页面后越来越卡；进度抖动
 - 根因证据
@@ -194,7 +194,7 @@ flowchart TD
   - store 提供结构化状态（output 列表/任务状态/进度），组件不直接 `socket.on`
 - 验收标准：进入/离开页面多次，listener 数不增长，日志不重复
 
-#### P0-6：生成 info.json 依赖隐式条件（未进地形页就无法提交）
+#### ⚠️ P0-6：生成 info.json 依赖隐式条件（未进地形页就无法提交）【80% - 有提示无自动修复】
 
 - 用户现象：用户直接进参数页提交，提示“地理边界尚未加载”
 - 根因证据：参数页提交前检查地理边界，但边界只在地形页解析 GeoTIFF 后写入 store：`frontend/src/components/ParameterSettings.vue:756`
@@ -207,7 +207,7 @@ flowchart TD
 
 ### 4.2 P1（重要：结果正确性/稳定性/高频踩坑）
 
-#### P1-1：工况名规则前端未提示/未校验
+#### ✅ P1-1：工况名规则前端未提示/未校验【已修复】
 
 - 根因证据：后端 Joi `alphanum`：`backend/routes/cases.js:207`；前端仅 required：`frontend/src/views/NewCase.vue:142`
 - 修复方向：前端表单增加正则/长度提示；UI 明示规则
@@ -222,7 +222,7 @@ flowchart TD
   - Step1：前端读取 GeoTIFF CRS/GeoKeys，判断是否 geographic/projection，并在 UI 给出明确提示/阻止提交
   - Step2：为 `geographicBounds` 增加 `crs`/`unit` 字段；后端生成 info.json 时做范围校验（经纬度必须在 [-180,180]/[-90,90]）
 
-#### P1-3：大 GeoTIFF 前端解析性能风险（`Math.min(...arr)`/`Math.max(...arr)`）
+#### ✅ P1-3：大 GeoTIFF 前端解析性能风险（`Math.min(...arr)`/`Math.max(...arr)`）【已修复】
 
 - 根因证据：`frontend/src/components/TerrainMap/TerrainMap.vue:1050`
 - 修复方向：改用循环统计；并考虑后端预计算 min/max 或前端读取时使用 resampling 降采样
@@ -237,7 +237,7 @@ flowchart TD
 - 根因证据：`backend/routes/terrain.js:185`
 - 修复方向：改 `spawn(cmd, args)` + 数值校验 + 白名单路径
 
-#### P1-6：测风塔事件不一致（无实时进度/结果拉取参数错误）
+#### ✅ P1-6：测风塔事件不一致（无实时进度/结果拉取参数错误）【已修复】
 
 - 根因证据
   - 组件监听 `windmast_progress`：`frontend/src/components/WindMast/WindMastAnalysis.vue:392`
@@ -250,7 +250,7 @@ flowchart TD
 - 根因证据：固定 OSM URL：`frontend/src/views/RouDownloaderPage.vue:20`
 - 修复方向：瓦片源可配置（env/后端下发）；提供无地图模式（仅输入经纬度）
 
-#### P1-8：rou/DEM 接口参数用 falsy 判断（0 值会被误判缺失）
+#### ✅ P1-8：rou/DEM 接口参数用 falsy 判断（0 值会被误判缺失）【已修复】
 
 - 根因证据：`backend/routes/rouDownloader.js:49`；`backend/routes/demClipper.js:63`
 - 修复方向：改用 `lat == null` / `Number.isFinite` 校验
@@ -296,7 +296,7 @@ flowchart TD
 
 ### 4.3 P2（一般：维护性/一致性/潜在泄漏）
 
-#### P2-1：速度场组件 resize 监听移除无效（潜在泄漏）
+#### ✅ P2-1：速度场组件 resize 监听移除无效（潜在泄漏）【已修复】
 
 - 根因证据：add/remove 使用匿名函数：`frontend/src/components/VelocityFieldDisplay.vue:998`
 - 修复方向：保存 handler 引用并正确 remove
