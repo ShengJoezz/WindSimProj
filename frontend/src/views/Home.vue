@@ -34,10 +34,7 @@
       </div>
     </div>
     <div class="content-section">
-      <div v-if="caseId" class="map-section" ref="mapSection">
-        <TerrainMap :caseId="caseId" />
-      </div>
-      <div v-else class="intro-section" ref="introSection">
+      <div class="intro-section" ref="introSection">
         <div class="intro-card" v-for="(item, index) in features" :key="index">
           <div class="intro-icon-wrapper">
             <i :class="item.icon"></i>
@@ -423,15 +420,8 @@ html {
 </style>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
-import { useRoute } from 'vue-router';
-import TerrainMap from '../components/TerrainMap/TerrainMap.vue';
-
-
-const route = useRoute();
-const caseId = computed(() => route.params.caseId || null);
+import { onMounted, ref } from 'vue';
 const banner = ref(null);
-const mapSection = ref(null);
 const introSection = ref(null);
 
 const features = [
@@ -509,9 +499,6 @@ onMounted(() => {
     });
 });
 
-const scrollToMap = () => {
-  mapSection.value?.scrollIntoView({ behavior: 'smooth' });
-};
 const scrollToIntro = () => {
     introSection.value?.scrollIntoView({ behavior: 'smooth' });
 };

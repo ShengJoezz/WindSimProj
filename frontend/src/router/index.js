@@ -33,11 +33,11 @@ const routes = [
     path: "/cases/:caseId",
     name: "CaseDetails",
     component: () => import("../views/CaseDetails.vue"), // Your main case view wrapper
-    // Redirect to a default child view if needed, or remove if CaseDetails has its own content
-    // redirect: (to) => ({
-    //   name: "TerrainView", // Or maybe 'ParameterSettings'?
-    //   params: { caseId: to.params.caseId },
-    // }),
+    // Default child route (avoid blank page on direct /cases/:caseId visit)
+    redirect: (to) => ({
+      name: "TerrainView",
+      params: { caseId: to.params.caseId },
+    }),
     children: [
       {
         path: "terrain", // Existing

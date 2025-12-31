@@ -180,7 +180,7 @@
   </template>
   
   <script setup>
-  import { ref, computed, onMounted } from 'vue';
+  import { ref, computed, onMounted, watch } from 'vue';
   import { useRouter } from 'vue-router';
   import { Refresh, Plus, Search } from '@element-plus/icons-vue';
   import { ElMessageBox, ElMessage } from 'element-plus';
@@ -256,6 +256,15 @@
     const start = (currentPage.value - 1) * pageSize.value;
     const end = start + pageSize.value;
     return filteredAnalyses.value.slice(start, end);
+  });
+
+  watch([searchQuery, statusFilter, dateRange], () => {
+    currentPage.value = 1;
+  });
+
+  watch([() => filteredAnalyses.value.length, pageSize], () => {
+    const maxPage = Math.max(1, Math.ceil(filteredAnalyses.value.length / pageSize.value));
+    if (currentPage.value > maxPage) currentPage.value = maxPage;
   });
   
   const formatDate = (dateString) => {
