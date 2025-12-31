@@ -54,8 +54,8 @@
           <span>三维模型</span>
         </div>
         <VTKViewer
-          v-if="caseStore.currentCaseId"
-          :caseId="caseStore.currentCaseId"
+          v-if="caseId"
+          :caseId="caseId"
           class="vtk-viewer-container"
           ref="vtkViewerRef"
         />
@@ -65,8 +65,8 @@
           <span>速度场</span>
         </div>
         <VelocityFieldDisplay
-          v-if="caseStore.currentCaseId"
-          :caseId="caseStore.currentCaseId"
+          v-if="caseId"
+          :caseId="caseId"
           class="velocity-display"
           ref="velocityRef"
         />
@@ -76,14 +76,18 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onBeforeUnmount } from 'vue';
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
 import VTKViewer from '@/components/VTKViewer.vue';
 import VelocityFieldDisplay from '@/components/VelocityFieldDisplay.vue';
-import { useCaseStore } from '@/store/caseStore';
-import { useRouter } from 'vue-router'; // 引入 useRouter
 
-const caseStore = useCaseStore();
-const router = useRouter(); // 初始化 router
+const props = defineProps({
+  caseId: {
+    type: String,
+    required: true,
+  },
+});
+
+const caseId = computed(() => props.caseId);
 
 // 用于获取组件实例的引用
 const vtkViewerRef = ref(null);
@@ -158,8 +162,7 @@ const exportLayerPhotos = async () => {
 
 // 导出全部速度场（ZIP）
 const exportAllVelocityLayers = async () => {
-  const caseId = caseStore.currentCaseId;
-  if (!caseId) {
+  if (!caseId.value) {
     showNotification('未检测到工况ID，无法导出', 'error');
     return;
   }
@@ -167,7 +170,7 @@ const exportAllVelocityLayers = async () => {
   showNotification('正在准备导出全部速度场（ZIP）...', 'info');
 
   try {
-    const url = `/api/cases/${caseId}/export-velocity-layers`;
+    const url = `/api/cases/${caseId.value}/export-velocity-layers`;
     const link = document.createElement('a');
     link.href = url;
     link.target = '_blank';
@@ -195,7 +198,6 @@ const handleResize = () => {
 
 onMounted(() => {
   window.addEventListener('resize', handleResize);
-  console.log('Current Case ID in ResultsDisplay:', caseStore.currentCaseId);
 });
 
 onBeforeUnmount(() => {
@@ -203,10 +205,6 @@ onBeforeUnmount(() => {
   if (resizeTimeout) {
     clearTimeout(resizeTimeout);
   }
-});
-
-watch(() => caseStore.currentCaseId, (newId) => {
-  console.log('currentCaseId updated to:', newId);
 });
 </script>
 

@@ -23,7 +23,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, watch } from 'vue';
+import { computed, onBeforeUnmount, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useCaseStore } from '@/store/caseStore';
 import { notifyError } from '@/utils/notify.js';
@@ -46,14 +46,14 @@ const ensureCaseInitialized = async (caseId) => {
   }
 };
 
-onMounted(() => ensureCaseInitialized(routeCaseId.value));
-
 watch(
   () => route.params.caseId,
   (newId, oldId) => {
-    if (!newId || newId === oldId) return;
+    if (!newId) return;
+    if (newId === oldId) return;
     ensureCaseInitialized(newId);
-  }
+  },
+  { immediate: true }
 );
 
 onBeforeUnmount(() => {

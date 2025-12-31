@@ -506,6 +506,13 @@
       const res=await fetch('/api/dem/clip',{method:'POST',body:fd});
       loadingProgress.value=50;
       if(!res.ok) {
+          if (res.status === 413) {
+            throw new Error(
+              '上传文件过大，服务器拒绝请求（413 Request Entity Too Large）。' +
+              '请提高反向代理/Nginx 的 client_max_body_size，并确保后端上传大小限制足够大。' +
+              '若使用 Docker 镜像部署，请更新并重新构建/分发镜像后再试。'
+            );
+          }
           const errorText = await res.text();
           throw new Error(`服务器错误 ${res.status}: ${errorText || res.statusText}`);
       }
