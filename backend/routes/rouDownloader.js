@@ -46,12 +46,26 @@ router.get('/mapping-data', (req, res) => {
 router.post('/download-by-coords', (req, res) => {
     const { lat, lon, radius } = req.body;
 
-    if (!lat || !lon || !radius) {
-        return res.status(400).json({ success: false, message: '缺少经纬度或半径参数' });
+    const requiredParams = { lat, lon, radius };
+    for (const [key, value] of Object.entries(requiredParams)) {
+        if (value === undefined || value === null || value === '') {
+            return res.status(400).json({ success: false, message: '缺少经纬度或半径参数' });
+        }
     }
 
-    if (isNaN(parseFloat(lat)) || isNaN(parseFloat(lon)) || isNaN(parseFloat(radius))) {
+    const latNum = Number(lat);
+    const lonNum = Number(lon);
+    const radiusNum = Number(radius);
+
+    if (![latNum, lonNum, radiusNum].every(Number.isFinite)) {
         return res.status(400).json({ success: false, message: '参数必须是有效的数字' });
+    }
+
+    if (latNum < -90 || latNum > 90 || lonNum < -180 || lonNum > 180) {
+        return res.status(400).json({ success: false, message: '经纬度超出有效范围 (lat: -90~90, lon: -180~180)' });
+    }
+    if (radiusNum <= 0) {
+        return res.status(400).json({ success: false, message: '半径必须为正数' });
     }
 
     const tempId = uuidv4();
@@ -71,8 +85,8 @@ router.post('/download-by-coords', (req, res) => {
     const scriptArgs = [
         scriptPath,
         '--clcd', clcdPath,
-        '--center', `${lat},${lon}`,
-        '--r2', String(radius),
+        '--center', `${latNum},${lonNum}`,
+        '--r2', String(radiusNum),
         '--out', outputPath,
         '--mapping', mappingPath
     ];
