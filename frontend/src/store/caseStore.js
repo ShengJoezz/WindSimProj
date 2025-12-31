@@ -244,14 +244,6 @@ export const useCaseStore = defineStore('caseStore', () => {
 
         const windMastStore = useWindMastStore();
         windMastStore.resetState();
-
-        if (window.location.pathname.includes('/windmast')) {
-          try {
-            await windMastStore.fetchResults(id);
-          } catch (error) {
-            console.warn('预加载测风塔分析数据失败，可能分析尚未完成', error);
-          }
-        }
         resolve();
       } catch (error) {
         console.error('Failed to initialize case:', error);
