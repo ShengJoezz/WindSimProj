@@ -59,11 +59,26 @@ router.post('/clip', upload.single('demFile'), async (req, res, next) => {
     // 从请求体获取裁切参数
     const { minX, minY, maxX, maxY } = req.body;
 
-    // 验证参数
-    if (!minX || !minY || !maxX || !maxY) {
-      return res.status(400).json({ 
-        success: false, 
-        message: '缺少裁切坐标参数 (minX, minY, maxX, maxY)' 
+    // 验证参数（允许 0）
+    const requiredCoords = { minX, minY, maxX, maxY };
+    for (const [key, value] of Object.entries(requiredCoords)) {
+      if (value === undefined || value === null || value === '') {
+        return res.status(400).json({
+          success: false,
+          message: '缺少裁切坐标参数 (minX, minY, maxX, maxY)'
+        });
+      }
+    }
+
+    const minXNum = Number(minX);
+    const minYNum = Number(minY);
+    const maxXNum = Number(maxX);
+    const maxYNum = Number(maxY);
+
+    if (![minXNum, minYNum, maxXNum, maxYNum].every(Number.isFinite)) {
+      return res.status(400).json({
+        success: false,
+        message: '裁切坐标参数必须是有效的数字 (minX, minY, maxX, maxY)'
       });
     }
 
@@ -74,7 +89,7 @@ router.post('/clip', upload.single('demFile'), async (req, res, next) => {
     fs.ensureDirSync(outputDir);
     const outputFilePath = path.join(outputDir, `clipped_${outputId}.tif`);
 
-    console.log('裁切参数:', { minX, minY, maxX, maxY });
+    console.log('裁切参数:', { minX: minXNum, minY: minYNum, maxX: maxXNum, maxY: maxYNum });
     console.log('源文件:', srcFilePath);
     console.log('目标文件:', outputFilePath);
 
@@ -106,10 +121,10 @@ router.post('/clip', upload.single('demFile'), async (req, res, next) => {
     const pixelHeight = geoTransform[5]; // 通常是负值
 
     // 计算像素位置
-    const xOffset = Math.floor((parseFloat(minX) - originX) / pixelWidth);
-    const yOffset = Math.floor((parseFloat(maxY) - originY) / pixelHeight);
-    const clipWidth = Math.ceil((parseFloat(maxX) - parseFloat(minX)) / pixelWidth);
-    const clipHeight = Math.ceil((parseFloat(maxY) - parseFloat(minY)) / Math.abs(pixelHeight));
+    const xOffset = Math.floor((minXNum - originX) / pixelWidth);
+    const yOffset = Math.floor((maxYNum - originY) / pixelHeight);
+    const clipWidth = Math.ceil((maxXNum - minXNum) / pixelWidth);
+    const clipHeight = Math.ceil((maxYNum - minYNum) / Math.abs(pixelHeight));
 
     console.log('裁切区域(像素):', { 
       xOffset, yOffset, clipWidth, clipHeight 
