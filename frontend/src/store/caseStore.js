@@ -612,6 +612,13 @@ export const useCaseStore = defineStore('caseStore', () => {
         calculationOutputs.value.push({ type: 'error', message: `Calculation failed (socket): ${message}${details}` });
         saveCalculationProgress();
     });
+    socket.value.on('calculationCanceled', (data) => {
+        calculationStatus.value = 'not_started';
+        currentTask.value = null;
+        const message = data?.message || 'Calculation canceled (socket)';
+        calculationOutputs.value.push({ type: 'info', message: `${message}\n` });
+        saveCalculationProgress();
+    });
     socket.value.on('calculationError', (error) => {
         calculationStatus.value = 'error';
         currentTask.value = null;

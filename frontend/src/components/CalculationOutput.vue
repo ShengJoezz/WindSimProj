@@ -112,6 +112,16 @@
           <i class="fas fa-chart-bar"></i> 查看结果
         </el-button>
         <el-button
+          v-if="getCalculationStatus() === 'running'"
+          type="danger"
+          :loading="isCanceling"
+          @click="cancelComputation"
+          class="action-button danger-btn"
+        >
+          <i class="fas fa-stop"></i> 取消计算
+        </el-button>
+        <el-button
+          v-else
           type="warning"
           @click="resetComputation"
           class="action-button warning-btn"
@@ -134,7 +144,7 @@
 
 <script setup>
 import { ref, onMounted, watch, nextTick, computed } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { Loading, Check, Close } from '@element-plus/icons-vue';
 import axios from 'axios';
 import { useRoute, useRouter } from 'vue-router';
@@ -172,6 +182,7 @@ const baseLog = ref('');
 const openfoamOutput = ref('');
 const terminalContent = ref(null);
 const outputContent = ref(null);
+const isCanceling = ref(false);
 
 const tasksList = computed(() => {
   const statusMap = store.tasks || {};
@@ -373,6 +384,30 @@ const resetComputation = async () => {
   } catch (error) {
     console.error("重置计算失败:", error);
     ElMessage.error(`重置计算失败: ${error.response?.data?.message || error.message}`);
+  }
+};
+
+const cancelComputation = async () => {
+  let id = null;
+  try {
+    id = caseId.value;
+    if (!id) throw new Error('无效的工况ID');
+    await ElMessageBox.confirm(
+      '确定要取消当前计算吗？取消后可以重新开始计算。',
+      '取消确认',
+      { confirmButtonText: '取消计算', cancelButtonText: '继续运行', type: 'warning' }
+    );
+    isCanceling.value = true;
+    const response = await axios.post(`/api/cases/${id}/cancel`);
+    if (!response.data?.success) {
+      throw new Error(response.data?.message || '取消计算失败');
+    }
+    ElMessage.success(response.data.message || '已请求取消，正在终止计算进程...');
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return;
+    ElMessage.error(`取消计算失败: ${error.response?.data?.message || error.message}`);
+  } finally {
+    isCanceling.value = false;
   }
 };
 </script>

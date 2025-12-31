@@ -24,6 +24,33 @@ const windTurbinesRouter = require('./windTurbinesRouter');
 const archiver = require('archiver');
 const pdfDataService = require('../services/pdfDataService'); // 引入 PDF 数据服务
 
+// --- In-memory running calculation registry (per backend instance) ---
+// caseId -> { child, startedAt, cancelReason, killTimer, timeoutTimer }
+const runningCalculations = new Map();
+
+const getCalculationTimeoutMs = () => {
+    const raw = process.env.CALCULATION_TIMEOUT_MS;
+    if (!raw) return 0;
+    const ms = Number(raw);
+    return Number.isFinite(ms) && ms > 0 ? ms : 0;
+};
+
+const killProcessGroup = (child, signal) => {
+    if (!child || typeof child.pid !== 'number') return false;
+    try {
+        // Negative PID kills the process group on POSIX systems when the child is detached.
+        process.kill(-child.pid, signal);
+        return true;
+    } catch (e) {
+        try {
+            process.kill(child.pid, signal);
+            return true;
+        } catch (_) {
+            return false;
+        }
+    }
+};
+
 // --- 辅助函数 ---
 const calculateXY = (lon, lat, centerLon, centerLat) => {
     // console.log('calculateXY - Input:', { lon, lat, centerLon, centerLat }); // Debug log
@@ -715,6 +742,12 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
         return res.status(400).json({ success: false, message: "缺少配置文件 (info.json)，请先生成或上传" });
     }
 
+    // Prevent starting twice for the same case within this backend instance
+    const existingRun = runningCalculations.get(caseId);
+    if (existingRun && existingRun.child && !existingRun.child.killed) {
+        return res.status(409).json({ success: false, message: "该工况已有计算在进行中（请等待完成或先取消）" });
+    }
+
     // --- 准备计算环境 ---
     console.log(`准备启动工况 ${caseId} 的计算...`);
     try {
@@ -746,7 +779,36 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
     // --- 执行主计算脚本 (run.sh) ---
     try {
         console.log(`执行 run.sh，工况: ${caseId}, CWD: ${casePath}`);
-        const child = spawn("bash", [scriptPath], { cwd: casePath, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
+        const child = spawn("bash", [scriptPath], {
+            cwd: casePath,
+            shell: false,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            detached: true,
+        });
+        runningCalculations.set(caseId, {
+            child,
+            startedAt: Date.now(),
+            cancelReason: null, // 'user' | 'timeout'
+            killTimer: null,
+            timeoutTimer: null,
+        });
+
+        const timeoutMs = getCalculationTimeoutMs();
+        if (timeoutMs > 0) {
+            const entry = runningCalculations.get(caseId);
+            entry.timeoutTimer = setTimeout(() => {
+                const rec = runningCalculations.get(caseId);
+                if (!rec || !rec.child || rec.cancelReason) return;
+                rec.cancelReason = 'timeout';
+                if (io) io.to(caseId).emit("calculationOutput", `[TIMEOUT] 计算超时（${timeoutMs}ms），正在终止进程...\n`);
+                killProcessGroup(rec.child, 'SIGTERM');
+                rec.killTimer = setTimeout(() => {
+                    const rec2 = runningCalculations.get(caseId);
+                    if (!rec2 || !rec2.child) return;
+                    killProcessGroup(rec2.child, 'SIGKILL');
+                }, 10_000);
+            }, timeoutMs);
+        }
         // Keep a monotonic overall progress value for this run (avoid jumping backwards due to per-task progress resets)
         let overallProgressValue = 0;
         
@@ -839,9 +901,15 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
             logStream.end();
             console.log(`run.sh 进程 (${caseId}) 退出，退出码: ${code}`);
 
+            const runEntry = runningCalculations.get(caseId);
+            if (runEntry?.killTimer) clearTimeout(runEntry.killTimer);
+            if (runEntry?.timeoutTimer) clearTimeout(runEntry.timeoutTimer);
+            const cancelReason = runEntry?.cancelReason;
+            runningCalculations.delete(caseId);
+
             // 检查是否有任何任务报告了错误
             const hasReportedErrors = Object.values(taskStatuses).includes('error');
-            const isSuccess = (code === 0 && !hasReportedErrors);
+            const isSuccess = (code === 0 && !hasReportedErrors && !cancelReason);
             const finalStatus = isSuccess ? "completed" : "error";
             
             if (isSuccess && stderrOutput.trim()) {
@@ -864,25 +932,43 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
             const finalProgressValue = isSuccess ? 100 : Math.round((completedTaskCount / knownTasks.length) * 100);
             const finalProgress = {
                 isCalculating: false, progress: finalProgressValue, tasks: taskStatuses,
-                timestamp: Date.now(), completed: isSuccess, exitCode: code
+                timestamp: Date.now(), completed: isSuccess, exitCode: code,
+                canceled: cancelReason === 'user',
+                timeout: cancelReason === 'timeout',
             };
             await fsPromises.writeFile(progressPath, JSON.stringify(finalProgress, null, 2));
             
             // 更新 info.json
             try {
                 const info = JSON.parse(await fsPromises.readFile(infoJsonPath, "utf-8"));
-                info.calculationStatus = finalStatus;
-                info.lastCalculationEnd = new Date().toISOString();
-                if (!isSuccess) {
-                    info.lastCalculationError = `脚本退出码: ${code}. 详情: ${stderrOutput.substring(0, 1000).trim()}`;
+                if (cancelReason === 'user') {
+                    // Allow immediate restart after user cancel
+                    info.calculationStatus = 'not_started';
+                    info.lastCalculationError = `用户取消（exitCode: ${code}）`;
+                } else if (cancelReason === 'timeout') {
+                    info.calculationStatus = 'error';
+                    info.lastCalculationError = `计算超时并被终止（exitCode: ${code}）`;
+                } else {
+                    info.calculationStatus = finalStatus;
+                    if (!isSuccess) {
+                        info.lastCalculationError = `脚本退出码: ${code}. 详情: ${stderrOutput.substring(0, 1000).trim()}`;
+                    }
                 }
+                info.lastCalculationEnd = new Date().toISOString();
                 await fsPromises.writeFile(infoJsonPath, JSON.stringify(info, null, 2), "utf-8");
             } catch (err) {
                 console.warn(`警告: 更新最终 info.json (${caseId}) 状态失败:`, err);
             }
             
             // 发送最终的 WebSocket 消息
-            if (isSuccess) {
+            if (cancelReason === 'user') {
+                if (io) io.to(caseId).emit("calculationCanceled", { message: "计算已取消" });
+            } else if (cancelReason === 'timeout') {
+                if (io) io.to(caseId).emit("calculationFailed", {
+                    message: `计算超时并终止，退出码: ${code}`,
+                    details: stderrOutput.trim()
+                });
+            } else if (isSuccess) {
                 if (io) io.to(caseId).emit("calculationCompleted", { message: "主计算成功完成" });
                 
                 // 触发后续的可视化预计算...
@@ -902,6 +988,10 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
         child.on("error", async (error) => {
             logStream.end();
             console.error(`执行 run.sh (${caseId}) 出错: ${error.message}`);
+            const runEntry = runningCalculations.get(caseId);
+            if (runEntry?.killTimer) clearTimeout(runEntry.killTimer);
+            if (runEntry?.timeoutTimer) clearTimeout(runEntry.timeoutTimer);
+            runningCalculations.delete(caseId);
             if (io) io.to(caseId).emit("calculationError", { message: "无法执行计算脚本", details: error.message });
             // ... (更新 info.json 和 progress.json 为失败状态的逻辑)
             if (!res.headersSent) {
@@ -921,6 +1011,27 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
              res.status(500).json({ success: false, message: "计算启动失败" });
          }
     }
+});
+
+// 取消正在进行的计算
+router.post("/:caseId/cancel", async (req, res) => {
+    const { caseId } = req.params;
+    const io = req.app.get("socketio");
+    const entry = runningCalculations.get(caseId);
+    if (!entry || !entry.child || entry.child.killed) {
+        return res.status(409).json({ success: false, message: "当前没有正在运行的计算可取消" });
+    }
+    if (!entry.cancelReason) {
+        entry.cancelReason = 'user';
+        if (io) io.to(caseId).emit("calculationOutput", "[USER] 已请求取消计算，正在终止进程...\n");
+        killProcessGroup(entry.child, 'SIGTERM');
+        entry.killTimer = setTimeout(() => {
+            const rec = runningCalculations.get(caseId);
+            if (!rec || !rec.child) return;
+            killProcessGroup(rec.child, 'SIGKILL');
+        }, 10_000);
+    }
+    return res.json({ success: true, message: "已请求取消，正在终止计算进程..." });
 });
 
 
