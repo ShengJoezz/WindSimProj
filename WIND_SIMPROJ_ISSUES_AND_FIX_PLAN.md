@@ -8,14 +8,14 @@
 
 ---
 
-## 0. 问题统计摘要（截至 2025-12-31 19:50）
+## 0. 问题统计摘要（截至 2025-12-31 20:10）
 
 | 优先级 | 数量 | 已修复 | 说明 |
 | --- | ---: | ---: | --- |
-| P0（阻塞性） | 6 | **5.8** | 串工况/失败无提示/核心链路不可用 |
-| P1（重要） | 12 | **5** | 结果正确性/高频踩坑/稳定性 |
+| P0（阻塞性） | 6 | **6** | ✅ 全部完成 |
+| P1（重要） | 12 | **8** | 结果正确性/高频踩坑/稳定性 |
 | P2（一般） | 5 | **1** | 维护性/一致性/潜在泄漏 |
-| **总计** | **23** | **11.8** | 完成率 ≈ 51% |
+| **总计** | **23** | **15** | 完成率 ≈ 65% |
 
 ## 1. 真实样本工况验证：`backend/uploads/testmi`
 
@@ -194,7 +194,7 @@ flowchart TD
   - store 提供结构化状态（output 列表/任务状态/进度），组件不直接 `socket.on`
 - 验收标准：进入/离开页面多次，listener 数不增长，日志不重复
 
-#### ⚠️ P0-6：生成 info.json 依赖隐式条件（未进地形页就无法提交）【80% - 有提示无自动修复】
+#### ✅ P0-6：生成 info.json 依赖隐式条件（未进地形页就无法提交）【已修复：警告不阻塞】
 
 - 用户现象：用户直接进参数页提交，提示“地理边界尚未加载”
 - 根因证据：参数页提交前检查地理边界，但边界只在地形页解析 GeoTIFF 后写入 store：`frontend/src/components/ParameterSettings.vue:756`
@@ -212,7 +212,7 @@ flowchart TD
 - 根因证据：后端 Joi `alphanum`：`backend/routes/cases.js:207`；前端仅 required：`frontend/src/views/NewCase.vue:142`
 - 修复方向：前端表单增加正则/长度提示；UI 明示规则
 
-#### P1-2：GeoTIFF 坐标系假设过强（投影 GeoTIFF 会严重错位）
+#### ✅ P1-2：GeoTIFF 坐标系假设过强（投影 GeoTIFF 会严重错位）【已修复：CRS 检测+提示】
 
 - 现状：成熟工况 testmi 为 EPSG:4326，当前实现适配；但系统没有 CRS 检测/分支。
 - 风险根因证据
@@ -227,12 +227,17 @@ flowchart TD
 - 根因证据：`frontend/src/components/TerrainMap/TerrainMap.vue:1050`
 - 修复方向：改用循环统计；并考虑后端预计算 min/max 或前端读取时使用 resampling 降采样
 
-#### P1-4：计算进程缺少取消/超时机制
+#### ✅ P1-4：计算进程缺少取消/超时机制【已修复：支持取消 + 可选超时】
 
 - 根因证据：后端 `spawn` 无超时与 kill API：`backend/routes/cases.js:748`
-- 修复方向：实现 `POST /api/cases/:caseId/cancel` 终止子进程；并记录 pid/状态；对超时给出提示
+- 修复说明
+  - 新增 `POST /api/cases/:caseId/cancel`：终止运行中的 `run.sh` 进程（支持进程组 SIGTERM→SIGKILL）
+  - 可选超时：设置环境变量 `CALCULATION_TIMEOUT_MS`（毫秒）后，超时会自动终止并标记失败
+  - 前端计算页新增“取消计算”按钮：`frontend/src/components/CalculationOutput.vue:12`
+- 注意
+  - 运行进程注册表为**内存级**（后端重启后无法再 cancel 已启动的外部进程；若你需要“重启后也可 cancel”，需要把 pid/pgid 持久化到文件并做守护校验）
 
-#### P1-5：地形裁切 route 使用 execSync 拼命令（安全/稳健性）
+#### ✅ P1-5：地形裁切 route 使用 execSync 拼命令（安全/稳健性）【已修复：Joi+spawnSync】
 
 - 根因证据：`backend/routes/terrain.js:185`
 - 修复方向：改 `spawn(cmd, args)` + 数值校验 + 白名单路径
@@ -255,7 +260,7 @@ flowchart TD
 - 根因证据：`backend/routes/rouDownloader.js:49`；`backend/routes/demClipper.js:63`
 - 修复方向：改用 `lat == null` / `Number.isFinite` 校验
 
-#### P1-9：风机路由重复挂载（维护/行为困惑）
+#### ✅ P1-9：风机路由重复挂载（维护/行为困惑）【已修复：移除重复挂载】
 
 - 根因证据：`backend/app.js:71` 与 `backend/routes/cases.js:2400`
 - 修复方向：只保留一处挂载，统一入口
