@@ -624,10 +624,18 @@ export const useCaseStore = defineStore('caseStore', () => {
     socket.value.on('windmast_analysis_progress', (message) => windMastStore.addProgressMessage(message));
     socket.value.on('windmast_analysis_error', (errorMessage) => windMastStore.addProgressMessage(`后台错误: ${errorMessage}`));
     socket.value.on('windmast_analysis_complete', (data) => {
+      const analysisId = data?.analysisId;
       if (data.success) {
         windMastStore.setAnalysisStatus('success');
         ElNotification({ title: '成功', message: '测风塔数据分析完成', type: 'success', duration: 4000 });
-        windMastStore.fetchResults(caseId.value);
+        if (analysisId) {
+          windMastStore.fetchResults(analysisId);
+        } else {
+          console.warn('windmast_analysis_complete missing analysisId:', data);
+        }
+        if (data?.shouldRefreshList) {
+          windMastStore.fetchSavedAnalyses();
+        }
       } else {
         windMastStore.setAnalysisStatus('error', data.message || '分析失败', data.error || '');
         ElNotification({ title: '失败', message: `测风塔分析失败: ${data.message || ''}`, type: 'error', duration: 0 });
