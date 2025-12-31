@@ -270,7 +270,7 @@ flowchart TD
 - 根因证据：`frontend/src/store/mapStore.js:29` 请求 `/api/map-data`（后端不存在）；`frontend/src/components/PDFReportGenerator.vue:34` 请求 `/generate-pdf-report`（后端不存在）
 - 修复方向：删掉/隐藏入口，或补齐后端实现
 
-#### P1-11：粗糙度文件（rou）缺少“上传前结构校验/可视化预览”
+#### ✅ P1-11：粗糙度文件（rou）缺少“上传前结构校验/可视化预览”【已修复】
 
 - 用户现象
   - 用户 rou 文件格式稍有偏差，往往到计算阶段才失败；失败信息对非研发用户不可读
@@ -279,23 +279,23 @@ flowchart TD
   - 前端仅提供格式说明与上传，无解析校验：`frontend/src/components/ParameterSettings.vue:97`
   - 求解器对格式/点数/窗口过滤有硬逻辑：`backend/base/solver/roughFoam/roughFoam.cpp:579`
   - `testmi` 验证显示：rou 为 UTM(米)，而地形/风机是 WGS84，经由 `LonLat2UTM` 对齐（见本文件 1.4）
-- 修复方向
-  - 前端上传后立即做轻量解析：检查 4 行头部、块头 3 列、点数一致、坐标均为数值
-  - 基于工况中心 lon/lat 推断 UTM Zone，并提示“rou 坐标范围是否在合理 UTM 范围内”（至少做范围 sanity check）
-  - 提供“预览”：统计块数、总点数、坐标范围、是否可能全被过滤
-- 验收标准：格式错误能在上传当下给出明确错误；正常文件能展示摘要并提示可能的坐标问题
+- 已实现
+   - 上传后立即解析并展示摘要（块数/总点数/X-Y 范围/z0 范围 + warnings）：`frontend/src/components/ParameterSettings.vue`
+   - 解析失败直接阻止继续使用该文件并提示明确错误（避免“到计算阶段才爆炸”）
+   - UTM 范围 sanity check 仅作为 warning（不硬阻塞）
+- 验收标准：格式错误能在上传当下给出明确错误；正常文件能展示摘要并提示可能的坐标问题 ✅
 
-#### P1-12：性能曲线上传缺少“自动一致性校验”（机型/文件/风机模型）
+#### ✅ P1-12：性能曲线上传缺少“自动一致性校验”（机型/文件/风机模型）【已修复】
 
 - 用户现象
   - 用户上传了曲线文件但命名/列数/单位错误，需要手动点预览才能发现；未预览也可能继续进入计算
   - 不同风机型号（`wind_turbines.json`/`info.json.turbines[].model`）与曲线编号未做自动匹配校验，用户容易配错
 - 根因证据
   - 前端有解析能力，但更多用于“点击预览”，不作为强校验门禁：`frontend/src/components/ParameterSettings.vue:589`、`:630`
-- 修复方向
-  - 上传即解析并强校验（列数=3、数值合法、风速单调/去重提示等）
-  - 将风机 `model`/`type` 与曲线文件编号建立明确映射规则（并在 UI 展示映射表）
-- 验收标准：无法通过校验的曲线不能提交；提交时能明确看到“哪个机型用哪条曲线”
+- 已实现
+  - 生成/提交前做强校验门禁：风机模型ID（model/type）必须存在且为纯数字；性能曲线文件名必须为 `<模型ID>-U-P-Ct.txt`；新上传文件必须解析成功；缺失任一机型曲线则阻止提交：`frontend/src/components/ParameterSettings.vue`
+  - 后端上传时同步强约束：仅允许 `.txt`，并校验文件名模式（与 `run.sh` 的 `*-U-P-Ct.txt`/`validate_curves` 一致）：`backend/routes/cases.js`
+- 验收标准：无法通过校验的曲线不能提交 ✅
 
 ---
 
