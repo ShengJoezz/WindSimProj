@@ -1012,20 +1012,46 @@ const loadGeoTIFF = async (caseId) => {
 
     // 使用 geotiff.js 解析 GeoTIFF
     const tiff = await fromArrayBuffer(arrayBuffer);
-    const image = await tiff.getImage();
+	    const image = await tiff.getImage();
 
-    const bbox = image.getBoundingBox(); // [minX, minY, maxX, maxY]
+	    const bbox = image.getBoundingBox(); // [minX, minY, maxX, maxY]
 
-    // 更新 Store 中的地理边界
-    caseStore.minLongitude = bbox[0];
-    caseStore.minLatitude = bbox[1];
-    caseStore.maxLongitude = bbox[2];
-    caseStore.maxLatitude = bbox[3];
+	    // 更新 Store 中的地理边界（仅当看起来是经纬度范围）
+	    const [minX, minY, maxX, maxY] = bbox;
+	    const looksLikeLonLat =
+	      Number.isFinite(minX) &&
+	      Number.isFinite(minY) &&
+	      Number.isFinite(maxX) &&
+	      Number.isFinite(maxY) &&
+	      minX >= -180 &&
+	      maxX <= 180 &&
+	      minY >= -90 &&
+	      maxY <= 90 &&
+	      maxX > minX &&
+	      maxY > minY;
 
-    // 读取栅格数据
-    const rasters = await image.readRasters();
-    const width = image.getWidth();
-    const height = image.getHeight();
+	    if (looksLikeLonLat) {
+	      caseStore.minLongitude = minX;
+	      caseStore.minLatitude = minY;
+	      caseStore.maxLongitude = maxX;
+	      caseStore.maxLatitude = maxY;
+	    } else {
+	      const geoKeys = typeof image.getGeoKeys === 'function' ? image.getGeoKeys() : null;
+	      console.warn('GeoTIFF bbox does not look like lon/lat:', bbox, geoKeys);
+	      caseStore.minLongitude = null;
+	      caseStore.minLatitude = null;
+	      caseStore.maxLongitude = null;
+	      caseStore.maxLatitude = null;
+	      ElMessage.warning(
+	        '检测到地形文件坐标范围超出经纬度(-180~180, -90~90)。' +
+	        '平台当前默认按 EPSG:4326(经纬度) 处理，建议先将 GeoTIFF 转换为 WGS84/EPSG:4326。'
+	      );
+	    }
+
+	    // 读取栅格数据
+	    const rasters = await image.readRasters();
+	    const width = image.getWidth();
+	    const height = image.getHeight();
     const data = rasters[0];
 
     // 数据下采样以限制数据点数量
