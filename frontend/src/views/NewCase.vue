@@ -25,13 +25,13 @@
         label-width="120px"
         @submit.prevent="handleSubmit"
       >
-        <el-form-item label="工况名称" prop="caseName">
-          <el-input 
-            v-model="form.caseName" 
-            placeholder="输入工况名称" 
-            class="custom-input"
-          />
-        </el-form-item>
+	        <el-form-item label="工况名称" prop="caseName">
+	          <el-input 
+	            v-model="form.caseName" 
+	            placeholder="输入工况名称（字母/数字，1-50）" 
+	            class="custom-input"
+	          />
+	        </el-form-item>
 
         <el-form-item label="地形数据 (GeoTIFF)" prop="terrainFile">
           <el-upload
@@ -97,7 +97,9 @@ const router = useRouter();
 // 规则定义
 const rules = {
   caseName: [
-    { required: true, message: '请输入工况名称', trigger: 'blur' }
+    { required: true, message: '请输入工况名称', trigger: ['blur', 'change'] },
+    { pattern: /^[A-Za-z0-9]+$/, message: '工况名称只能包含字母和数字', trigger: ['blur', 'change'] },
+    { min: 1, max: 50, message: '工况名称长度需为 1-50 个字符', trigger: ['blur', 'change'] },
   ],
   terrainFile: [
     { 
