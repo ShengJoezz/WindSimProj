@@ -110,9 +110,9 @@ router.beforeEach(async (to, from, next) => {
     // ... (Keep existing logic for CalculationOutput) ...
     next(); // Simplified for brevity, keep your original logic
   } else if (from.name === "CalculationOutput" && caseStore.calculationStatus === "running") {
-    // ... (Keep existing logic for leaving CalculationOutput) ...
-    ElMessage.warning("CFD Calculation is in progress. Please wait or reset.");
-    next(false);
+    // Allow navigation but warn users the computation is still running.
+    ElMessage.warning("CFD Calculation is still running. You can return to '计算输出' to view progress.");
+    next();
   } else {
     next(); // Allow navigation for all other cases
   }

@@ -217,10 +217,9 @@ const getIconColor = (status) => {
 };
 
 const progressStatus = () => {
-  if (computationMessage.value && computationMessage.value.includes("错误"))
-    return 'exception';
-  if (overallProgress.value === 100)
-    return 'success';
+  const status = getCalculationStatus();
+  if (status === 'error') return 'exception';
+  if (status === 'completed' || overallProgress.value === 100) return 'success';
   return '';
 };
 
