@@ -201,6 +201,10 @@ let isRebuildingParticles = false;
 
 let terrainBounds = null;
 
+const handleWindowResize = () => {
+  if (fullScreenRenderer) fullScreenRenderer.resize();
+};
+
 // 根据caseId和高度构建URL
 const getStreamlineUrl = () => {
   if (!selectedHeight.value) return null;
@@ -995,14 +999,14 @@ onMounted(async () => {
     updateBackground();
     currentColorScheme = colorSchemes[selectedColorScheme.value];
     if (selectedHeight.value) loadData();
-    window.addEventListener('resize', () => { if (fullScreenRenderer) fullScreenRenderer.resize(); });
+    window.addEventListener('resize', handleWindowResize);
   }
 });
 
 onBeforeUnmount(() => {
   if (animationFrameId) cancelAnimationFrame(animationFrameId);
   if (fullScreenRenderer) fullScreenRenderer.delete();
-  window.removeEventListener('resize', () => {});
+  window.removeEventListener('resize', handleWindowResize);
 });
 
 defineExpose({ exportLayerPhotos });
