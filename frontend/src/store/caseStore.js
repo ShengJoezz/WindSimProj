@@ -311,15 +311,29 @@ export const useCaseStore = defineStore('caseStore', () => {
 
   const generateInfoJson = async () => {
     try {
-      // [来自版本2的更新] 包含 geographicBounds
+      const hasGeographicBounds = [
+        minLatitude.value,
+        maxLatitude.value,
+        minLongitude.value,
+        maxLongitude.value,
+      ].every((v) => typeof v === 'number' && Number.isFinite(v));
+
       const payload = {
         parameters: parameters.value,
         windTurbines: windTurbines.value,
-        geographicBounds: {
-          minLat: minLatitude.value, maxLat: maxLatitude.value,
-          minLon: minLongitude.value, maxLon: maxLongitude.value
-        }
       };
+
+      if (hasGeographicBounds) {
+        payload.geographicBounds = {
+          minLat: minLatitude.value,
+          maxLat: maxLatitude.value,
+          minLon: minLongitude.value,
+          maxLon: maxLongitude.value,
+        };
+      } else {
+        console.warn('No geographicBounds in store; generating info.json without bounds (backend will fallback).');
+      }
+
       const response = await axios.post(`/api/cases/${caseId.value}/info`, payload);
       if (response.data.success) {
         ElMessage.success('info.json 生成成功');

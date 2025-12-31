@@ -752,10 +752,18 @@ onMounted(async () => {
 
 // 页面控制与提交
 const handleGenerateClick = async () => {
-  // [新增] 在提交前检查地理边界是否存在
-  if (caseStore.minLatitude === null || caseStore.maxLatitude === null) {
-    ElMessage.error("地理边界信息尚未加载，请稍候或返回地图页面重新加载地形。");
-    return; // 阻止继续执行
+  const hasGeographicBounds = [
+    caseStore.minLatitude,
+    caseStore.maxLatitude,
+    caseStore.minLongitude,
+    caseStore.maxLongitude,
+  ].every((v) => typeof v === 'number' && Number.isFinite(v));
+
+  if (!hasGeographicBounds) {
+    ElMessage.warning(
+      '地理边界信息尚未加载，将使用风机中心作为 CFD 域中心（可能影响计算域定位）。' +
+      '建议先打开“地形展示”页面加载地形。'
+    );
   }
 
   if (!hasTurbines.value) return ElMessage.error("请先上传风机布局数据");
@@ -781,12 +789,8 @@ const handleGenerateClick = async () => {
 
     if (hasNewFiles) await caseStore.uploadCurveFiles();
 
-    const submitData = {
-      parameters: caseStore.parameters, windTurbines: caseStore.windTurbines,
-      geographicBounds: { minLat: caseStore.minLatitude, maxLat: caseStore.maxLatitude, minLon: caseStore.minLongitude, maxLon: caseStore.maxLongitude }
-    };
-    await caseStore.submitParameters(submitData);
-    await caseStore.generateInfoJson(submitData);
+    await caseStore.submitParameters();
+    await caseStore.generateInfoJson();
     submissionSuccess.value = true;
     submissionMessage.value = "参数提交成功，info.json 已生成";
   } catch (error) {
