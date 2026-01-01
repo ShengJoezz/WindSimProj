@@ -200,9 +200,15 @@
 	        </el-form-item>
 
         <el-form-item label="仿真" class="parent-form-item">
-          <el-form-item label="核" prop="simulation.cores" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.simulation.cores" :min="1" class="input-number" /> </el-form-item>
-          <el-form-item label="步数" prop="simulation.steps" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.simulation.steps" :min="1" class="input-number" /> </el-form-item>
-          <el-form-item label="时间步长" prop="simulation.deltaT" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.simulation.deltaT" :min="0.001" class="input-number" /> </el-form-item>
+          <el-form-item label="核" prop="simulation.cores" :inline="true" class="child-form-item">
+            <el-input-number v-model="caseStore.parameters.simulation.cores" :min="1" class="input-number" :disabled="caseStore.infoExists" />
+          </el-form-item>
+          <el-form-item label="步数" prop="simulation.steps" :inline="true" class="child-form-item">
+            <el-input-number v-model="caseStore.parameters.simulation.steps" :min="1" class="input-number" :disabled="caseStore.infoExists" />
+          </el-form-item>
+          <el-form-item label="时间步长" prop="simulation.deltaT" :inline="true" class="child-form-item">
+            <el-input-number v-model="caseStore.parameters.simulation.deltaT" :min="0.001" class="input-number" :disabled="caseStore.infoExists" />
+          </el-form-item>
         </el-form-item>
         <el-form-item label="后处理" class="parent-form-item">
           <el-form-item label="结果层数" prop="postProcessing.resultLayers" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.postProcessing.resultLayers" :min="1" class="input-number" :disabled="caseStore.infoExists" /> </el-form-item>
@@ -362,17 +368,30 @@
 
         <!-- 按钮区域保持不变... -->
         <el-form-item class="form-actions">
-           <el-button type="primary" @click="handleGenerateClick" :disabled="isSubmitting || caseStore.infoExists || !hasTurbines" class="submit-button">
-            <template v-if="isSubmitting && !caseStore.infoExists"> <el-icon class="is-loading"><Loading /></el-icon> <span>提交中...</span> </template>
-            <span v-else>提交参数</span>
-          </el-button>
-          <template v-if="caseStore.infoExists">
-            <el-button type="warning" @click="handleModifyClick" :disabled="isSubmitting" class="modify-button">
-              <template v-if="isSubmitting"> <el-icon class="is-loading"><Loading /></el-icon> <span>解锁中...</span> </template>
-              <span v-else>修改参数</span>
-            </el-button>
-            <el-button type="success" @click="handleDownloadClick" class="download-button"> 下载 info.json </el-button>
-          </template>
+          <div class="actions-wrapper">
+            <el-alert
+              v-if="!hasTurbines"
+              class="action-hint"
+              type="warning"
+              show-icon
+              :closable="false"
+              title="尚未配置风机"
+              description="请先在“地形展示 > 风机管理”中添加或导入风机，然后再提交参数。"
+            />
+            <div class="actions-buttons">
+              <el-button type="primary" @click="handleGenerateClick" :disabled="isSubmitting || caseStore.infoExists || !hasTurbines" class="submit-button">
+                <template v-if="isSubmitting && !caseStore.infoExists"> <el-icon class="is-loading"><Loading /></el-icon> <span>提交中...</span> </template>
+                <span v-else>提交参数</span>
+              </el-button>
+              <template v-if="caseStore.infoExists">
+                <el-button type="warning" @click="handleModifyClick" :disabled="isSubmitting" class="modify-button">
+                  <template v-if="isSubmitting"> <el-icon class="is-loading"><Loading /></el-icon> <span>解锁中...</span> </template>
+                  <span v-else>修改参数</span>
+                </el-button>
+                <el-button type="success" @click="handleDownloadClick" class="download-button"> 下载 info.json </el-button>
+              </template>
+            </div>
+          </div>
         </el-form-item>
         <div v-if="submissionMessage" :class="['message-box', submissionSuccess ? 'success-message' : 'error-message']">
           {{ submissionMessage }}
@@ -383,8 +402,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, reactive, watch, nextTick } from "vue";
-import { InfoFilled, UploadFilled, Loading, Warning, PieChart, Delete, Hide, FolderOpened, Document } from '@element-plus/icons-vue'; // 新增 icons
+import { ref, computed, onMounted, onBeforeUnmount, reactive, watch, nextTick } from "vue";
+import { InfoFilled, UploadFilled, Loading, Warning, PieChart, Delete, Hide, Document } from '@element-plus/icons-vue';
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useRoute } from "vue-router";
 import { useCaseStore } from "../store/caseStore";
@@ -513,6 +532,27 @@ const parseRouTextSummary = (text) => {
   }
 
   return { blocks, totalPoints, minX, maxX, minY, maxY, minZ0, maxZ0, warnings };
+};
+
+const resetLocalState = () => {
+  curveFileList.splice(0, curveFileList.length);
+  parsedCurveData.value = [];
+  existingParsedData.value = [];
+  existingFilesList.value = [];
+  previewingFiles.value.clear();
+
+  roughnessFileList.splice(0, roughnessFileList.length);
+  existingRoughnessFile.value = null;
+  roughnessPreview.value = null;
+
+  submissionMessage.value = '';
+  submissionSuccess.value = true;
+};
+
+const clearTransientUploads = () => {
+  // File 对象不应跨页面/跨工况保留，避免误提交到错误工况或解析状态不同步
+  caseStore.setCurveFiles([]);
+  caseStore.setRoughnessFile(null);
 };
 
 // 处理粗糙度文件选择/变化
@@ -947,20 +987,52 @@ watch([parsedCurveData, existingParsedData, chartDisplayMode], async () => {
 
 onMounted(async () => {
   const routeCaseId = route.params.caseId;
+  resetLocalState();
+  clearTransientUploads();
   isLoading.value = true;
+
   if (!routeCaseId) {
     ElMessage.error('无效的工况ID');
-    isLoading.value = false; return;
+    isLoading.value = false;
+    return;
   }
+
   try {
-    await caseStore.initializeCase(routeCaseId);
+    if (caseStore.caseId !== routeCaseId || caseStore.currentCaseId !== routeCaseId) {
+      await caseStore.initializeCase(routeCaseId);
+    }
     await loadExistingFiles();
-    await loadExistingRoughnessFile(); // ===== [新增] 加载粗糙度文件信息 =====
+    await loadExistingRoughnessFile();
   } catch (error) {
-    ElMessage.error("初始化工况失败");
+    ElMessage.error(error?.message || "初始化工况失败");
   } finally {
     isLoading.value = false;
   }
+});
+
+watch(
+  () => route.params.caseId,
+  async (newId, oldId) => {
+    if (!newId || newId === oldId) return;
+    resetLocalState();
+    clearTransientUploads();
+    isLoading.value = true;
+    try {
+      if (caseStore.caseId !== newId || caseStore.currentCaseId !== newId) {
+        await caseStore.initializeCase(newId);
+      }
+      await loadExistingFiles();
+      await loadExistingRoughnessFile();
+    } catch (error) {
+      ElMessage.error(error?.message || "切换工况失败");
+    } finally {
+      isLoading.value = false;
+    }
+  }
+);
+
+onBeforeUnmount(() => {
+  clearTransientUploads();
 });
 
 // 页面控制与提交
@@ -1147,10 +1219,12 @@ const rules = reactive({
 .no-preview .el-icon { font-size: 48px; }
 .no-preview p { margin: 0; font-size: 14px; }
 .existing-files-hint { font-size: 12px; color: #909399; margin-top: 8px; }
-.form-actions { display: flex; justify-content: center; margin-top: 30px; padding: 0 !important; background: none !important; box-shadow: none !important; }
+.form-actions { display: flex; justify-content: center; margin-top: 30px; padding: 0 !important; background: none !important; box-shadow: none !important; width: 100%; }
 .form-actions::before { display: none; }
+.actions-wrapper { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.actions-buttons { display: flex; justify-content: center; align-items: center; gap: 16px; flex-wrap: wrap; }
+.action-hint { width: 100%; max-width: 900px; }
 .submit-button, .modify-button, .download-button { min-width: 150px; height: 44px; font-size: 16px; font-weight: 500; }
-.modify-button, .download-button { margin-left: 16px; }
 .message-box { margin-top: 24px; padding: 16px; border-radius: 6px; font-size: 14px; text-align: center; }
 .success-message { background-color: #f0f9eb; color: #67c23a; border: 1px solid #c2e7b0; }
 .error-message { background-color: #fef0f0; color: #f56c6c; border: 1px solid #fbc4c4; }

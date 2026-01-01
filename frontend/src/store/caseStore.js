@@ -205,17 +205,22 @@ export const useCaseStore = defineStore('caseStore', () => {
   }
 
   // --- Case Management Actions ---
-  const initializeCase = async (id, name) => {
-    return new Promise(async (resolve, reject) => {
-      if (!id) {
-        notifyError('缺少工况ID');
-        reject('缺少工况ID');
-        return;
-      }
-      currentCaseId.value = id;
-      localStorage.setItem('currentCaseId', id);
-      caseId.value = id;
-      caseName.value = name || id;
+	  const initializeCase = async (id, name) => {
+	    return new Promise(async (resolve, reject) => {
+	      if (!id) {
+	        notifyError('缺少工况ID');
+	        reject('缺少工况ID');
+	        return;
+	      }
+	      // Clear transient file selections when switching cases to avoid mis-submitting uploads.
+	      if (currentCaseId.value && currentCaseId.value !== id) {
+	        curveFiles.value = [];
+	        roughnessFile.value = null;
+	      }
+	      currentCaseId.value = id;
+	      localStorage.setItem('currentCaseId', id);
+	      caseId.value = id;
+	      caseName.value = name || id;
       try {
         const response = await axios.get(`/api/cases/${caseId.value}/parameters`);
         const { parameters: backendParams, geographicBounds: bounds } = response.data;
