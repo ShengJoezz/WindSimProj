@@ -17,8 +17,8 @@
         <p class="subtitle">查看和管理您的所有风场工况</p>
         
         <div class="actions">
-          <el-button type="primary" @click="router.push('/new')" class="create-button">
-            <i class="el-icon-plus"></i> 新建工况
+          <el-button type="primary" @click="router.push('/new')" class="create-button" :icon="Plus">
+            新建工况
           </el-button>
         </div>
       </div>
@@ -42,7 +42,7 @@
               <div class="actions-container">
                 <el-button 
                   type="primary" 
-                  icon="el-icon-view" 
+                  :icon="View"
                   size="small" 
                   @click="showCaseDetails(scope.row.caseName)"
                   class="action-button"
@@ -54,13 +54,13 @@
                   @confirm="deleteCase(scope.row.caseName)"
                   confirm-button-type="danger"
                   cancel-button-type="info"
-                  icon="el-icon-warning"
+                  :icon="WarningFilled"
                   icon-color="#f56c6c"
                 >
                   <template #reference>
                     <el-button 
                       type="danger" 
-                      icon="el-icon-delete" 
+                      :icon="Delete"
                       size="small" 
                       class="action-button"
                     >
@@ -74,7 +74,7 @@
         </el-table>
         
         <div v-if="cases.length === 0 && !loading" class="empty-state">
-          <i class="el-icon-wind-power empty-icon"></i>
+          <el-icon class="empty-icon"><WindPower /></el-icon>
           <p>暂无工况数据</p>
           <el-button type="primary" @click="router.push('/new')">创建第一个工况</el-button>
         </div>
@@ -88,6 +88,7 @@ import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import axios from 'axios';
+import { Plus, View, Delete, WarningFilled, WindPower } from '@element-plus/icons-vue';
 
 const router = useRouter();
 const cases = ref([]);

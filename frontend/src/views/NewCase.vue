@@ -38,14 +38,13 @@
             class="upload-box"
             drag
             :file-list="terrainFileList"
-            :before-upload="beforeUploadGeoTIFF"
             :on-remove="removeTerrainFile"
             accept=".tif,.tiff"
             :auto-upload="false"
             :on-change="handleTerrainChange"
           >
             <div class="upload-content">
-              <i class="el-icon-upload upload-icon"></i>
+              <el-icon class="upload-icon"><UploadFilled /></el-icon>
               <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
               <div class="el-upload__tip">仅支持 .tif/.tiff 格式的地形文件</div>
             </div>
@@ -53,8 +52,8 @@
         </el-form-item>
 
         <el-form-item class="submit-item">
-          <el-button type="primary" class="submit-button" @click="handleSubmit">
-            <i class="el-icon-plus"></i> 创建工况
+          <el-button type="primary" class="submit-button" @click="handleSubmit" :icon="Plus">
+            创建工况
           </el-button>
         </el-form-item>
       </el-form>
@@ -62,7 +61,10 @@
     
     <transition name="fade">
       <div v-if="message" :class="['message-box', success ? 'success-message' : 'error-message']">
-        <i :class="success ? 'el-icon-check' : 'el-icon-close'"></i>
+        <el-icon class="message-icon">
+          <CircleCheck v-if="success" />
+          <CircleClose v-else />
+        </el-icon>
         {{ message }}
       </div>
     </transition>
@@ -74,6 +76,7 @@ import { reactive, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import axios from 'axios';
 import { useRouter } from 'vue-router';
+import { Plus, UploadFilled, CircleCheck, CircleClose } from '@element-plus/icons-vue';
 
 // 表单数据
 const form = reactive({
@@ -119,18 +122,9 @@ const rules = {
 
 // 文件变更处理函数
 const handleTerrainChange = (file) => {
-  form.terrainFile = file.raw;
+  form.terrainFile = file?.raw || file;
   terrainFileList.value = [file];
   formRef.value?.validateField('terrainFile');
-};
-
-// 上传前处理函数
-const beforeUploadGeoTIFF = (file) => {
-  console.log('Selected GeoTIFF file:', file);
-  form.terrainFile = file;
-  terrainFileList.value = [file];
-  formRef.value?.validateField('terrainFile');
-  return false;
 };
 
 // 文件移除处理函数
@@ -142,15 +136,9 @@ const removeTerrainFile = () => {
 
 // 提交表单
 const handleSubmit = async () => {
-  console.log('Form state before validation:', {
-    caseName: form.caseName,
-    terrainFile: form.terrainFile,
-  });
-
   if (!formRef.value) return;
 
   formRef.value.validate(async (valid) => {
-    console.log('Validation result:', valid);
     if (valid) {
       const formData = new FormData();
       formData.append('caseName', form.caseName);
@@ -297,7 +285,7 @@ const handleSubmit = async () => {
   border: 1px solid #fde2e2;
 }
 
-.message-box i {
+.message-icon {
   margin-right: 8px;
   font-size: 16px;
 }
