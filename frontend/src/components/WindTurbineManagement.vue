@@ -923,6 +923,8 @@ function renderPerformanceChangeChart() {
     font: { family: 'Arial, sans-serif' }
   };
 
+  const config = { responsive: true };
+
   Plotly.newPlot(performanceChangeChart.value, data, layout, config);
 }
 

@@ -653,8 +653,9 @@ const handlePointQuery = async () => {
       pointQueryResult.value = '查询点位于计算域之外';
     }
   } catch (error) {
-    pointQueryResult.value = '查询失败';
-    ElMessage.error(error.message || '查询单点风速时出错');
+    const message = error?.message || '查询单点风速时出错';
+    pointQueryResult.value = message;
+    ElMessage.error(message);
   } finally {
     chartLoading.value.pointQuery = false;
   }

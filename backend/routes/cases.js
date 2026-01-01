@@ -1307,11 +1307,11 @@ router.get('/:caseId/query-wind-speed', async (req, res) => {
         return res.status(500).json({ success: false, message: '查询脚本不存在' });
     }
 
-    // 2. 执行包装器脚本
-    try {
-        const pythonProcess = spawn('bash', [
-            scriptPath,
-            '--caseId',
+	    // 2. 执行包装器脚本
+	    try {
+	        const pythonProcess = spawn('bash', [
+	            scriptPath,
+	            '--caseId',
             caseId,
             '--x',
             x,
@@ -1328,32 +1328,99 @@ router.get('/:caseId/query-wind-speed', async (req, res) => {
             stdoutData += data.toString();
         });
 
-        pythonProcess.stderr.on('data', (data) => {
-            stderrData += data.toString();
-        });
+	        pythonProcess.stderr.on('data', (data) => {
+	            stderrData += data.toString();
+	        });
 
-        pythonProcess.on('close', (code) => {
-            if (code !== 0) {
-                console.error(`查询脚本执行失败 (case: ${caseId}, point: ${x},${y},${z}), stderr: ${stderrData}`);
-                return res.status(500).json({ success: false, message: '执行查询脚本时出错', error: stderrData });
-            }
+	        pythonProcess.on('close', (code) => {
+	            const truncate = (text, max = 2000) => {
+	                const value = String(text || '').trim();
+	                if (!value) return '';
+	                if (value.length <= max) return value;
+	                return `${value.slice(0, max)}\n... (truncated)`;
+	            };
 
-            try {
-                // 3. 解析结果并返回
-                const result = JSON.parse(stdoutData);
-                if (result.success) {
-                    res.json({ success: true, speed: result.speed, message: result.message });
-                } else {
-                    res.status(500).json({ success: false, message: '查询失败', error: result.error });
-                }
-            } catch (parseError) {
-                console.error(`解析查询脚本输出失败 (case: ${caseId}): ${parseError}, stdout: ${stdoutData}`);
-                res.status(500).json({ success: false, message: '无法解析查询结果', error: stdoutData });
-            }
-        });
+	            const tryParseJson = (text) => {
+	                const value = String(text || '').trim();
+	                if (!value) return null;
+	                try {
+	                    return JSON.parse(value);
+	                } catch {
+	                    return null;
+	                }
+	            };
 
-    } catch (spawnError) {
-        console.error(`启动查询脚本失败 (case: ${caseId}):`, spawnError);
+	            const getFriendlyQuerySpeedErrorMessage = (rawError) => {
+	                const errText = String(rawError || '').trim();
+	                const lower = errText.toLowerCase();
+	                if (!errText) return '单点风速查询失败：后端未返回错误信息。';
+
+	                if (errText.includes('Missing required Python package')) {
+	                    return '单点风速查询依赖 Python 包 numpy/scipy；请确认后端环境已安装依赖并重启服务。';
+	                }
+
+	                if (errText.includes('Data files (output.json/speed.bin) not found')) {
+	                    return '未找到速度场数据文件（output.json/speed.bin）。请先完成计算，并确认结果文件未被清理。';
+	                }
+
+	                if (errText.includes('Binary data size mismatch')) {
+	                    return '速度场数据文件损坏或与元数据不匹配（output.json/speed.bin）。请重新计算或重新生成结果文件。';
+	                }
+
+	                if (lower.includes('python3') && (lower.includes('not found') || lower.includes('no such file'))) {
+	                    return '后端未找到 python3，无法执行单点风速查询。';
+	                }
+
+	                return '单点风速查询失败：后端脚本运行异常，请查看后端日志。';
+	            };
+
+	            const stdoutTrimmed = String(stdoutData || '').trim();
+	            const stderrTrimmed = String(stderrData || '').trim();
+	            const parsedStdout = tryParseJson(stdoutTrimmed);
+	            const includeDebug = process.env.DEBUG_QUERY_SPEED === '1';
+
+	            const sendError = (message, debug) => {
+	                const payload = { success: false, message };
+	                if (includeDebug) {
+	                    payload.debug = debug;
+	                }
+	                return res.status(500).json(payload);
+	            };
+
+	            if (code !== 0) {
+	                const rawError = parsedStdout?.error || stderrTrimmed || stdoutTrimmed || `exit code ${code}`;
+	                console.error(`查询脚本执行失败 (case: ${caseId}, point: ${x},${y},${z}, code: ${code})`, {
+	                    stderr: truncate(stderrTrimmed, 800),
+	                    stdout: truncate(stdoutTrimmed, 800),
+	                });
+	                return sendError(getFriendlyQuerySpeedErrorMessage(rawError), {
+	                    code,
+	                    stderr: truncate(stderrTrimmed),
+	                    stdout: truncate(stdoutTrimmed),
+	                });
+	            }
+
+	            if (!parsedStdout) {
+	                console.error(`解析查询脚本输出失败 (case: ${caseId}), stdout: ${truncate(stdoutTrimmed, 800)}`);
+	                return sendError('无法解析查询结果，请查看后端日志。', {
+	                    code,
+	                    stdout: truncate(stdoutTrimmed),
+	                });
+	            }
+
+	            if (parsedStdout.success) {
+	                return res.json({ success: true, speed: parsedStdout.speed, message: parsedStdout.message });
+	            }
+
+	            const rawError = parsedStdout.error || parsedStdout.message;
+	            return sendError(getFriendlyQuerySpeedErrorMessage(rawError), {
+	                code,
+	                stdout: truncate(stdoutTrimmed),
+	            });
+	        });
+
+	    } catch (spawnError) {
+	        console.error(`启动查询脚本失败 (case: ${caseId}):`, spawnError);
         res.status(500).json({ success: false, message: '无法启动查询脚本' });
     }
 });
