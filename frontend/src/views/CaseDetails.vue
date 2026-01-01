@@ -16,7 +16,8 @@
     <div class="sub-main-content">
       <!-- 使用 v-slot 获取路由组件，再传入 caseId -->
       <router-view v-slot="{ Component }">
-        <component :is="Component" :caseId="routeCaseId" />
+        <!-- 当 caseId 变化时强制重建子页面，避免复用组件导致状态串案 -->
+        <component :is="Component" :caseId="routeCaseId" :key="routeCaseId || 'no-case'" />
       </router-view>
     </div>
   </div>
