@@ -66,6 +66,17 @@
       <div>{{ loadingText }}</div>
       <div v-if="loadingPercent !== null" class="loading-progress">{{ loadingPercent }}%</div>
     </div>
+
+    <div v-if="errorMessage" class="error-overlay" role="alert">
+      <div class="error-card">
+        <div class="error-title">速度场加载失败</div>
+        <div class="error-text">{{ errorMessage }}</div>
+        <div class="error-actions">
+          <button type="button" class="error-button" @click="loadData">重试</button>
+          <button type="button" class="error-button secondary" @click="errorMessage = ''">关闭</button>
+        </div>
+      </div>
+    </div>
     
     <!-- 删除了 class="legend" 的风速显示板块 -->
 
@@ -108,6 +119,7 @@ const vtkContainer = ref(null);
 const loading = ref(false);
 const loadingText = ref('加载中...');
 const loadingPercent = ref(null);
+const errorMessage = ref('');
 const isControlsCollapsed = ref(false);
 
 const CONTROLS_COLLAPSE_KEY = 'windsim.velocity.controlsCollapsed';
@@ -204,6 +216,8 @@ let globalWindDirection = [0, 0, 1];
 let isRebuildingParticles = false;
 
 let terrainBounds = null;
+let activeLoadId = 0;
+let activeAbortController = null;
 
 const handleWindowResize = () => {
   if (fullScreenRenderer) fullScreenRenderer.resize();
@@ -342,6 +356,40 @@ function updateParticlesVisibility() {
   if (!animationFrameId) startParticleAnimation();
 }
 
+function cancelActiveLoad() {
+  activeLoadId += 1;
+  if (activeAbortController) {
+    try {
+      activeAbortController.abort();
+    } catch (e) {
+      // ignore
+    }
+    activeAbortController = null;
+  }
+}
+
+function isAbortError(error) {
+  return (
+    error?.code === 'ERR_CANCELED' ||
+    error?.name === 'CanceledError' ||
+    error?.name === 'AbortError'
+  );
+}
+
+function describeVelocityLoadError(error) {
+  const status = error?.response?.status;
+  if (status === 404) {
+    return '未找到该高度的速度场/流线文件。请确认计算与后处理已完成；如仍缺失，可先在“速度场分析/预计算”页生成可视化文件。';
+  }
+  const data = error?.response?.data;
+  if (typeof data === 'string' && data.trim()) {
+    return data.trim().slice(0, 200);
+  }
+  if (data?.error) return String(data.error);
+  if (data?.message) return String(data.message);
+  return error?.message || '未知错误';
+}
+
 function initRenderer() {
   try {
     if (!vtkContainer.value) {
@@ -438,11 +486,22 @@ async function loadData() {
     console.warn('未选择高度，跳过数据加载');
     return;
   }
-  
+
+  cancelActiveLoad();
+  const loadId = activeLoadId;
+  activeAbortController = new AbortController();
+  const signal = activeAbortController.signal;
+
+  errorMessage.value = '';
   loading.value = true;
   loadingText.value = '加载中...';
   loadingPercent.value = null;
   try {
+    if (!renderer || !renderWindow) {
+      if (!initRenderer()) throw new Error('渲染器初始化失败');
+      updateBackground();
+    }
+
     clearScene();
     
     loadingText.value = '正在下载速度场数据...';
@@ -459,13 +518,16 @@ async function loadData() {
         const mb = (loaded / (1024 * 1024)).toFixed(1);
         loadingText.value = `正在下载速度场数据...（已下载 ${mb} MB）`;
       }
-    });
+    }, signal);
+    if (loadId !== activeLoadId) return;
     
     const streamlineUrl = getStreamlineUrl();
+    if (!streamlineUrl) throw new Error('流线文件路径无效');
     loadingText.value = '正在下载流线数据...';
     loadingPercent.value = null;
     const streamlineResponse = await axios.get(streamlineUrl, {
       responseType: 'arraybuffer',
+      signal,
       onDownloadProgress: (evt) => {
         const total = Number(evt.total);
         const loaded = Number(evt.loaded);
@@ -479,6 +541,7 @@ async function loadData() {
         }
       }
     });
+    if (loadId !== activeLoadId) return;
     loadingText.value = '正在解析流线数据...';
     const reader = vtkXMLPolyDataReader.newInstance();
     reader.parseAsArrayBuffer(streamlineResponse.data);
@@ -522,21 +585,27 @@ async function loadData() {
     safeRender();
     
   } catch (error) { 
+    if (loadId !== activeLoadId) return;
+    if (signal?.aborted || isAbortError(error)) return;
     console.error('加载数据失败:', error);
+    errorMessage.value = describeVelocityLoadError(error);
     notifyError(error, '加载速度场失败');
   } finally { 
-    loading.value = false; 
-    loadingPercent.value = null;
-    loadingText.value = '加载中...';
+    if (loadId === activeLoadId) {
+      loading.value = false; 
+      loadingPercent.value = null;
+      loadingText.value = '加载中...';
+    }
   }
 }
 
-async function loadTerrainData(onDownloadProgress) {
+async function loadTerrainData(onDownloadProgress, signal) {
   try {
     const terrainUrl = getTerrainUrl();
     const response = await axios.get(terrainUrl, {
       responseType: 'arraybuffer',
-      onDownloadProgress
+      onDownloadProgress,
+      signal
     });
     const reader = vtkXMLPolyDataReader.newInstance();
     reader.parseAsArrayBuffer(response.data);
@@ -655,20 +724,31 @@ async function loadTerrainData(onDownloadProgress) {
     console.error(`加载地形数据失败 (高度: ${selectedHeight.value}m):`, error); 
     terrainData = null; 
     terrainBounds = null;
+    throw error;
   }
 }
 
 function clearScene() {
-  if (streamlinesActor) { renderer.removeActor(streamlinesActor); streamlinesActor = null; }
-  if (particlesActor) { renderer.removeActor(particlesActor); particlesActor = null; }
-  if (trailsActor) { renderer.removeActor(trailsActor); trailsActor = null; }
-  if (terrainActor) { renderer.removeActor(terrainActor); terrainActor = null; }
-  if (scalarBarActor) { renderer.removeActor(scalarBarActor); scalarBarActor = null; }
+  if (renderer) {
+    if (streamlinesActor) { renderer.removeActor(streamlinesActor); streamlinesActor = null; }
+    if (particlesActor) { renderer.removeActor(particlesActor); particlesActor = null; }
+    if (trailsActor) { renderer.removeActor(trailsActor); trailsActor = null; }
+    if (terrainActor) { renderer.removeActor(terrainActor); terrainActor = null; }
+    if (scalarBarActor) { renderer.removeActor(scalarBarActor); scalarBarActor = null; }
+  } else {
+    streamlinesActor = null;
+    particlesActor = null;
+    trailsActor = null;
+    terrainActor = null;
+    scalarBarActor = null;
+  }
   stopParticleAnimation();
   streamlines = []; 
   flowVectors = []; 
   particles = []; 
   allVelocities = [];
+  streamlinesData = null;
+  terrainData = null;
   terrainBounds = null;
 }
 
@@ -1035,6 +1115,28 @@ const exportLayerPhotos = async () => {
   }
 };
 
+watch(
+  () => props.caseId,
+  async (newId, oldId) => {
+    if (!newId || newId === oldId) return;
+    errorMessage.value = '';
+    cancelActiveLoad();
+    clearScene();
+    availableHeights.value = [];
+    selectedHeight.value = null;
+    await fetchAvailableHeights();
+    if (!renderer || !renderWindow) {
+      await nextTick();
+      if (!vtkContainer.value) return;
+      if (initRenderer()) {
+        updateBackground();
+        currentColorScheme = colorSchemes[selectedColorScheme.value];
+      }
+    }
+    if (selectedHeight.value) loadData();
+  }
+);
+
 onMounted(async () => {
   loadControlsState();
   await nextTick();
@@ -1049,6 +1151,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  cancelActiveLoad();
   if (animationFrameId) cancelAnimationFrame(animationFrameId);
   if (fullScreenRenderer) fullScreenRenderer.delete();
   window.removeEventListener('resize', handleWindowResize);
@@ -1229,6 +1332,77 @@ defineExpose({ exportLayerPhotos });
   border-top: 2px solid #007bff;
   border-radius: 50%;
   animation: spin 1s linear infinite;
+}
+
+.error-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.25);
+  backdrop-filter: blur(2px);
+  z-index: 20;
+}
+
+.error-card {
+  width: min(520px, 100%);
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 14px;
+  padding: 18px 18px 14px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.18);
+}
+
+.error-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #b42318;
+  margin-bottom: 8px;
+}
+
+.error-text {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #374151;
+  white-space: pre-wrap;
+}
+
+.error-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.error-button {
+  appearance: none;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  background: rgba(59, 130, 246, 0.12);
+  color: #1d4ed8;
+  padding: 8px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+  transition: all 0.15s ease;
+}
+
+.error-button:hover {
+  background: rgba(59, 130, 246, 0.18);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.error-button.secondary {
+  border-color: rgba(107, 114, 128, 0.35);
+  background: rgba(107, 114, 128, 0.12);
+  color: #374151;
+}
+
+.error-button.secondary:hover {
+  background: rgba(107, 114, 128, 0.18);
+  border-color: rgba(107, 114, 128, 0.5);
 }
 
 @keyframes spin {

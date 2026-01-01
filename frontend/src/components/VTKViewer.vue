@@ -140,6 +140,7 @@ let renderWindow = null;
 let currentActor = null;
 let axes = null;
 let isInitialized = ref(false);
+let activeLoadId = 0;
 
 const CONTROL_PANEL_COLLAPSE_KEY = 'windsim.vtk.controlPanelCollapsed';
 
@@ -205,19 +206,35 @@ const loadVTKFile = async (fileType = 'mesh') => {
     return;
   }
 
+  const loadId = ++activeLoadId;
   loading.value = true;
   error.value = '';
 
   try {
     const fileName = `${fileType}.vtp`;
-    const response = await fetch(`/api/cases/${props.caseId}/VTK/processed/${fileName}`);
+    const url = `/api/cases/${props.caseId}/VTK/processed/${fileName}`;
+    const response = await fetch(url);
 
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      let details = '';
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        try {
+          const data = await response.json();
+          details = data?.error || data?.message || '';
+        } catch (e) {
+          details = '';
+        }
+      }
+      if (!details) {
+        details = `${response.status} ${response.statusText || ''}`.trim();
+      }
+      throw new Error(details);
     }
 
     const arrayBuffer = await response.arrayBuffer();
+    if (loadId !== activeLoadId) return;
     console.log(`Received array buffer size for ${fileName}:`, arrayBuffer.byteLength);
 
     const reader = vtkXMLPolyDataReader.newInstance();
@@ -271,9 +288,12 @@ const loadVTKFile = async (fileType = 'mesh') => {
 
   } catch (err) {
     console.error('Error loading VTK file:', err);
-    error.value = '加载VTK文件失败: ' + err.message;
+    const message = err?.message || '未知错误';
+    error.value = `加载VTK文件失败: ${message}（请确认计算与后处理已完成）`;
   } finally {
-    loading.value = false;
+    if (loadId === activeLoadId) {
+      loading.value = false;
+    }
   }
 };
 
@@ -357,13 +377,16 @@ const exportGrid = async () => {
 
 // 监听caseId变化
 watch(() => props.caseId, async (newId) => {
-  if (newId && !isInitialized.value) {
+  if (!newId) return;
+  // Reset transient UI state when switching cases.
+  error.value = '';
+  vtkFileName.value = '';
+  activeLoadId += 1;
+  if (!isInitialized.value) {
     initRenderer();
   }
-  if (newId) {
-    await loadVTKFile(currentFile.value);
-  }
-}, { immediate: true });
+  await loadVTKFile(currentFile.value);
+});
 
 // 生命周期钩子
 onMounted(() => {
@@ -375,6 +398,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  activeLoadId += 1;
   if (fullScreenRenderer) {
     if (currentActor) {
       renderer.removeActor(currentActor);

@@ -81,6 +81,7 @@ export const useCaseStore = defineStore('caseStore', () => {
   });
   const hasFetchedCalculationStatus = ref(false);
   const socket = ref(null);
+  let socketRoomCaseId = null;
   const startTime = ref(null);
   const isSubmittingParameters = ref(false);
   const visualizationStatus = ref(null); // null | 'not_run' | 'starting' | 'running' | 'completed' | 'failed'
@@ -593,17 +594,23 @@ export const useCaseStore = defineStore('caseStore', () => {
 
   // --- Socket.io Actions (Robust version from code 1) ---
   const connectSocket = (id) => {
-    if (socket.value && socket.value.connected && caseId.value === id) {
-        console.log(`Socket already connected and in room for case: ${id}`);
-        return;
+    if (socket.value && socket.value.connected && socketRoomCaseId === id) {
+      console.log(`Socket already connected and in room for case: ${id}`);
+      caseId.value = id;
+      return;
     }
-    if (socket.value && socket.value.connected && caseId.value !== id) {
-        socket.value.emit('leaveCase', caseId.value);
-        console.log(`Socket left old case room: ${caseId.value}`);
-        socket.value.emit('joinCase', id);
-        console.log(`Socket joined new case room: ${id}`);
-        caseId.value = id;
-        return;
+    // When switching cases, ensure we actually leave/join rooms based on socketRoomCaseId,
+    // because store.caseId may already be updated by initializeCase().
+    if (socket.value && socket.value.connected && socketRoomCaseId !== id) {
+      if (socketRoomCaseId) {
+        socket.value.emit('leaveCase', socketRoomCaseId);
+        console.log(`Socket left old case room: ${socketRoomCaseId}`);
+      }
+      socket.value.emit('joinCase', id);
+      console.log(`Socket joined new case room: ${id}`);
+      socketRoomCaseId = id;
+      caseId.value = id;
+      return;
     }
     if (socket.value && !socket.value.connected) {
         console.log("Socket exists but not connected, attempting to connect...");
@@ -626,9 +633,13 @@ export const useCaseStore = defineStore('caseStore', () => {
       if (caseId.value) {
           socket.value.emit('joinCase', caseId.value);
           console.log(`Socket joined case room: ${caseId.value} on connect.`);
+          socketRoomCaseId = caseId.value;
       }
     });
-    socket.value.on('disconnect', (reason) => console.log('Socket disconnected:', reason));
+    socket.value.on('disconnect', (reason) => {
+      console.log('Socket disconnected:', reason);
+      socketRoomCaseId = null;
+    });
     socket.value.on('connect_error', error => console.error('Socket connection error:', error));
 
     socket.value.on('calculationOutput', (output) => calculationOutputs.value.push({ type: 'output', message: output }));
@@ -743,14 +754,15 @@ export const useCaseStore = defineStore('caseStore', () => {
   const disconnectSocket = () => {
     if (socket.value) {
       console.log("Disconnecting socket and removing listeners...");
-      if (caseId.value) {
-          socket.value.emit('leaveCase', caseId.value);
-          console.log(`Socket left case room: ${caseId.value} on disconnect call.`);
+      if (socketRoomCaseId) {
+          socket.value.emit('leaveCase', socketRoomCaseId);
+          console.log(`Socket left case room: ${socketRoomCaseId} on disconnect call.`);
       }
       // [关键] 移除所有监听器
       socket.value.offAny();
       socket.value.disconnect();
       socket.value = null;
+      socketRoomCaseId = null;
       console.log("Socket disconnected and event listeners removed.");
     }
   };

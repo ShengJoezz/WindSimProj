@@ -103,7 +103,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
+import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue';
 import VTKViewer from '@/components/VTKViewer.vue';
 import VelocityFieldDisplay from '@/components/VelocityFieldDisplay.vue';
 import { useCaseStore } from '@/store/caseStore';
@@ -124,6 +124,26 @@ const hasLoadedCase = ref(false);
 // 用于获取组件实例的引用
 const vtkViewerRef = ref(null);
 const velocityRef = ref(null);
+
+const ensureCaseLoaded = async (id) => {
+  hasLoadedCase.value = false;
+  if (!id) {
+    hasLoadedCase.value = true;
+    return;
+  }
+  if (caseStore.caseId !== id || caseStore.currentCaseId !== id) {
+    try {
+      await caseStore.initializeCase(id);
+    } catch (e) {
+      console.error('ResultsDisplay 初始化工况失败:', e);
+      showNotification('初始化工况失败，请返回工况列表重试', 'error');
+    } finally {
+      hasLoadedCase.value = true;
+    }
+    return;
+  }
+  hasLoadedCase.value = true;
+};
 
 const isResultsReady = computed(() => {
   if (!hasLoadedCase.value) return false;
@@ -252,15 +272,16 @@ const handleResize = () => {
 
 onMounted(() => {
   window.addEventListener('resize', handleResize);
-  hasLoadedCase.value = false;
-  if (caseId.value && (caseStore.caseId !== caseId.value || caseStore.currentCaseId !== caseId.value)) {
-    caseStore.initializeCase(caseId.value).finally(() => {
-      hasLoadedCase.value = true;
-    });
-  } else {
-    hasLoadedCase.value = true;
-  }
+  ensureCaseLoaded(caseId.value);
 });
+
+watch(
+  () => props.caseId,
+  (newId, oldId) => {
+    if (!newId || newId === oldId) return;
+    ensureCaseLoaded(newId);
+  }
+);
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize);
