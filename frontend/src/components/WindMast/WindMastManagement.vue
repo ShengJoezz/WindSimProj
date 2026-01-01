@@ -207,20 +207,29 @@
 
           <el-skeleton :rows="5" animated v-if="isLoadingStats"></el-skeleton>
 
-          <div v-else>
-             <el-alert
-                title="提示：存储统计来自后端扫描"
-                type="info"
+	          <div v-else>
+	             <el-alert
+	                title="提示：存储统计来自后端扫描"
+	                type="info"
+	                show-icon
+	                :closable="false"
+	                style="margin-bottom: 20px;"
+	              >
+	                统计结果会随文件数量增长而略有延迟；如需最新数据可点击“刷新”。
+	              </el-alert>
+
+              <el-alert
+                v-if="storageStatsWarning"
+                :title="storageStatsWarning"
+                type="warning"
                 show-icon
                 :closable="false"
                 style="margin-bottom: 20px;"
-              >
-                统计结果会随文件数量增长而略有延迟；如需最新数据可点击“刷新”。
-              </el-alert>
-            <el-row :gutter="24">
-              <el-col :xs="24" :sm="12" :md="8" :lg="8">
-                <el-card class="stat-card">
-                  <div class="stat-icon input-icon">
+              />
+	            <el-row :gutter="24">
+	              <el-col :xs="24" :sm="12" :md="8" :lg="8">
+	                <el-card class="stat-card">
+	                  <div class="stat-icon input-icon">
                     <el-icon><FolderOpened /></el-icon>
                   </div>
                   <div class="stat-content">
@@ -368,13 +377,14 @@ const activeTab = ref('input');
 const renameDialogVisible = ref(false);
 const editAnalysisDialogVisible = ref(false);
 const isRenaming = ref(false);
-const isEditingAnalysis = ref(false);
-const isLoadingStats = ref(true);
-const storageStats = ref({
-  inputSize: 0,
-  outputSize: 0,
-  totalSize: 0,
-  inputFiles: 0,
+	const isEditingAnalysis = ref(false);
+	const isLoadingStats = ref(true);
+  const storageStatsWarning = ref('');
+	const storageStats = ref({
+	  inputSize: 0,
+	  outputSize: 0,
+	  totalSize: 0,
+	  inputFiles: 0,
   outputFiles: 0
 });
 
@@ -462,17 +472,20 @@ const refreshAnalyses = async () => {
 
 const refreshStats = async () => {
   isLoadingStats.value = true;
+  storageStatsWarning.value = '';
   try {
     const response = await axios.get('/api/windmast/stats');
     if (response.data?.success && response.data?.stats) {
       storageStats.value = response.data.stats;
+      storageStatsWarning.value = response.data?.warning || '';
     } else {
       throw new Error(response.data?.message || '获取统计信息失败');
     }
 
   } catch (error) {
     console.error('加载存储统计失败:', error);
-    ElMessage.error('加载存储统计信息时出错');
+    const apiMessage = error?.response?.data?.message;
+    ElMessage.error(apiMessage ? `加载存储统计失败: ${apiMessage}` : '加载存储统计信息时出错');
     // Reset stats on error
      storageStats.value = { inputSize: 0, outputSize: 0, totalSize: 0, inputFiles: 0, outputFiles: 0 };
   } finally {

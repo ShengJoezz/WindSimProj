@@ -238,7 +238,44 @@ export const getPointWindSpeed = async (caseId, x, y, z) => {
       throw new Error(response.data.message || '查询失败');
     }
   } catch (error) {
-    console.error(`查询点 (${x}, ${y}, ${z}) 风速失败:`, error);
-    throw new Error(error.response?.data?.message || error.message || '查询单点风速时服务器出错');
+    const apiData = error?.response?.data;
+    const apiMessage = apiData?.message;
+    const detail = apiData?.error || apiData?.debug?.stderr || apiData?.debug?.stdout;
+
+    // Avoid dumping raw stderr/stdout (can be noisy and not user-friendly).
+    console.error(`查询点 (${x}, ${y}, ${z}) 风速失败`, {
+      status: error?.response?.status,
+      message: apiMessage || error?.message,
+    });
+
+    const mapLegacyOrRawMessage = () => {
+      const msg = String(apiMessage || error?.message || '').trim();
+      const detailText = String(detail || '').trim();
+
+      // Backward-compatible handling for older backend versions that returned raw stderr.
+      if (msg === '执行查询脚本时出错') {
+        if (detailText.includes('Missing required Python package')) {
+          return '单点风速查询依赖 Python 包 numpy/scipy；请确认后端已安装依赖并重启服务。';
+        }
+        if (detailText.toLowerCase().includes('python3') && (detailText.toLowerCase().includes('not found') || detailText.toLowerCase().includes('no such file'))) {
+          return '后端未找到 python3，无法执行单点风速查询。';
+        }
+        return '单点风速查询失败：后端脚本运行异常，请查看后端日志。';
+      }
+
+      if (msg === '查询失败') {
+        if (detailText.includes('Data files (output.json/speed.bin) not found')) {
+          return '未找到速度场数据文件（output.json/speed.bin）。请先完成计算，并确认结果文件未被清理。';
+        }
+        if (detailText.includes('Binary data size mismatch')) {
+          return '速度场数据文件损坏或与元数据不匹配（output.json/speed.bin）。请重新计算或重新生成结果文件。';
+        }
+      }
+
+      // Prefer backend-provided message when present (already human-readable in newer backend).
+      return msg || '查询单点风速时服务器出错';
+    };
+
+    throw new Error(mapLegacyOrRawMessage());
   }
 };

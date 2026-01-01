@@ -316,6 +316,8 @@ router.get('/files/input', async (req, res, next) => {
  * 获取 windmast 输入/输出目录的真实存储占用与数量统计
  */
 router.get('/stats', async (req, res, next) => {
+  const emptyStats = { inputSize: 0, inputFiles: 0, outputSize: 0, outputFiles: 0, totalSize: 0 };
+
   try {
     await ensureDirectoryExists(INPUT_DIR);
     await ensureDirectoryExists(OUTPUT_DIR);
@@ -337,8 +339,14 @@ router.get('/stats', async (req, res, next) => {
       },
     });
   } catch (error) {
-    console.error('[API /stats] 错误:', error);
-    next(error);
+    // Keep the platform usable: return 0 stats instead of hard-failing the whole tab.
+    const code = error?.code ? ` (${error.code})` : '';
+    console.error(`[API /stats] 读取存储统计失败${code}:`, error);
+    res.json({
+      success: true,
+      stats: emptyStats,
+      warning: `无法读取存储统计信息${code}，已返回 0 值。请检查后端 windmast_data 目录权限与挂载。`,
+    });
   }
 });
 
