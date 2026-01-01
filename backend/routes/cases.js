@@ -730,6 +730,7 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
     const infoJsonPath = path.join(casePath, "info.json");
     const runDir = path.join(casePath, 'run');
     const io = req.app.get("socketio"); // 获取 Socket.IO 实例
+    const startTimeMs = Date.now();
 
     // --- 前置检查 ---
     if (!fs.existsSync(scriptPath)) {
@@ -777,6 +778,28 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
     knownTasks.forEach(task => { taskStatuses[task.id] = "pending"; });
     if (io) io.to(caseId).emit("taskUpdate", taskStatuses);
     const knownTaskIds = new Set(knownTasks.map(t => t.id));
+    // 初始化进度文件（由后端作为唯一可信来源写入）
+    try {
+        const initProgress = {
+            status: "running",
+            isCalculating: true,
+            progress: 0,
+            tasks: taskStatuses,
+            timestamp: Date.now(),
+            completed: false,
+            startTime: startTimeMs,
+            endTime: null,
+            exitCode: null,
+            canceled: false,
+            timeout: false,
+            currentTaskId: null,
+            lastTaskId: null,
+        };
+        await fsPromises.writeFile(progressPath, JSON.stringify(initProgress, null, 2));
+    } catch (err) {
+        console.warn(`警告: 写入初始 calculation_progress.json (${caseId}) 失败:`, err);
+    }
+    if (io) io.to(caseId).emit("calculationStarted", { startTime: startTimeMs });
 
     // --- 执行主计算脚本 (run.sh) ---
     try {
@@ -813,6 +836,46 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
         }
         // Keep a monotonic overall progress value for this run (avoid jumping backwards due to per-task progress resets)
         let overallProgressValue = 0;
+        let lastPersistedOverall = 0;
+        let lastPersistedAt = 0;
+        let currentTaskId = null;
+        let lastTaskId = null;
+        let progressWriteChain = Promise.resolve();
+
+        const queueProgressWrite = (payload) => {
+            progressWriteChain = progressWriteChain
+                .catch(() => {})
+                .then(() => fsPromises.writeFile(progressPath, JSON.stringify(payload, null, 2)));
+            return progressWriteChain;
+        };
+
+        const persistProgress = ({ status, isCalculating, progress, completed, extra = {}, force = false }) => {
+            const now = Date.now();
+            // Throttle non-forced writes to reduce I/O while keeping refreshable progress.
+            if (!force) {
+                if (progress <= lastPersistedOverall) return;
+                if (now - lastPersistedAt < 1000 && progress !== 100) return;
+            }
+            lastPersistedOverall = Math.max(lastPersistedOverall, progress);
+            lastPersistedAt = now;
+            const payload = {
+                status,
+                isCalculating,
+                progress,
+                tasks: { ...taskStatuses },
+                timestamp: now,
+                completed: Boolean(completed),
+                startTime: startTimeMs,
+                endTime: extra.endTime ?? null,
+                exitCode: extra.exitCode ?? null,
+                canceled: Boolean(extra.canceled),
+                timeout: Boolean(extra.timeout),
+                currentTaskId,
+                lastTaskId,
+                ...extra,
+            };
+            queueProgressWrite(payload);
+        };
         
         const logFilePath = path.join(runDir, `calculation_log_${Date.now()}.txt`);
         const logStream = fs.createWriteStream(logFilePath, { flags: "a" });
@@ -855,6 +918,8 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
                     // 处理任务状态更新（仅接受已知 taskId，避免脚本内部动态 task 污染任务面板与进度计算）
                     if (msg.action === "taskStart" && knownTaskIds.has(msg.taskId) && taskStatuses[msg.taskId] !== 'running') {
                         taskStatuses[msg.taskId] = "running";
+                        currentTaskId = msg.taskId;
+                        lastTaskId = msg.taskId;
                         if (io) io.to(caseId).emit("taskStarted", msg.taskId);
                         progressChanged = true;
                         // Emit an updated overall progress on task start (monotonic).
@@ -863,6 +928,8 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
                     } else if (msg.action === "progress" || msg.action === "taskEnd") {
                         const {taskId, progress} = msg;
                         if (knownTaskIds.has(taskId)) {
+                            currentTaskId = taskId;
+                            lastTaskId = taskId;
                             if (progress === "ERROR" && taskStatuses[taskId] !== 'error') {
                                 taskStatuses[taskId] = "error";
                                 progressChanged = true;
@@ -875,16 +942,28 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
                         }
                     }
                     
-                    // 如果任务状态有变，则更新并持久化
+                    const overallNow = computeOverallProgress(msg.taskId, msg.progress);
+                    // 如果任务状态有变，则更新并持久化（强制写入）
                     if (progressChanged) {
-                        const progressData = {
+                        persistProgress({
+                            status: "running",
                             isCalculating: true,
-                            progress: computeOverallProgress(msg.taskId, msg.progress),
-                            tasks: taskStatuses,
-                            timestamp: Date.now(), completed: false
-                        };
-                        await fsPromises.writeFile(progressPath, JSON.stringify(progressData, null, 2));
+                            progress: overallNow,
+                            completed: false,
+                            extra: { currentTaskId, lastTaskId },
+                            force: true,
+                        });
                         if (io) io.to(caseId).emit("taskUpdate", taskStatuses);
+                    } else {
+                        // 进度数值变化时也做节流持久化，保证刷新后仍能看到接近实时的进度
+                        persistProgress({
+                            status: "running",
+                            isCalculating: true,
+                            progress: overallNow,
+                            completed: false,
+                            extra: { currentTaskId, lastTaskId },
+                            force: false,
+                        });
                     }
                 } catch (e) { /* 不是合法的 JSON，忽略 */ }
             }
@@ -912,7 +991,10 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
             // 检查是否有任何任务报告了错误
             const hasReportedErrors = Object.values(taskStatuses).includes('error');
             const isSuccess = (code === 0 && !hasReportedErrors && !cancelReason);
-            const finalStatus = isSuccess ? "completed" : "error";
+            const endTimeMs = Date.now();
+            const finalStatus = cancelReason === 'user'
+                ? "canceled"
+                : (isSuccess ? "completed" : "error");
             
             if (isSuccess && stderrOutput.trim()) {
                 // 成功退出，但 stderr 有输出（通常是警告或 INFO/DEBUG 日志）
@@ -921,9 +1003,15 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
                 if (io) io.to(caseId).emit("calculationOutput", `[SCRIPT-WARN] 脚本成功退出，但 stderr 包含以下内容:\n---\n${stderrOutput.trim()}\n---`);
             }
 
-            // 更新所有未完成的任务状态
+            // 更新所有未完成的任务状态（注意：用户取消不应把剩余任务标成 error）
             Object.keys(taskStatuses).forEach(taskId => {
-                if (taskStatuses[taskId] === 'pending' || taskStatuses[taskId] === 'running') {
+                const s = taskStatuses[taskId];
+                if (s !== 'pending' && s !== 'running') return;
+                if (cancelReason === 'user') {
+                    taskStatuses[taskId] = 'pending';
+                } else if (cancelReason === 'timeout') {
+                    taskStatuses[taskId] = s === 'running' ? 'error' : 'pending';
+                } else {
                     taskStatuses[taskId] = isSuccess ? 'completed' : 'error';
                 }
             });
@@ -931,13 +1019,28 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
 
             // 更新最终进度文件
             const completedTaskCount = Object.values(taskStatuses).filter(s => s === 'completed').length;
-            const finalProgressValue = isSuccess ? 100 : Math.round((completedTaskCount / knownTasks.length) * 100);
+            const finalProgressValue = isSuccess
+                ? 100
+                : Math.max(overallProgressValue, Math.round((completedTaskCount / knownTasks.length) * 100));
             const finalProgress = {
-                isCalculating: false, progress: finalProgressValue, tasks: taskStatuses,
-                timestamp: Date.now(), completed: isSuccess, exitCode: code,
+                status: finalStatus,
+                isCalculating: false,
+                progress: finalProgressValue,
+                tasks: taskStatuses,
+                timestamp: Date.now(),
+                completed: isSuccess,
+                startTime: startTimeMs,
+                endTime: endTimeMs,
+                exitCode: code,
                 canceled: cancelReason === 'user',
                 timeout: cancelReason === 'timeout',
+                currentTaskId: null,
+                lastTaskId,
             };
+            try {
+                // 等待可能存在的节流写入完成，避免覆盖最终状态
+                await progressWriteChain;
+            } catch {}
             await fsPromises.writeFile(progressPath, JSON.stringify(finalProgress, null, 2));
             
             // 更新 info.json
@@ -946,7 +1049,9 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
                 if (cancelReason === 'user') {
                     // Allow immediate restart after user cancel
                     info.calculationStatus = 'not_started';
-                    info.lastCalculationError = `用户取消（exitCode: ${code}）`;
+                    info.lastCalculationCanceled = true;
+                    info.lastCalculationCancelReason = 'user';
+                    info.lastCalculationCancelTime = new Date(endTimeMs).toISOString();
                 } else if (cancelReason === 'timeout') {
                     info.calculationStatus = 'error';
                     info.lastCalculationError = `计算超时并被终止（exitCode: ${code}）`;
@@ -1921,6 +2026,15 @@ router.post('/:caseId/calculation-progress', async (req, res) => {
     const progressPath = path.join(__dirname, `../uploads/${caseId}/calculation_progress.json`);
 
     try {
+        // 计算运行中时，进度文件由后端统一写入，防止前端误覆写导致状态错乱
+        const entry = runningCalculations.get(caseId);
+        if (entry && entry.child && !entry.child.killed) {
+            return res.status(409).json({
+                success: false,
+                message: '计算正在运行，进度由后端维护，禁止客户端覆写。'
+            });
+        }
+
         // 更宽松的验证
         if (typeof req.body !== 'object' || req.body === null) {
             return res.status(400).json({ success: false, error: '无效的进度数据格式' });
@@ -1957,22 +2071,56 @@ router.get('/:caseId/calculation-progress', async (req, res) => {
             const progressData = await fsPromises.readFile(progressPath, 'utf-8');
             const progress = JSON.parse(progressData);
             // Ensure all required fields are present, provide defaults if not
-            const defaultProgress = { isCalculating: false, progress: 0, tasks: {}, completed: false, timestamp: null };
+            const defaultProgress = {
+                status: 'not_started',
+                isCalculating: false,
+                progress: 0,
+                tasks: {},
+                outputs: [],
+                completed: false,
+                timestamp: null,
+                startTime: null,
+                endTime: null,
+                exitCode: null,
+                canceled: false,
+                timeout: false,
+                currentTaskId: null,
+                lastTaskId: null,
+            };
             res.json({ progress: { ...defaultProgress, ...progress } }); // Merge with defaults
         } else {
             // Return a default progress state if file doesn't exist
-             const defaultProgress = { isCalculating: false, progress: 0, tasks: {}, completed: false, timestamp: null };
+             const defaultProgress = {
+                 status: 'not_started',
+                 isCalculating: false,
+                 progress: 0,
+                 tasks: {},
+                 outputs: [],
+                 completed: false,
+                 timestamp: null,
+                 startTime: null,
+                 endTime: null,
+                 exitCode: null,
+                 canceled: false,
+                 timeout: false,
+                 currentTaskId: null,
+                 lastTaskId: null,
+             };
              // Try getting status from info.json as a fallback
              const infoJsonPath = path.join(__dirname, '../uploads', caseId, 'info.json');
              if (fs.existsSync(infoJsonPath)) {
                  try {
                      const info = JSON.parse(await fsPromises.readFile(infoJsonPath, 'utf-8'));
                      if (info.calculationStatus === 'completed') {
+                         defaultProgress.status = 'completed';
                          defaultProgress.completed = true;
                          defaultProgress.progress = 100;
                          // Populate tasks as completed? Maybe too complex here.
                      } else if (info.calculationStatus === 'running') {
+                         defaultProgress.status = 'running';
                          defaultProgress.isCalculating = true;
+                     } else if (info.calculationStatus) {
+                         defaultProgress.status = info.calculationStatus;
                      }
                  } catch {/* ignore */}
              }

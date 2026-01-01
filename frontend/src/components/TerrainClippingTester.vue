@@ -6,6 +6,48 @@
 <template>
     <div class="terrain-clipping-container">
       <h2>DEM 文件裁切工具</h2>
+
+      <!-- 0. 无需上传：从内置 China_Dem 自动拼接并裁切下载 -->
+      <el-card class="mosaic-card" shadow="never">
+        <template #header>
+          <div class="mosaic-card-header">无需上传：按坐标自动拼接下载（China DEM）</div>
+        </template>
+
+        <el-form :inline="true" class="mosaic-form">
+          <el-form-item label="纬度">
+            <el-input-number v-model="mosaicForm.lat" :min="-90" :max="90" :step="0.0001" :precision="6" controls-position="right" />
+          </el-form-item>
+          <el-form-item label="经度">
+            <el-input-number v-model="mosaicForm.lon" :min="-180" :max="180" :step="0.0001" :precision="6" controls-position="right" />
+          </el-form-item>
+          <el-form-item label="半径(米)">
+            <el-input-number v-model="mosaicForm.radius" :min="100" :step="100" controls-position="right" />
+          </el-form-item>
+          <el-form-item label="最大分片">
+            <el-input-number v-model="mosaicForm.maxSources" :min="1" :max="500" :step="10" controls-position="right" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" :loading="isMosaicLoading" @click="downloadMosaicByCoords">生成并下载</el-button>
+          </el-form-item>
+        </el-form>
+
+        <el-alert type="info" show-icon :closable="false" class="mosaic-hint">
+          <template #title>说明</template>
+          <template #default>
+            使用后端内置 <code>China_Dem</code> 数据：自动筛选覆盖分片 → 拼接(VRT) → 按范围裁切并下载。首次使用可能需要构建索引，耗时稍长。
+          </template>
+        </el-alert>
+
+        <div v-if="mosaicResult" class="mosaic-result">
+          <el-descriptions :column="1" border size="small">
+            <el-descriptions-item label="命中分片">{{ mosaicResult.sourceCount }}</el-descriptions-item>
+            <el-descriptions-item label="裁切范围">
+              {{ mosaicResult.clipBounds.minX.toFixed(6) }}, {{ mosaicResult.clipBounds.minY.toFixed(6) }} —
+              {{ mosaicResult.clipBounds.maxX.toFixed(6) }}, {{ mosaicResult.clipBounds.maxY.toFixed(6) }}
+            </el-descriptions-item>
+          </el-descriptions>
+        </div>
+      </el-card>
   
       <!-- 1. DEM 上传 -->
       <div class="upload-area"
@@ -129,6 +171,14 @@
               <div class="action-buttons">
                 <el-button type="primary" @click="performClipping">裁切并下载 (后端)</el-button>
                 <el-button @click="centerClippingBox">居中裁切框</el-button>
+                <el-button
+                  type="success"
+                  :disabled="!canMosaicFromChinaDem"
+                  :loading="isMosaicLoading"
+                  @click="downloadMosaicByClipBox"
+                >
+                  内置DEM拼接下载（按当前裁切区域）
+                </el-button>
               </div>
             </div>
           </div>
@@ -170,6 +220,16 @@
   const turbineFileInput = ref(null);
   const turbines         = ref([]);
   const turbineDrag      = ref(false); 
+
+  /* ===== 内置 China_Dem：拼接 + 裁切下载 ===== */
+  const mosaicForm = reactive({
+    lat: null,
+    lon: null,
+    radius: 5000,
+    maxSources: 200,
+  });
+  const isMosaicLoading = ref(false);
+  const mosaicResult = ref(null);
   
   /* ========= 新增：尺寸计算相关 ========= */
 
@@ -559,6 +619,107 @@
     clippingBox.size=Math.max(minClippingSize.value, Math.min(dynamicMaxPossibleSize, newProposedSize));
   };
   const stopResizing=()=>{isResizing.value=false; document.removeEventListener('mousemove',onResize); document.removeEventListener('mouseup',stopResizing);};
+
+  /* ---------------- 内置 DEM（China_Dem）拼接下载 ---------------- */
+  const normalizeDownloadUrl = (downloadUrl) => {
+    if (!downloadUrl) return '';
+    if (downloadUrl.startsWith('http')) return downloadUrl;
+    return downloadUrl.startsWith('/') ? downloadUrl : `/${downloadUrl}`;
+  };
+
+  const postJson = async (url, payload) => {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const text = await res.text();
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      if (!res.ok) {
+        throw new Error(`服务器错误 ${res.status}: ${text || res.statusText}`);
+      }
+      throw new Error('后端响应不是 JSON');
+    }
+
+    if (!res.ok || !json?.success) {
+      throw new Error(json?.message || `服务器错误 ${res.status}`);
+    }
+    return json;
+  };
+
+  const downloadMosaicByCoords = async () => {
+    if (mosaicForm.lat === null || mosaicForm.lon === null || mosaicForm.radius === null) {
+      ElMessage.warning('请填写纬度/经度/半径后再生成');
+      return;
+    }
+
+    isMosaicLoading.value = true;
+    mosaicResult.value = null;
+    try {
+      const json = await postJson('/api/dem/download-by-coords', {
+        lat: mosaicForm.lat,
+        lon: mosaicForm.lon,
+        radius: mosaicForm.radius,
+        maxSources: mosaicForm.maxSources,
+      });
+      mosaicResult.value = {
+        sourceCount: json.data.sourceCount,
+        clipBounds: json.data.clipBounds,
+      };
+      window.location.href = normalizeDownloadUrl(json.data.downloadUrl);
+      ElMessage.success('已生成 DEM，开始下载');
+    } catch (e) {
+      ElMessage.error('生成失败：' + e.message);
+      console.error('DEM download-by-coords error:', e);
+    } finally {
+      isMosaicLoading.value = false;
+    }
+  };
+
+  const canMosaicFromChinaDem = computed(() => {
+    const coordType = tifData.value?.coordSystem?.type;
+    return Boolean(showClippingBox.value && coordType === 'geographic');
+  });
+
+  const downloadMosaicByClipBox = async () => {
+    if (!showClippingBox.value) {
+      ElMessage.warning('请先在预览图中框选裁切区域');
+      return;
+    }
+    const coordType = tifData.value?.coordSystem?.type;
+    if (coordType !== 'geographic') {
+      ElMessage.warning('当前 DEM 为投影坐标系，内置 China_Dem 为经纬度坐标系；请上传经纬度(4326) DEM 或使用上方经纬度输入下载。');
+      return;
+    }
+
+    const { minX, minY, maxX, maxY } = clippingCoordinates.value;
+    isMosaicLoading.value = true;
+    mosaicResult.value = null;
+    try {
+      const json = await postJson('/api/dem/mosaic-clip', {
+        minX,
+        minY,
+        maxX,
+        maxY,
+        maxSources: mosaicForm.maxSources,
+      });
+      mosaicResult.value = {
+        sourceCount: json.data.sourceCount,
+        clipBounds: json.data.clipBounds,
+      };
+      window.location.href = normalizeDownloadUrl(json.data.downloadUrl);
+      ElMessage.success('已生成 DEM，开始下载');
+    } catch (e) {
+      ElMessage.error('生成失败：' + e.message);
+      console.error('DEM mosaic-clip error:', e);
+    } finally {
+      isMosaicLoading.value = false;
+    }
+  };
   
   /* ---------------- 裁切请求 ---------------- */
   async function performClipping(){
@@ -778,6 +939,12 @@
   .file-selected{display:flex;align-items:center;justify-content:space-between;padding:10px;background:#eef6ff;border-radius:4px;}
   .file-info{display:flex;align-items:center;gap:8px;font-weight:500;color:#303133;}
   .file-icon{font-size:20px;color:#409EFF;}
+
+  .mosaic-card{margin-top:16px;border:1px solid #ebeef5;background:#fafcff;}
+  .mosaic-card-header{font-weight:600;color:#303133;}
+  .mosaic-form{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;}
+  .mosaic-hint{margin-top:12px;}
+  .mosaic-result{margin-top:12px;}
   
   .preview-section{margin-top:40px;padding-top:20px;border-top:1px solid #ebeef5;}
   .preview-container{display:flex;flex-wrap:wrap;gap:24px;margin-top:16px;}

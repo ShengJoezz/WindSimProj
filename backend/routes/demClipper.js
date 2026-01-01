@@ -18,6 +18,167 @@ const fs = require('fs-extra');
 const gdal = require('gdal-async');
 const { v4: uuidv4 } = require('uuid');
 
+const CHINA_DEM_ROOT = path.join(__dirname, '../China_Dem');
+const DEM_INDEX_PATH = path.join(__dirname, '../../temp/china_dem_index.json');
+let chinaDemIndexCache = null;
+let chinaDemIndexBuildPromise = null;
+
+const listTifFilesRecursive = async (dir) => {
+  const results = [];
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...await listTifFilesRecursive(fullPath));
+    } else if (entry.isFile()) {
+      const ext = path.extname(entry.name).toLowerCase();
+      if (ext === '.tif' || ext === '.tiff') results.push(fullPath);
+    }
+  }
+  return results;
+};
+
+const computeDatasetBounds = (ds) => {
+  const gt = ds.geoTransform;
+  if (!gt || gt.length !== 6) return null;
+
+  const originX = gt[0];
+  const pixelWidth = gt[1];
+  const originY = gt[3];
+  const pixelHeight = gt[5];
+  const width = ds.rasterSize.x;
+  const height = ds.rasterSize.y;
+
+  const x1 = originX;
+  const y1 = originY;
+  const x2 = originX + pixelWidth * width;
+  const y2 = originY + pixelHeight * height;
+
+  const minX = Math.min(x1, x2);
+  const maxX = Math.max(x1, x2);
+  const minY = Math.min(y1, y2);
+  const maxY = Math.max(y1, y2);
+  return { minX, minY, maxX, maxY };
+};
+
+const intersects = (a, b) => {
+  return !(a.maxX < b.minX || a.minX > b.maxX || a.maxY < b.minY || a.minY > b.maxY);
+};
+
+const ensureChinaDemIndex = async () => {
+  if (chinaDemIndexCache) return chinaDemIndexCache;
+  if (chinaDemIndexBuildPromise) return chinaDemIndexBuildPromise;
+
+  chinaDemIndexBuildPromise = (async () => {
+    try {
+      if (await fs.pathExists(DEM_INDEX_PATH)) {
+        const cached = await fs.readJson(DEM_INDEX_PATH);
+        if (Array.isArray(cached) && cached.length > 0) {
+          chinaDemIndexCache = cached;
+          return chinaDemIndexCache;
+        }
+      }
+    } catch (err) {
+      console.warn('[DEM] 读取 china_dem_index.json 失败，将重建索引:', err.message);
+    }
+
+    if (!await fs.pathExists(CHINA_DEM_ROOT)) {
+      throw new Error(`China_Dem 数据目录不存在: ${CHINA_DEM_ROOT}`);
+    }
+
+    const files = await listTifFilesRecursive(CHINA_DEM_ROOT);
+    if (!files.length) {
+      throw new Error(`China_Dem 目录下未找到任何 tif: ${CHINA_DEM_ROOT}`);
+    }
+
+    console.log(`[DEM] 正在构建 China_Dem 索引，共 ${files.length} 个 tif...`);
+    const index = [];
+    for (const filePath of files) {
+      let ds = null;
+      try {
+        ds = await gdal.openAsync(filePath);
+        const bounds = computeDatasetBounds(ds);
+        if (!bounds) continue;
+        index.push({
+          path: filePath,
+          bounds,
+        });
+      } catch (err) {
+        console.warn(`[DEM] 读取 DEM 元信息失败，将跳过: ${filePath} (${err.message})`);
+      } finally {
+        try { ds?.close?.(); } catch {}
+      }
+    }
+
+    await fs.ensureDir(path.dirname(DEM_INDEX_PATH));
+    await fs.writeJson(DEM_INDEX_PATH, index, { spaces: 2 });
+    console.log(`[DEM] China_Dem 索引构建完成: ${index.length} 条，已写入 ${DEM_INDEX_PATH}`);
+    chinaDemIndexCache = index;
+    return chinaDemIndexCache;
+  })();
+
+  try {
+    return await chinaDemIndexBuildPromise;
+  } finally {
+    chinaDemIndexBuildPromise = null;
+  }
+};
+
+const mosaicClipChinaDemByBounds = async ({ minX, minY, maxX, maxY, maxSources = 200 }) => {
+  const bounds = { minX, minY, maxX, maxY };
+  const index = await ensureChinaDemIndex();
+  const sources = index
+    .filter(item => item && item.path && item.bounds && intersects(item.bounds, bounds))
+    .map(item => item.path);
+
+  if (!sources.length) {
+    const err = new Error('未找到覆盖该范围的 China_Dem 数据（范围可能超出数据覆盖区）');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  if (sources.length > maxSources) {
+    const err = new Error(`匹配到 ${sources.length} 个 DEM 分片，超过上限 ${maxSources}；请缩小范围后重试。`);
+    err.statusCode = 413;
+    throw err;
+  }
+
+  const outputId = uuidv4();
+  const outputDir = path.join(__dirname, '../../clipped');
+  await fs.ensureDir(outputDir);
+  const outputFilePath = path.join(outputDir, `clipped_${outputId}.tif`);
+
+  const tempDir = path.join(__dirname, '../../temp');
+  await fs.ensureDir(tempDir);
+  const vrtPath = path.join(tempDir, `dem_mosaic_${outputId}.vrt`);
+
+  let vrtDs = null;
+  let outDs = null;
+  try {
+    // Build VRT (mosaic) then clip to bounds in georeferenced coordinates
+    vrtDs = await gdal.buildVRTAsync(vrtPath, sources, ['-resolution', 'highest']);
+    outDs = await gdal.translateAsync(outputFilePath, vrtDs, [
+      '-projwin', String(minX), String(maxY), String(maxX), String(minY),
+      '-of', 'GTiff',
+      '-co', 'COMPRESS=DEFLATE',
+      '-co', 'TILED=YES',
+      '-co', 'BIGTIFF=IF_NEEDED'
+    ]);
+  } finally {
+    try { outDs?.close?.(); } catch {}
+    try { vrtDs?.close?.(); } catch {}
+    fs.remove(vrtPath).catch(() => {});
+  }
+
+  return {
+    outputId,
+    outputFilePath,
+    sourceCount: sources.length,
+    sources,
+    bounds,
+  };
+};
+
 // 设置文件上传
 const storage = multer.diskStorage({
   destination: function(req, file, cb) {
@@ -345,6 +506,133 @@ router.post('/clip', upload.single('demFile'), async (req, res, next) => {
       });
     }
     
+    next(error);
+  }
+});
+
+// 无需上传：按 bbox 从内置 China_Dem 自动拼接并裁切
+router.post('/mosaic-clip', async (req, res, next) => {
+  try {
+    const { minX, minY, maxX, maxY, maxSources } = req.body || {};
+
+    const requiredCoords = { minX, minY, maxX, maxY };
+    for (const [key, value] of Object.entries(requiredCoords)) {
+      if (value === undefined || value === null || value === '') {
+        return res.status(400).json({
+          success: false,
+          message: '缺少裁切坐标参数 (minX, minY, maxX, maxY)'
+        });
+      }
+    }
+
+    const minXNum = Number(minX);
+    const minYNum = Number(minY);
+    const maxXNum = Number(maxX);
+    const maxYNum = Number(maxY);
+    const maxSourcesNum = maxSources === undefined || maxSources === null || maxSources === ''
+      ? 200
+      : Number(maxSources);
+
+    if (![minXNum, minYNum, maxXNum, maxYNum].every(Number.isFinite) || !Number.isFinite(maxSourcesNum)) {
+      return res.status(400).json({
+        success: false,
+        message: '参数必须是有效数字 (minX, minY, maxX, maxY, maxSources)'
+      });
+    }
+    if (minXNum >= maxXNum || minYNum >= maxYNum) {
+      return res.status(400).json({ success: false, message: '无效范围：min 必须小于 max' });
+    }
+    if (maxSourcesNum <= 0) {
+      return res.status(400).json({ success: false, message: 'maxSources 必须为正数' });
+    }
+
+    const result = await mosaicClipChinaDemByBounds({
+      minX: minXNum,
+      minY: minYNum,
+      maxX: maxXNum,
+      maxY: maxYNum,
+      maxSources: maxSourcesNum,
+    });
+
+    const downloadUrl = `/api/dem/download/${result.outputId}`;
+    return res.status(200).json({
+      success: true,
+      message: 'DEM 拼接裁切成功',
+      data: {
+        downloadUrl,
+        sourceCount: result.sourceCount,
+        clipBounds: result.bounds,
+      }
+    });
+  } catch (error) {
+    if (error?.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
+    console.error('DEM mosaic-clip 错误:', error);
+    next(error);
+  }
+});
+
+// 无需上传：按中心点+半径（米）自动拼接并裁切 China_Dem
+router.post('/download-by-coords', async (req, res, next) => {
+  try {
+    const { lat, lon, radius, maxSources } = req.body || {};
+
+    const requiredParams = { lat, lon, radius };
+    for (const [key, value] of Object.entries(requiredParams)) {
+      if (value === undefined || value === null || value === '') {
+        return res.status(400).json({ success: false, message: '缺少经纬度或半径参数 (lat, lon, radius)' });
+      }
+    }
+
+    const latNum = Number(lat);
+    const lonNum = Number(lon);
+    const radiusNum = Number(radius);
+    const maxSourcesNum = maxSources === undefined || maxSources === null || maxSources === ''
+      ? 200
+      : Number(maxSources);
+
+    if (![latNum, lonNum, radiusNum].every(Number.isFinite) || !Number.isFinite(maxSourcesNum)) {
+      return res.status(400).json({ success: false, message: '参数必须是有效的数字' });
+    }
+    if (latNum < -90 || latNum > 90 || lonNum < -180 || lonNum > 180) {
+      return res.status(400).json({ success: false, message: '经纬度超出有效范围 (lat: -90~90, lon: -180~180)' });
+    }
+    if (radiusNum <= 0) {
+      return res.status(400).json({ success: false, message: '半径必须为正数（单位：米）' });
+    }
+
+    // radius(m) -> bbox(deg) (approx.)
+    const metersPerDegLat = 111320;
+    const latRad = latNum * Math.PI / 180;
+    const metersPerDegLon = metersPerDegLat * Math.cos(latRad);
+    const dLat = radiusNum / metersPerDegLat;
+    const dLon = metersPerDegLon > 0 ? radiusNum / metersPerDegLon : radiusNum / metersPerDegLat;
+
+    const minY = latNum - dLat;
+    const maxY = latNum + dLat;
+    const minX = lonNum - dLon;
+    const maxX = lonNum + dLon;
+
+    const result = await mosaicClipChinaDemByBounds({ minX, minY, maxX, maxY, maxSources: maxSourcesNum });
+    const downloadUrl = `/api/dem/download/${result.outputId}`;
+
+    return res.status(200).json({
+      success: true,
+      message: 'DEM 拼接裁切成功',
+      data: {
+        downloadUrl,
+        sourceCount: result.sourceCount,
+        clipBounds: result.bounds,
+        center: { lat: latNum, lon: lonNum },
+        radius: radiusNum,
+      }
+    });
+  } catch (error) {
+    if (error?.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
+    console.error('DEM download-by-coords 错误:', error);
     next(error);
   }
 });

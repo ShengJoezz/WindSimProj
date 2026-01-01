@@ -220,9 +220,18 @@ const buttonDisabled = computed(() => {
 
 const computationMessage = computed(() => {
   const status = getCalculationStatus();
+  const lastTaskId = store.calculationProgressMeta?.lastTaskId;
+  const lastTaskName = lastTaskId ? (knownTasks.find(t => t.id === lastTaskId)?.name || lastTaskId) : '';
+  const isTimeout = Boolean(store.calculationProgressMeta?.timeout);
   if (status === 'running') return '计算已启动，正在进行中...';
   if (status === 'completed') return '计算完成';
-  if (status === 'error') return '计算失败，请查看日志';
+  if (status === 'error') {
+    const prefix = isTimeout ? '计算超时并被终止' : '计算失败';
+    return lastTaskName ? `${prefix}（最后步骤：${lastTaskName}），请查看日志` : `${prefix}，请查看日志`;
+  }
+  if (status === 'canceled') {
+    return lastTaskName ? `上次计算已取消（最后步骤：${lastTaskName}），可重新开始` : '上次计算已取消，可重新开始';
+  }
   return '';
 });
 
@@ -267,6 +276,7 @@ const getIconColor = (status) => {
 const progressStatus = () => {
   const status = getCalculationStatus();
   if (status === 'error') return 'exception';
+  if (status === 'canceled') return 'warning';
   if (status === 'completed' || overallProgress.value === 100) return 'success';
   return '';
 };
@@ -279,6 +289,8 @@ const messageClass = () => {
     return 'success-message';
   if (status === 'error')
     return 'error-message';
+  if (status === 'canceled')
+    return 'warning-message';
   return '';
 };
 
@@ -287,6 +299,7 @@ const messageIconComponent = () => {
   if (status === 'running') return Loading;
   if (status === 'completed') return CircleCheckFilled;
   if (status === 'error') return WarningFilled;
+  if (status === 'canceled') return WarningFilled;
   return InfoFilled;
 };
 
@@ -304,7 +317,8 @@ const terminalOutput = computed(() => {
 });
 
 const shouldShowDetails = computed(() => {
-  if (getCalculationStatus() !== 'not_started') return true;
+  const status = getCalculationStatus();
+  if (['running', 'completed', 'error', 'canceled'].includes(status)) return true;
   if ((store.overallProgress || 0) > 0) return true;
   if (Array.isArray(store.calculationOutputs) && store.calculationOutputs.length > 0) return true;
   if (baseLog.value && baseLog.value.trim()) return true;
@@ -750,6 +764,12 @@ h3 i {
   background: linear-gradient(135deg, #f6f7f9 0%, #e8eaed 100%);
   color: #595959;
   border-color: #d9d9d9;
+}
+
+.warning-message {
+  background: linear-gradient(135deg, #fff7e6 0%, #ffe7ba 100%);
+  color: #d48806;
+  border-color: #ffd591;
 }
 
 .actions {

@@ -83,6 +83,7 @@ export const useCaseStore = defineStore('caseStore', () => {
   const socket = ref(null);
   let socketRoomCaseId = null;
   const startTime = ref(null);
+  const calculationProgressMeta = ref(null);
   const isSubmittingParameters = ref(false);
   const visualizationStatus = ref(null); // null | 'not_run' | 'starting' | 'running' | 'completed' | 'failed'
   const visualizationMessages = ref([]);
@@ -279,14 +280,34 @@ export const useCaseStore = defineStore('caseStore', () => {
       const backendStatus = response.data.calculationStatus;
       visualizationStatus.value = response.data.visualizationStatus ?? visualizationStatus.value;
 
+      const deriveStatusFromProgress = (prog) => {
+        if (!prog || typeof prog !== 'object') return null;
+        if (prog.status === 'running' || prog.isCalculating === true) return 'running';
+        if (prog.status === 'completed' || prog.completed === true || prog.progress === 100) return 'completed';
+        if (prog.status === 'canceled' || prog.canceled === true) return 'canceled';
+        if (prog.status === 'error' || prog.timeout === true) return 'error';
+        return null;
+      };
+
+      const progressDerivedStatus = deriveStatusFromProgress(calculationProgressMeta.value);
+      let effectiveStatus = backendStatus;
+
+      // When backend reports "not_started", use persisted progress metadata to show
+      // a more accurate user-facing status (canceled / timeout / completed / still running).
+      if (backendStatus === 'not_started') {
+        if (progressDerivedStatus) effectiveStatus = progressDerivedStatus;
+      } else if (backendStatus === 'unknown' || backendStatus === 'error_reading_status') {
+        if (progressDerivedStatus) effectiveStatus = progressDerivedStatus;
+      }
+
       // [来自版本1的健壮性代码] 保护运行中的状态不被错误的后端状态覆盖
-      if (calculationStatus.value === 'running' && backendStatus === 'not_started') {
+      if (calculationStatus.value === 'running' && effectiveStatus === 'not_started') {
         console.log('保护运行中的状态不被覆盖 (fetchCalculationStatus): 前端为 running, 后端为 not_started. 保持前端状态.');
         hasFetchedCalculationStatus.value = true;
         return true;
       }
 
-      calculationStatus.value = backendStatus;
+      calculationStatus.value = effectiveStatus;
       hasFetchedCalculationStatus.value = true;
       return true;
     } catch (error) {
@@ -486,24 +507,6 @@ export const useCaseStore = defineStore('caseStore', () => {
     calculationStatus.value = 'completed';
   };
 
-  const saveCalculationProgress = async () => {
-    if (!currentCaseId.value) return;
-    try {
-      const progressData = {
-        status: calculationStatus.value,
-        progress: overallProgress.value,
-        tasks: tasks.value,
-        outputs: calculationOutputs.value,
-        startTime: startTime.value,
-        timestamp: Date.now(),
-        completed: calculationStatus.value === 'completed' && overallProgress.value === 100
-      };
-      await axios.post(`/api/cases/${currentCaseId.value}/calculation-progress`, progressData);
-    } catch (error) {
-      console.error('保存计算进度失败:', error.message || error);
-    }
-  };
-
   const resetCalculationProgress = () => {
     calculationStatus.value = 'not_started';
     overallProgress.value = 0;
@@ -513,6 +516,7 @@ export const useCaseStore = defineStore('caseStore', () => {
     tasks.value = newTasks;
     currentTask.value = null;
     startTime.value = null;
+    calculationProgressMeta.value = null;
   };
 
   const loadCalculationProgress = async () => {
@@ -521,6 +525,7 @@ export const useCaseStore = defineStore('caseStore', () => {
       const response = await axios.get(`/api/cases/${caseId.value}/calculation-progress`);
       if (response.data && response.data.progress) {
         const prog = response.data.progress;
+        calculationProgressMeta.value = prog;
         overallProgress.value = prog.progress || 0;
         if (prog.tasks) {
             const persistentTasks = {};
@@ -531,6 +536,23 @@ export const useCaseStore = defineStore('caseStore', () => {
         }
         calculationOutputs.value = prog.outputs || [];
         startTime.value = prog.startTime || null;
+
+        // Reconcile status based on persisted metadata when backend reports not_started.
+        const isRunning = prog.status === 'running' || prog.isCalculating === true;
+        const isCompleted = prog.status === 'completed' || prog.completed === true || prog.progress === 100;
+        const isCanceled = prog.status === 'canceled' || prog.canceled === true;
+        const isTimeoutOrError = prog.status === 'error' || prog.timeout === true;
+
+        const canOverrideToRunning = ['running', 'not_started', 'unknown', 'error_reading_status'].includes(calculationStatus.value);
+        if (isRunning && canOverrideToRunning) {
+          calculationStatus.value = 'running';
+        } else if (isCompleted) {
+          calculationStatus.value = 'completed';
+        } else if (isCanceled && ['not_started', 'unknown', 'error_reading_status'].includes(calculationStatus.value)) {
+          calculationStatus.value = 'canceled';
+        } else if (isTimeoutOrError) {
+          calculationStatus.value = 'error';
+        }
         return prog;
       }
     } catch (error) {
@@ -556,17 +578,30 @@ export const useCaseStore = defineStore('caseStore', () => {
       resetCalculationProgress();
       calculationStatus.value = 'running';
       startTime.value = Date.now();
+      calculationProgressMeta.value = {
+        status: 'running',
+        isCalculating: true,
+        progress: 0,
+        tasks: { ...tasks.value },
+        timestamp: Date.now(),
+        completed: false,
+        startTime: startTime.value,
+        endTime: null,
+        exitCode: null,
+        canceled: false,
+        timeout: false,
+        currentTaskId: null,
+        lastTaskId: null,
+      };
       calculationOutputs.value.push({
         type: 'info',
         message: `[SYSTEM] ${response.data?.message || '计算已启动'}\n`,
       });
-      await saveCalculationProgress();
       return response.data;
     } catch (error) {
       const message = error?.response?.data?.message || error.message || '启动计算失败';
       calculationStatus.value = 'error';
       calculationOutputs.value.push({ type: 'error', message: `启动计算失败: ${message}\n` });
-      await saveCalculationProgress();
       throw new Error(message);
     }
   };
@@ -645,19 +680,21 @@ export const useCaseStore = defineStore('caseStore', () => {
     socket.value.on('calculationOutput', (output) => calculationOutputs.value.push({ type: 'output', message: output }));
     socket.value.on('taskUpdate', (taskStatuses) => {
       Object.assign(tasks.value, taskStatuses);
-      saveCalculationProgress();
     });
     socket.value.on('calculationProgress', (data) => {
         overallProgress.value = data.progress;
-        if (data.currentTaskName) currentTask.value = data.currentTaskName;
-        saveCalculationProgress();
+        if (data.taskId) {
+          const taskName = knownTasks.find(t => t.id === data.taskId)?.name;
+          currentTask.value = taskName || data.taskId;
+        } else if (data.currentTaskName) {
+          currentTask.value = data.currentTaskName;
+        }
     });
     socket.value.on('calculationCompleted', () => {
         calculationStatus.value = 'completed';
         overallProgress.value = 100;
         currentTask.value = null;
         calculationOutputs.value.push({ type: 'success', message: 'Calculation completed (socket)!' });
-        saveCalculationProgress();
     });
     socket.value.on('calculationFailed', (error) => {
         calculationStatus.value = 'error';
@@ -665,26 +702,22 @@ export const useCaseStore = defineStore('caseStore', () => {
         const message = error?.message || 'Calculation failed (socket)';
         const details = error?.details ? `\n${error.details}` : '';
         calculationOutputs.value.push({ type: 'error', message: `Calculation failed (socket): ${message}${details}` });
-        saveCalculationProgress();
     });
     socket.value.on('calculationCanceled', (data) => {
-        calculationStatus.value = 'not_started';
+        calculationStatus.value = 'canceled';
         currentTask.value = null;
         const message = data?.message || 'Calculation canceled (socket)';
         calculationOutputs.value.push({ type: 'info', message: `${message}\n` });
-        saveCalculationProgress();
     });
     socket.value.on('calculationError', (error) => {
         calculationStatus.value = 'error';
         currentTask.value = null;
         calculationOutputs.value.push({ type: 'error', message: `Calculation error (socket): ${error.message || "Unknown error"}` });
-        saveCalculationProgress();
     });
     socket.value.on('calculationStarted', (data) => {
         if (calculationStatus.value !== 'running') calculationStatus.value = 'running';
         if (data && data.startTime) startTime.value = data.startTime;
         else if (!startTime.value) startTime.value = Date.now();
-        saveCalculationProgress();
     });
 
     // Visualization precompute events
@@ -793,6 +826,7 @@ export const useCaseStore = defineStore('caseStore', () => {
     hasFetchedCalculationStatus,
     socket,
     startTime,
+    calculationProgressMeta,
     isSubmittingParameters,
     minLatitude,
     maxLatitude,
@@ -828,7 +862,6 @@ export const useCaseStore = defineStore('caseStore', () => {
     updateWindTurbine,
     
     setResults,
-    saveCalculationProgress,
     resetCalculationProgress,
     loadCalculationProgress,
     startCalculation,
