@@ -37,7 +37,7 @@
         <el-tooltip content="折叠/展开目录" placement="right" effect="dark">
           <div class="collapse-btn" @click="toggleCollapse" aria-expanded="!isCollapse" aria-controls="menu-items">
             <el-icon :size="20" class="glow-icon">
-              <component :is="isCollapse ? 'Expand' : 'Menu'" />
+              <component :is="isCollapse ? Expand : Menu" />
             </el-icon>
           </div>
         </el-tooltip>
@@ -91,6 +91,7 @@ import {
   Expand,
   Back,
   Download,
+  WindPower,
 } from "@element-plus/icons-vue";
 
 const route = useRoute();
@@ -125,7 +126,7 @@ const menuItems = computed(() => {
     { index: `/cases/${caseId.value}/parameters`, icon: Setting, title: "参数设置" },
     { index: `/cases/${caseId.value}/calculation`, icon: Monitor, title: "计算输出" },
     { index: `/cases/${caseId.value}/results`, icon: DataLine, title: "结果展示" },
-    { index: `/cases/${caseId.value}/speed-visualization`, icon: 'WindPower', title: "速度场分析" },
+    { index: `/cases/${caseId.value}/speed-visualization`, icon: WindPower, title: "速度场分析" },
     { index: `/cases/${caseId.value}/wind-management`, icon: Files, title: "风机管理" } // Changed DataLine to Files
   ];
 }else {
@@ -135,7 +136,7 @@ const menuItems = computed(() => {
         { index: "/new", icon: Plus, title: "新建工况" },
         { index: "/cases", icon: Files, title: "工况列表" }, // Kept Files
         { index: "/terrainClip",icon: Location,title:"地形获取与裁剪"}, // Changed Files to Location
-        { index: "/rou-downloader", icon: 'Download', title: "粗糙度文件数据库" }
+        { index: "/rou-downloader", icon: Download, title: "粗糙度文件数据库" }
       ];
     }
   });
