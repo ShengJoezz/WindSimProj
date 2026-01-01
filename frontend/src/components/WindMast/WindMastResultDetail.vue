@@ -508,9 +508,6 @@ import {
   ArrowLeft, ArrowRight
 } from '@element-plus/icons-vue';
 
-// Backend Base URL
-const backendBaseUrl = 'http://localhost:5000';
-
 // Component State
 const route = useRoute();
 const router = useRouter();

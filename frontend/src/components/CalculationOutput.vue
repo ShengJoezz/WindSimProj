@@ -66,7 +66,7 @@
     <div class="flex-layout" v-if="shouldShowDetails">
       <div class="main-content">
         <div class="task-list-section">
-          <h3><i class="fas fa-tasks"></i> 执行步骤</h3>
+          <h3><el-icon class="section-title-icon"><List /></el-icon> 执行步骤</h3>
           <div class="task-list-container">
             <ul class="task-list">
               <li
@@ -92,7 +92,7 @@
         </div>
 
         <div class="terminal-section">
-          <h3><i class="fas fa-terminal"></i> 终端输出</h3>
+          <h3><el-icon class="section-title-icon"><Cpu /></el-icon> 终端输出</h3>
           <div class="terminal-container">
             <div class="terminal-header">
               <div class="terminal-dots">
@@ -110,7 +110,7 @@
       </div>
 
       <div class="progress-section">
-        <h3><i class="fas fa-chart-line"></i> 计算进度</h3>
+        <h3><el-icon class="section-title-icon"><TrendCharts /></el-icon> 计算进度</h3>
         <el-progress
           :percentage="overallProgress"
           :status="progressStatus()"
@@ -127,7 +127,10 @@
       </div>
 
       <div v-if="computationMessage" :class="['message-display', messageClass()]">
-        <i class="fas" :class="messageIconClass()"></i> {{ computationMessage }}
+        <el-icon class="message-icon" :class="{ 'rotating-icon': getCalculationStatus() === 'running' }">
+          <component :is="messageIconComponent()" />
+        </el-icon>
+        {{ computationMessage }}
       </div>
 
       <div class="actions">
@@ -137,7 +140,7 @@
           @click="viewResults"
           class="action-button success-btn"
         >
-          <i class="fas fa-chart-bar"></i> 查看结果
+          <el-icon><Histogram /></el-icon> 查看结果
         </el-button>
         <el-button
           v-if="getCalculationStatus() === 'running'"
@@ -146,7 +149,7 @@
           @click="cancelComputation"
           class="action-button danger-btn"
         >
-          <i class="fas fa-stop"></i> 取消计算
+          <el-icon><CircleClose /></el-icon> 取消计算
         </el-button>
         <el-button
           v-else
@@ -154,14 +157,14 @@
           @click="resetComputation"
           class="action-button warning-btn"
         >
-          <i class="fas fa-redo"></i> 重置
+          <el-icon><RefreshRight /></el-icon> 重置
         </el-button>
       </div>
     </div>
 
     <div v-if="!shouldShowDetails" class="empty-state">
       <div class="empty-state-icon">
-        <i class="fas fa-wind fa-3x"></i>
+        <el-icon class="empty-state-wind"><WindPower /></el-icon>
       </div>
       <div class="empty-state-text">
         点击"开始计算"按钮启动风场模拟计算过程
@@ -173,7 +176,22 @@
 <script setup>
 import { ref, onMounted, watch, nextTick, computed } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { Loading, Check, Close, VideoPlay } from '@element-plus/icons-vue';
+import {
+  Loading,
+  Check,
+  Close,
+  VideoPlay,
+  List,
+  Cpu,
+  TrendCharts,
+  Histogram,
+  CircleClose,
+  RefreshRight,
+  WindPower,
+  InfoFilled,
+  CircleCheckFilled,
+  WarningFilled,
+} from '@element-plus/icons-vue';
 import axios from 'axios';
 import { useRoute, useRouter } from 'vue-router';
 import { useCaseStore } from '../store/caseStore';
@@ -264,15 +282,12 @@ const messageClass = () => {
   return '';
 };
 
-const messageIconClass = () => {
+const messageIconComponent = () => {
   const status = getCalculationStatus();
-  if (status === 'running')
-    return 'fa-info-circle';
-  if (status === 'completed')
-    return 'fa-check-circle';
-  if (status === 'error')
-    return 'fa-exclamation-circle';
-  return 'fa-info-circle';
+  if (status === 'running') return Loading;
+  if (status === 'completed') return CircleCheckFilled;
+  if (status === 'error') return WarningFilled;
+  return InfoFilled;
 };
 
 const terminalOutput = computed(() => {
@@ -709,6 +724,16 @@ h3 i {
   flex-shrink: 0;
 }
 
+.section-title-icon {
+  margin-right: 8px;
+  vertical-align: -2px;
+}
+
+.message-icon {
+  margin-right: 8px;
+  vertical-align: -2px;
+}
+
 .success-message {
   background: linear-gradient(135deg, #f0fff4 0%, #e8f5e8 100%);
   color: #52c41a;
@@ -774,6 +799,10 @@ h3 i {
 .empty-state-icon {
   margin-bottom: 1rem;
   color: #c0c4cc;
+}
+
+.empty-state-wind {
+  font-size: 48px;
 }
 
 .empty-state-text {

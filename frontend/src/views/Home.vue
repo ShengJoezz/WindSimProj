@@ -30,14 +30,14 @@
         致力于前沿技术研究，提供高效、精准的复杂地形风流场仿真解决方案。
       </p>
       <div class="scroll-down" @click="scrollToIntro">
-        <i class="fas fa-chevron-down"></i>
+        <el-icon><ArrowDown /></el-icon>
       </div>
     </div>
     <div class="content-section">
       <div class="intro-section" ref="introSection">
         <div class="intro-card" v-for="(item, index) in features" :key="index">
           <div class="intro-icon-wrapper">
-            <i :class="item.icon"></i>
+            <el-icon class="intro-icon"><component :is="item.icon" /></el-icon>
           </div>
           <h4 class="intro-title">{{ item.title }}</h4>
           <p class="intro-text">{{ item.description }}</p>
@@ -48,8 +48,6 @@
 </template>
 
 <style scoped>
-@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.3.0/css/all.min.css');
-
 .home-container {
   min-height: 100vh;
   background-color: #f5f7fa;
@@ -273,7 +271,7 @@
   100% { transform: translateY(0px); }
 }
 
-.intro-icon-wrapper i {
+.intro-icon {
   font-size: 2rem;
   color: white;
 }
@@ -326,7 +324,7 @@
   background: rgba(255, 255, 255, 0.2);
 }
 
-.scroll-down i {
+.scroll-down :deep(.el-icon) {
   font-size: 20px;
   color: white;
 }
@@ -421,71 +419,79 @@ html {
 
 <script setup>
 import { onMounted, ref } from 'vue';
+import { ArrowDown, Cpu, MapLocation, TrendCharts } from '@element-plus/icons-vue';
 const banner = ref(null);
 const introSection = ref(null);
 
 const features = [
   {
-    icon: 'fas fa-cogs',
+    icon: Cpu,
     title: '高效计算',
     description: '利用先进的计算流体力学 (CFD) 技术，提供快速、准确的模拟结果.'
   },
   {
-    icon: 'fas fa-mountain',
+    icon: MapLocation,
     title: '复杂地形',
     description: '精确模拟各种复杂地形条件下的风流场，包括山脉、峡谷、城市等.'
   },
   {
-    icon: 'fas fa-chart-line',
+    icon: TrendCharts,
     title: '数据可视化',
     description: '提供丰富的数据可视化工具，帮助用户直观地理解模拟结果.'
   }
 ];
 
-onMounted(() => {
-  // 配置particles.js
-  window.particlesJS && window.particlesJS('particles-js', {
-    particles: {
-      number: { value: 80, density: { enable: true, value_area: 800 } },
-      color: { value: '#ffffff' },
-      shape: { type: 'circle' },
-      opacity: {
-        value: 0.5,
-        random: true,
-        anim: { enable: true, speed: 1, opacity_min: 0.1, sync: false }
-      },
-      size: {
-        value: 3,
-        random: true,
-        anim: { enable: false }
-      },
-      line_linked: {
-        enable: true,
-        distance: 150,
-        color: '#ffffff',
-        opacity: 0.4,
-        width: 1
-      },
-      move: {
-        enable: true,
-        speed: 2,
-        direction: 'none',
-        random: false,
-        straight: false,
-        out_mode: 'out',
-        bounce: false
-      }
-    },
-    interactivity: {
-      detect_on: 'canvas',
-      events: {
-        onhover: { enable: true, mode: 'grab' },
-        onclick: { enable: true, mode: 'push' },
-        resize: true
-      }
-    },
-    retina_detect: true
-  });
+onMounted(async () => {
+  // 配置 particles.js（使用本地依赖，避免外网 CDN 依赖）
+  try {
+    await import('particles.js');
+    if (window.particlesJS) {
+      window.particlesJS('particles-js', {
+        particles: {
+          number: { value: 80, density: { enable: true, value_area: 800 } },
+          color: { value: '#ffffff' },
+          shape: { type: 'circle' },
+          opacity: {
+            value: 0.5,
+            random: true,
+            anim: { enable: true, speed: 1, opacity_min: 0.1, sync: false }
+          },
+          size: {
+            value: 3,
+            random: true,
+            anim: { enable: false }
+          },
+          line_linked: {
+            enable: true,
+            distance: 150,
+            color: '#ffffff',
+            opacity: 0.4,
+            width: 1
+          },
+          move: {
+            enable: true,
+            speed: 2,
+            direction: 'none',
+            random: false,
+            straight: false,
+            out_mode: 'out',
+            bounce: false
+          }
+        },
+        interactivity: {
+          detect_on: 'canvas',
+          events: {
+            onhover: { enable: true, mode: 'grab' },
+            onclick: { enable: true, mode: 'push' },
+            resize: true
+          }
+        },
+        retina_detect: true
+      });
+    }
+  } catch (e) {
+    console.warn('particles.js 加载失败，将跳过粒子背景:', e);
+  }
   const cards = document.querySelectorAll('.intro-card');
     cards.forEach(card => {
       card.addEventListener('mousemove', (e) => {
