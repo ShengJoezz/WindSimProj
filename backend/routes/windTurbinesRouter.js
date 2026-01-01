@@ -29,6 +29,40 @@ const windTurbineSchema = Joi.object({
   model: Joi.string().allow('', null).optional()
 });
 
+const normalizeModelId = (model, fallbackType) => {
+  const asString = model === null || model === undefined ? '' : String(model).trim();
+  if (asString) {
+    const asNumber = Number(asString);
+    if (Number.isFinite(asNumber)) {
+      const intModel = Math.trunc(asNumber);
+      if (intModel >= 1 && intModel <= 10) return String(intModel);
+    }
+  }
+
+  const asType = Number(fallbackType);
+  if (Number.isFinite(asType)) {
+    const intType = Math.trunc(asType);
+    if (intType >= 1 && intType <= 10) return String(intType);
+  }
+  return '1';
+};
+
+const normalizeTypeId = (type, modelId) => {
+  const fromType = Number(type);
+  if (Number.isFinite(fromType)) {
+    const intType = Math.trunc(fromType);
+    if (intType >= 1 && intType <= 10) return intType;
+  }
+
+  const fromModel = Number(modelId);
+  if (Number.isFinite(fromModel)) {
+    const intType = Math.trunc(fromModel);
+    if (intType >= 1 && intType <= 10) return intType;
+  }
+
+  return 1;
+};
+
 // 获取风机数据路径的辅助函数
 const getWindTurbinesPath = (caseId) => {
   return path.join(__dirname, '../uploads', caseId, 'wind_turbines.json');
@@ -52,6 +86,7 @@ const readWindTurbines = (caseId) => {
 // 写入风机数据的辅助函数
 const writeWindTurbines = (caseId, turbines) => {
   const turbinesPath = getWindTurbinesPath(caseId);
+  fs.mkdirSync(path.dirname(turbinesPath), { recursive: true });
   fs.writeFileSync(turbinesPath, JSON.stringify(turbines, null, 2), 'utf-8');
 };
 
@@ -61,13 +96,9 @@ router.post('/', (req, res) => {
   const { caseId } = req.params;
   const turbineData = req.body;
 
-  // --- 新增日志 ---
-  console.log(`[DEBUG] Received single turbine data for case ${caseId}:`, JSON.stringify(turbineData, null, 2));
-
   // 验证输入
   const { error, value } = windTurbineSchema.validate(turbineData);
   if (error) {
-    // --- 新增日志 ---
     console.error(`[VALIDATION FAILED] Joi validation error for case ${caseId}:`, error.details[0].message);
     return res.status(400).json({ success: false, message: error.details[0].message });
   }
@@ -82,23 +113,28 @@ router.post('/', (req, res) => {
 
   // 检查重复的名称或 ID
   if (turbines.some(t => t.id === value.id)) {
-    // --- 新增日志 ---
     console.error(`[DUPLICATE CHECK FAILED] Duplicate ID found for case ${caseId}. ID: ${value.id}`);
     return res.status(400).json({ success: false, message: `Wind turbine with the same ID (${value.id}) already exists.` });
   }
   if (turbines.some(t => t.name === value.name)) {
-      // --- 新增日志 ---
       console.error(`[DUPLICATE CHECK FAILED] Duplicate name found for case ${caseId}. Name: ${value.name}`);
       return res.status(400).json({ success: false, message: `Wind turbine with the same name ('${value.name}') already exists.` });
   }
 
+  const modelId = normalizeModelId(value.model, value.type);
+  const typeId = normalizeTypeId(value.type, modelId);
+  const normalized = {
+    ...value,
+    model: modelId,
+    type: typeId,
+  };
+
   // 添加新风机
-  turbines.push(value);
+  turbines.push(normalized);
   writeWindTurbines(caseId, turbines);
 
-  // --- 新增日志 ---
-  console.log(`[SUCCESS] Wind turbine '${value.name}' added successfully to case ${caseId}.`);
-  res.status(201).json({ success: true, message: 'Wind turbine added successfully.', turbine: value });
+  console.log(`[SUCCESS] Wind turbine '${normalized.name}' added successfully to case ${caseId}.`);
+  res.status(201).json({ success: true, message: 'Wind turbine added successfully.', turbine: normalized });
 });
 
 // 路由：POST /api/cases/:caseId/wind-turbines/bulk
@@ -109,7 +145,7 @@ router.post('/bulk', async (req, res) => {
 
   console.log('Received bulk wind turbines request:', {
     caseId,
-    turbinesCount: turbinesData.length
+    turbinesCount: Array.isArray(turbinesData) ? turbinesData.length : null,
   });
 
   try {
@@ -123,27 +159,90 @@ router.post('/bulk', async (req, res) => {
     const validTurbines = [];
     const errors = [];
 
+    // Read existing turbines if any
+    const casePath = path.join(__dirname, '../uploads', caseId);
+    const turbinesPath = path.join(casePath, 'wind_turbines.json');
+    await fs.promises.mkdir(casePath, { recursive: true });
+
+    let existingTurbines = [];
+    try {
+      if (await fs.promises.access(turbinesPath).then(() => true).catch(() => false)) {
+        const data = await fs.promises.readFile(turbinesPath, 'utf8');
+        existingTurbines = JSON.parse(data);
+      }
+    } catch (error) {
+      console.warn('No existing turbines found or error reading file:', error);
+    }
+
+    const existingIds = new Set(existingTurbines.map(t => t?.id).filter(Boolean));
+    const existingNames = new Set(existingTurbines.map(t => t?.name).filter(Boolean));
+    const incomingIds = new Set();
+    const incomingNames = new Set();
+
     // Validate each turbine
     turbinesData.forEach((turbine, index) => {
       try {
-        // Basic validation
-        if (!turbine.name || !turbine.longitude || !turbine.latitude || 
-            !turbine.hubHeight || !turbine.rotorDiameter) {
-          errors.push(`第 ${index + 1} 行数据不完整`);
+        const name = turbine?.name ? String(turbine.name).trim() : '';
+        const longitude = turbine?.longitude;
+        const latitude = turbine?.latitude;
+        const hubHeight = turbine?.hubHeight;
+        const rotorDiameter = turbine?.rotorDiameter;
+
+        if (!name) {
+          errors.push(`第 ${index + 1} 行缺少名称`);
           return;
         }
 
-        // Add unique ID if not present
+        const lon = Number(longitude);
+        const lat = Number(latitude);
+        const hub = Number(hubHeight);
+        const rotor = Number(rotorDiameter);
+
+        if (!Number.isFinite(lon) || lon < -180 || lon > 180) {
+          errors.push(`第 ${index + 1} 行经度无效 (${longitude})`);
+          return;
+        }
+        if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+          errors.push(`第 ${index + 1} 行纬度无效 (${latitude})`);
+          return;
+        }
+        if (!Number.isFinite(hub) || hub <= 0) {
+          errors.push(`第 ${index + 1} 行轮毂高度无效 (${hubHeight})`);
+          return;
+        }
+        if (!Number.isFinite(rotor) || rotor <= 0) {
+          errors.push(`第 ${index + 1} 行叶轮直径无效 (${rotorDiameter})`);
+          return;
+        }
+
+        const modelId = normalizeModelId(turbine?.model, turbine?.type);
+        const typeId = normalizeTypeId(turbine?.type, modelId);
+
+        // Add unique ID if not present (avoid collisions in existing file)
+        const requestedId = turbine?.id ? String(turbine.id).trim() : '';
+        let id = requestedId || `WT_${Date.now()}_${index}`;
+        if (existingIds.has(id) || incomingIds.has(id)) {
+          id = uuidv4();
+        }
+
+        if (existingNames.has(name) || incomingNames.has(name)) {
+          errors.push(`第 ${index + 1} 行风机名称重复: "${name}"`);
+          return;
+        }
+
         const validTurbine = {
-          id: turbine.id || `WT_${Date.now()}_${index}`,
-          name: turbine.name,
-          longitude: parseFloat(turbine.longitude),
-          latitude: parseFloat(turbine.latitude),
-          hubHeight: parseFloat(turbine.hubHeight),
-          rotorDiameter: parseFloat(turbine.rotorDiameter),
-          model: turbine.model || null
+          id,
+          name,
+          longitude: lon,
+          latitude: lat,
+          hubHeight: hub,
+          rotorDiameter: rotor,
+          model: modelId,
+          type: typeId,
         };
 
+        incomingIds.add(validTurbine.id);
+        incomingNames.add(validTurbine.name);
         validTurbines.push(validTurbine);
       } catch (error) {
         errors.push(`第 ${index + 1} 行数据验证失败: ${error.message}`);
@@ -157,24 +256,6 @@ router.post('/bulk', async (req, res) => {
         message: '数据验证失败',
         errors
       });
-    }
-
-    // Save turbines to the case directory
-    const casePath = path.join(__dirname, '../uploads', caseId);
-    const turbinesPath = path.join(casePath, 'wind_turbines.json');
-
-    // Create directory if it doesn't exist
-    await fs.promises.mkdir(casePath, { recursive: true });
-
-    // Read existing turbines if any
-    let existingTurbines = [];
-    try {
-      if (await fs.promises.access(turbinesPath).then(() => true).catch(() => false)) {
-        const data = await fs.promises.readFile(turbinesPath, 'utf8');
-        existingTurbines = JSON.parse(data);
-      }
-    } catch (error) {
-      console.warn('No existing turbines found or error reading file:', error);
     }
 
     // Combine existing and new turbines

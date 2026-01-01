@@ -23,7 +23,7 @@
           <el-tooltip content="定位风机" placement="top">
             <el-button
               type="text"
-              icon="el-icon-aim"
+              :icon="Aim"
               @click="$emit('focus-turbine', turbine)"
               class="action-button"
             />
@@ -31,7 +31,7 @@
           <el-tooltip content="删除风机" placement="top">
             <el-button
                 type="text"
-                icon="el-icon-delete"
+                :icon="Delete"
                 @click="confirmDelete(turbine)"
                 class="action-button"
                   :loading="deletingTurbineId === turbine.id"
@@ -78,7 +78,7 @@
  */
 import { ref } from 'vue';
 import { ElMessageBox } from 'element-plus';
-import { throttle } from 'lodash';
+import { Aim, Delete } from '@element-plus/icons-vue';
 
 const props = defineProps({
   windTurbines: {
@@ -90,10 +90,6 @@ const props = defineProps({
 const emit = defineEmits(["focus-turbine", "delete-turbine"]);
 
 const deletingTurbineId = ref(null);
-
-const confirmDeleteThrottled = throttle((turbine) => {
-  confirmDelete(turbine);
-}, 500); // Throttle to 500ms
 
 const confirmDelete = (turbine) => {
   ElMessageBox.confirm(

@@ -16,6 +16,7 @@
     ref="turbineFormRef"
     label-position="top"
     class="turbine-form"
+    :disabled="disabled"
   >
     <el-form-item label="风机名称" prop="name">
       <el-input
@@ -23,6 +24,7 @@
         placeholder="请输入风机名称"
         clearable
         class="stylish-input"
+        :disabled="disabled"
       />
     </el-form-item>
 
@@ -36,6 +38,7 @@
             placeholder="输入经度 (-180 ~ 180)"
             clearable
             class="stylish-input"
+            :disabled="disabled"
           />
         </el-form-item>
       </el-col>
@@ -48,6 +51,7 @@
             placeholder="输入纬度 (-90 ~ 90)"
             clearable
             class="stylish-input"
+            :disabled="disabled"
           />
         </el-form-item>
       </el-col>
@@ -62,6 +66,7 @@
             placeholder="输入高度"
             clearable
             class="stylish-input"
+            :disabled="disabled"
           />
         </el-form-item>
       </el-col>
@@ -73,6 +78,7 @@
             placeholder="输入直径"
             clearable
             class="stylish-input"
+            :disabled="disabled"
           />
         </el-form-item>
       </el-col>
@@ -89,6 +95,7 @@
           placeholder="输入模型ID (1-10)"
           clearable
           class="stylish-input model-id-input"
+          :disabled="disabled"
         >
           <template #suffix>
             <el-tooltip
@@ -112,7 +119,7 @@
         type="primary"
         @click="submitForm"
         class="submit-button"
-        :disabled="isSubmitting"
+        :disabled="disabled || isSubmitting"
         block
       >
         <span v-if="isSubmitting">提交中...</span>
@@ -133,6 +140,13 @@ import { ref } from "vue";
 import { ElMessage } from "element-plus";
 import { QuestionFilled, InfoFilled } from '@element-plus/icons-vue';
 import { generateUUID } from '../../utils/uuid';
+
+const props = defineProps({
+  disabled: {
+    type: Boolean,
+    default: false,
+  },
+});
 
 const emit = defineEmits(["add-turbine"]);
 
@@ -237,7 +251,6 @@ const submitForm = async () => {
     let modelId = turbineForm.value.turbineModelId;
     if (!modelId || modelId === '') {
       modelId = 1; // 默认值为1
-      ElMessage.info('风机模型ID已自动设为默认值：1');
     } else {
       modelId = parseInt(modelId);
     }
@@ -254,14 +267,11 @@ const submitForm = async () => {
       type: modelId, // 数字格式，用于OpenFOAM求解器
     };
 
-    console.log('🚀 Sending turbine data:', newTurbine); // 调试用
-
     emit("add-turbine", newTurbine);
     ElMessage.success(`风机添加成功，使用模型ID：${modelId}`);
     turbineFormRef.value.resetFields();
   } catch (validationError) {
     ElMessage.warning("请正确填写所有必填项");
-    console.log("表单验证失败:", validationError);
   } finally {
     isSubmitting.value = false;
   }

@@ -20,8 +20,22 @@
       <!-- 移除 debug overlay -->
     </div>
 
-    <div v-if="!hasGeoTIFF" class="terrain-loading">
-      <el-loading text="加载地形中..." />
+    <div v-if="terrainLoadState !== 'loaded'" class="terrain-loading">
+      <div v-if="terrainLoadState === 'loading'" class="loading-content" role="status" aria-live="polite">
+        <el-icon class="loading-icon"><Loading /></el-icon>
+        <div class="loading-text">加载地形中...</div>
+      </div>
+
+      <el-empty
+        v-else-if="terrainLoadState === 'missing'"
+        description="未找到地形文件，请先上传 terrain.tif"
+      >
+        <el-button type="primary" @click="goToCases">返回工况列表</el-button>
+      </el-empty>
+
+      <el-empty v-else description="地形加载失败，请检查文件或服务器日志">
+        <el-button type="primary" @click="reloadTerrain">重试加载</el-button>
+      </el-empty>
     </div>
 
     <!-- Top Toolbar -->
@@ -77,11 +91,12 @@
  * 主组件，负责初始化 Three.js 场景，并集成所有子组件。
  */
 
-import { ref, onMounted, onBeforeUnmount, watch, computed, nextTick } from "vue";
-import { useRoute, onBeforeRouteLeave } from 'vue-router';
+import { ref, onMounted, onBeforeUnmount, watch, computed } from "vue";
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router';
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
-import { ElLoading, ElMessage, ElMessageBox, ElLoadingService } from "element-plus";
+import { ElLoading, ElMessage, ElMessageBox } from "element-plus";
+import { Loading } from '@element-plus/icons-vue';
 import { useCaseStore } from "../../store/caseStore";
 import TopToolbar from "./TopToolbar.vue";
 import ControlPanel from "./ControlPanel.vue";
@@ -91,14 +106,14 @@ import TurbineTooltip from "./TurbineTooltip.vue";
 // import TerrainClipping from "./TerrainClipping.vue"; // Removed TerrainClipping Component
 import axios from "axios";
 import { fromArrayBuffer } from "geotiff";
-import Papa from "papaparse";
 import * as TWEEN from "@tweenjs/tween.js";
 import lodash from 'lodash';
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader"; // Step 2: Import GLTFLoader
 
 // Debug flags and settings
 const ROTATION_TEST_MODE = false; // Set to true to test rotation axes
-const LOG_LEVEL = 2; // 0: none, 1: errors/warnings, 2: info, 3: debug
+// 2: info, 3: errors (production default)
+const LOG_LEVEL = import.meta.env.DEV ? 2 : 3;
 
 // Turbine Scaling Constants
 const MIN_SCALE_FACTOR = 0.5; // Minimum scale factor when far away
@@ -109,19 +124,21 @@ const MAX_DISTANCE_FOR_SCALING = 2000; // Distance at which minimum scale is rea
 
 // Logging function with level control
 const log = (level, message, ...args) => {
-  if (level <= LOG_LEVEL) {
-    const prefix = ['[DEBUG]', '[INFO]', '[WARN]', '[ERROR]'][level] || '[LOG]';
-    console.log(prefix, message, ...args);
-  }
+  if (level < LOG_LEVEL) return;
+  const prefix = level >= 3 ? '[ERROR]' : '[INFO]';
+  if (level >= 3) console.error(prefix, message, ...args);
+  else console.log(prefix, message, ...args);
 };
 
 // 初始化 Store 和 Route
 const caseStore = useCaseStore();
 const route = useRoute();
+const router = useRouter();
 
 // 引用和响应式变量
 const terrainContainer = ref(null);
 const hasGeoTIFF = ref(false);
+const terrainLoadState = ref('loading'); // loading | loaded | missing | error
 const wireframe = ref(false);
 const bladeRotation = ref(true);
 const rotationSpeed = ref(1.0);
@@ -133,7 +150,7 @@ const sidebars = ref({
 const hoveredTurbine = ref(null);
 const tooltipPos = ref({ x: 0, y: 0 });
 const hasRendererInitialized = ref(false);
-const isSceneInitialized = ref(ref(false)); // Track if scene is initialized, using ref for reactivity
+const isSceneInitialized = ref(false); // Track if scene is initialized
 // const cropPreviewActive = ref(false); // Removed
 // const cropPreviewBounds = ref(null); // Removed
 // let cropPreviewMesh = null; // Removed
@@ -217,6 +234,16 @@ const rawGeoBounds = computed(() => {
     maxLon: caseStore.maxLongitude,
   };
 });
+
+const goToCases = () => {
+  router.push({ name: "Cases" });
+};
+
+const reloadTerrain = async () => {
+  const caseId = caseStore.caseId || route.params.caseId;
+  if (!caseId) return;
+  await loadGeoTIFF(caseId);
+};
 
 // 方法
 
@@ -638,7 +665,7 @@ const confirmDeleteTurbine = (turbine) => {
     }
   )
     .then(async () => {
-      await caseStore.removeWindTurbine(turbine.id);
+      await caseStore.deleteWindTurbine(turbine.id);
       deleteWindTurbineFromScene(turbine.id);
       ElMessage.success(`风机 ${turbine.name} 已被删除`);
     })
@@ -997,6 +1024,8 @@ const getTerrainHeight = (x, z) => {
 
 // 加载 GeoTIFF 数据
 const loadGeoTIFF = async (caseId) => {
+  terrainLoadState.value = 'loading';
+  hasGeoTIFF.value = false;
   const loadingInstance = ElLoading.service({
     lock: true,
     text: "加载地形数据中...",
@@ -1127,15 +1156,19 @@ const loadGeoTIFF = async (caseId) => {
     scene.add(terrainMesh);
 
     hasGeoTIFF.value = true;
+    terrainLoadState.value = 'loaded';
 
     // 重置摄像机以聚焦地形
     resetCamera();
   } catch (error) {
     console.error("加载 GeoTIFF 失败", error);
     hasGeoTIFF.value = false;
+    terrainLoadState.value = error?.response?.status === 404 ? 'missing' : 'error';
 
     if (caseId) {
-      ElMessage.error("加载 GeoTIFF 数据失败");
+      if (error?.response?.status !== 404) {
+        ElMessage.error("加载 GeoTIFF 数据失败");
+      }
     }
   } finally {
     loadingInstance.close();
@@ -1265,7 +1298,8 @@ const initThreeJS = () => {
   // Then proceed with initialization
   if (!terrainContainer.value) {
     console.error('[INIT_THREE_JS] Terrain container not found');
-    return;
+    isSceneInitialized.value = false;
+    return false;
   }
 
   const width = terrainContainer.value.clientWidth;
@@ -1368,6 +1402,7 @@ log(2, '[INIT_THREE_JS] Scene created.');
   // Set the initialization flag to true
   isSceneInitialized.value = true;
   log(2, '[INIT_THREE_JS] Scene fully initialized. isSceneInitialized.value =', isSceneInitialized.value);
+  return true;
 };
 
 
@@ -1457,6 +1492,13 @@ const animate = () => {
   }
 };
 
+const stopAnimationLoop = () => {
+  if (animationFrameId) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+  }
+};
+
 // 处理批量导入风机
 // MODIFY: handleBulkImport (now triggers store update)
 const handleBulkImport = async (turbines) => {
@@ -1535,6 +1577,10 @@ const disposeThreeResources = () => {
   // Clean up renderer
   if (renderer) {
     log(2, '[DISPOSE_RESOURCES] Disposing renderer...');
+    const canvas = renderer.domElement;
+    if (canvas && canvas.parentNode) {
+      canvas.parentNode.removeChild(canvas);
+    }
     renderer.dispose();
     renderer.forceContextLoss();
     renderer.domElement = null;
@@ -1567,110 +1613,95 @@ const disposeThreeResources = () => {
 
 // --- Removed Terrain Drag Selection Functionality (startDragSelection, cancelDragSelection, onDragSelectionStart, onDragSelectionMove, onDragSelectionEnd, createDragSelectionBox, updateDragSelectionBox, calculateSquareBounds, xzToLatLon) ---
 
-// --- Debugging Tools ---
-// Add this function to your global scope for debugging
-window.debugTurbineRotation = function(turbineIndex = 0, axis = 'z', speed = 1.0) {
-  const turbines = Array.from(turbineMeshes.value.values());
+if (import.meta.env.DEV) {
+  // --- Debugging Tools ---
+  window.debugTurbineRotation = function(turbineIndex = 0, axis = 'z', speed = 1.0) {
+    const turbines = Array.from(turbineMeshes.value.values());
 
-  if (turbines.length <= turbineIndex) {
-    console.error(`[TEST] No turbine found at index ${turbineIndex}`);
-    return;
-  }
+    if (turbines.length <= turbineIndex) {
+      console.error(`[TEST] No turbine found at index ${turbineIndex}`);
+      return;
+    }
 
-  const turbine = turbines[turbineIndex];
-  const bladeComponent = turbine.userData.bladeComponents?.[0];
+    const turbine = turbines[turbineIndex];
+    const bladeComponent = turbine.userData.bladeComponents?.[0];
 
-  if (!bladeComponent) {
-    console.error('[TEST] No blade component found');
-    return;
-  }
+    if (!bladeComponent) {
+      console.error('[TEST] No blade component found');
+      return;
+    }
 
-  // Stop automatic rotation
-  const originalRotation = bladeRotation.value;
-  bladeRotation.value = false;
+    // Stop automatic rotation
+    const originalRotation = bladeRotation.value;
+    bladeRotation.value = false;
 
-  // Reset rotations
-  bladeComponent.rotation.x = 0;
-  bladeComponent.rotation.y = 0;
-  bladeComponent.rotation.z = 0;
+    // Reset rotations
+    bladeComponent.rotation.x = 0;
+    bladeComponent.rotation.y = 0;
+    bladeComponent.rotation.z = 0;
 
-  console.log(`[TEST] Testing ${axis}-axis rotation on turbine ${turbineIndex}`);
+    console.log(`[TEST] Testing ${axis}-axis rotation on turbine ${turbineIndex}`);
 
-  // Create a testing animation
-  const testRotationAnimation = () => {
-    const targetRotation = {};
-    targetRotation[axis] = Math.PI * 2; // 360 degrees
+    // Create a testing animation
+    const testRotationAnimation = () => {
+      const targetRotation = {};
+      targetRotation[axis] = Math.PI * 2; // 360 degrees
 
-    new TWEEN.Tween(bladeComponent.rotation)
-      .to(targetRotation, 2000 / speed)
-      .easing(TWEEN.Easing.Linear.None)
-      .onComplete(() => {
-        console.log(`[TEST] ${axis}-axis rotation test complete`);
-        // Restore original rotation state
-        bladeRotation.value = originalRotation;
-      })
-      .start();
+      new TWEEN.Tween(bladeComponent.rotation)
+        .to(targetRotation, 2000 / speed)
+        .easing(TWEEN.Easing.Linear.None)
+        .onComplete(() => {
+          console.log(`[TEST] ${axis}-axis rotation test complete`);
+          // Restore original rotation state
+          bladeRotation.value = originalRotation;
+        })
+        .start();
+    };
+
+    testRotationAnimation();
+
+    return `Testing ${axis}-axis rotation. The blades should complete a full spin in 2 seconds.`;
   };
 
-  testRotationAnimation();
+  window.toggleComponentVisibility = function(turbineIndex = 0, componentType = 'main') {
+    const turbines = Array.from(turbineMeshes.value.values());
 
-  return `Testing ${axis}-axis rotation. The blades should complete a full spin in 2 seconds.`;
-};
-
-// Add function to toggle visibility of components for debugging
-window.toggleComponentVisibility = function(turbineIndex = 0, componentType = 'main') {
-  const turbines = Array.from(turbineMeshes.value.values());
-
-  if (turbines.length <= turbineIndex) {
-    console.error(`[TEST] No turbine found at index ${turbineIndex}`);
-    return;
-  }
-
-  const turbine = turbines[turbineIndex];
-
-  if (componentType === 'main') {
-    // Find and toggle main unit
-    turbine.traverse(child => {
-      if (child.name === 'Main_Unit_WindTurbine_PBR_0') {
-        child.visible = !child.visible;
-        console.log(`[TEST] Main unit visibility: ${child.visible}`);
-      }
-    });
-  } else if (componentType === 'blades') {
-    // Toggle blade components
-    const bladeComponent = turbine.userData.bladeComponents?.[0];
-    if (bladeComponent) {
-      bladeComponent.visible = !bladeComponent.visible;
-      console.log(`[TEST] Blades visibility: ${bladeComponent.visible}`);
+    if (turbines.length <= turbineIndex) {
+      console.error(`[TEST] No turbine found at index ${turbineIndex}`);
+      return;
     }
-  }
 
-  return `Toggled ${componentType} visibility on turbine ${turbineIndex}`;
-};
+    const turbine = turbines[turbineIndex];
 
-
-window.clearDebug = function() {
-  if (window._debugHelper) {
-    window._debugHelper.parent.remove(window._debugHelper);
-    window._debugHelper = null;
-    log(2, '[DEBUG] Removed debug helpers');
-  }
-};
-
-const debugBladeRotations = () => {
-  turbineMeshes.value.forEach((turbineGroup, turbineId) => {
-    if (turbineGroup.userData.bladeComponents) {
-      turbineGroup.userData.bladeComponents.forEach((blade, index) => {
-        log(2, `Turbine ${turbineId} Blade ${index} rotation:`, {
-          x: THREE.MathUtils.radToDeg(blade.rotation.x).toFixed(2),
-          y: THREE.MathUtils.radToDeg(blade.rotation.y).toFixed(2),
-          z: THREE.MathUtils.radToDeg(blade.rotation.z).toFixed(2)
-        });
+    if (componentType === 'main') {
+      // Find and toggle main unit
+      turbine.traverse(child => {
+        if (child.name === 'Main_Unit_WindTurbine_PBR_0') {
+          child.visible = !child.visible;
+          console.log(`[TEST] Main unit visibility: ${child.visible}`);
+        }
       });
+    } else if (componentType === 'blades') {
+      // Toggle blade components
+      const bladeComponent = turbine.userData.bladeComponents?.[0];
+      if (bladeComponent) {
+        bladeComponent.visible = !bladeComponent.visible;
+        console.log(`[TEST] Blades visibility: ${bladeComponent.visible}`);
+      }
     }
-  });
-};
-// --- End Debugging Tools ---
+
+    return `Toggled ${componentType} visibility on turbine ${turbineIndex}`;
+  };
+
+  window.clearDebug = function() {
+    if (window._debugHelper) {
+      window._debugHelper.parent.remove(window._debugHelper);
+      window._debugHelper = null;
+      log(2, '[DEBUG] Removed debug helpers');
+    }
+  };
+  // --- End Debugging Tools ---
+}
 
 
 // Function to process queued turbines
@@ -1735,43 +1766,72 @@ const loadAndDisplayTurbines = async () => {
   log(2, '[LOAD_DISPLAY_TURBINES] Finished load and display turbines.');
 };
 
+const reloadForCaseId = async (newId) => {
+  if (!newId) return;
+
+  stopAnimationLoop();
+  queuedTurbines.value = [];
+  processingTurbineIds.value.clear();
+  turbineMeshes.value.clear();
+
+  if (caseStore.caseId !== newId || caseStore.currentCaseId !== newId) {
+    await caseStore.initializeCase(newId);
+  }
+
+  const initialized = initThreeJS();
+  if (!initialized) {
+    terrainLoadState.value = 'error';
+    return;
+  }
+
+  loadWindTurbineModel().catch(error => {
+    console.error('[RELOAD_CASE] Failed to preload turbine model:', error);
+    ElMessage.warning('风机模型加载失败，将使用简化模型');
+  });
+
+  animate();
+
+  await loadGeoTIFF(newId);
+  if (terrainLoadState.value === 'loaded') {
+    await loadAndDisplayTurbines();
+  }
+};
+
 onMounted(async () => { // Step 8: Update the onMounted Function
   log(2, '[ON_MOUNTED] Component mounted.');
     try {
         const { caseId, caseName } = route.params;
-         log(2, '[ON_MOUNTED] Route params:', { caseId, caseName });
-        await caseStore.initializeCase(caseId, caseName);
-        log(2, '[ON_MOUNTED] Case initialized in store.');
+        log(2, '[ON_MOUNTED] Route params:', { caseId, caseName });
 
+        if (caseId && (caseStore.caseId !== caseId || caseStore.currentCaseId !== caseId)) {
+          await caseStore.initializeCase(caseId, caseName);
+        }
 
-       initThreeJS(); // Initialize Three.js scene first
-       log(2, '[ON_MOUNTED] initThreeJS completed.');
-
+        const initialized = initThreeJS(); // Initialize Three.js scene first
+        if (!initialized) {
+          terrainLoadState.value = 'error';
+          return;
+        }
 
         // Preload the turbine model
         loadWindTurbineModel().catch(error => {
           console.error('[ON_MOUNTED] Failed to preload turbine model:', error);
           ElMessage.warning('风机模型加载失败，将使用简化模型');
         });
-        log(2, '[ON_MOUNTED] Turbine model preload initiated.');
 
+        animate(); // Start animation loop
 
-       animate(); // Start animation loop
-       log(2, '[ON_MOUNTED] Animation loop started.');
-
-
-        if (caseStore.caseId) {
-            await loadGeoTIFF(caseStore.caseId);
-            log(2, '[ON_MOUNTED] GeoTIFF loaded.');
+        if (caseId) {
+          await loadGeoTIFF(caseId);
+          if (terrainLoadState.value === 'loaded') {
             await loadAndDisplayTurbines(); // Load and display turbines after scene is ready
-            log(2, '[ON_MOUNTED] Turbines loaded and displayed.');
           }
-         // Socket connection is managed centrally by CaseDetails/caseStore.initializeCase
-         log(2, '[ON_MOUNTED] Socket connection handled by store initialization.');
-
-
+        } else {
+          terrainLoadState.value = 'missing';
+        }
     } catch (error) {
         console.error('[ON_MOUNTED] Initialization error:', error);
+        terrainLoadState.value = 'error';
     }
     log(2, '[ON_MOUNTED] Component mount process finished.');
 });
@@ -1854,15 +1914,11 @@ watch(
   () => route.params.caseId,
   async (newId, oldId) => {
     log(2, `[WATCH_ROUTE_CASE_ID] Route caseId changed. New ID: ${newId}, Old ID: ${oldId}`);
-    if (newId && newId !== oldId) {
-      // Clean up before loading new case
-      disposeThreeResources();
-      log(2, '[WATCH_ROUTE_CASE_ID] Resources disposed for route change.');
-      await loadAndDisplayTurbines();
-      log(2, '[WATCH_ROUTE_CASE_ID] Turbines loaded and displayed for new case.');
-    } else {
+    if (!newId || newId === oldId) {
       log(2, `[WATCH_ROUTE_CASE_ID] Case ID is the same or new ID is null, skipping reload.`);
+      return;
     }
+    await reloadForCaseId(newId);
   }
 );
 
@@ -1968,15 +2024,28 @@ watch(
   border: 1px solid rgba(255, 255, 255, 0.9);
 }
 
-:deep(.el-loading-text) {
-  font-size: 16px;
-  font-weight: 500;
-  color: #409EFF;
-  margin-top: 16px;
+.loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
 }
 
-:deep(.el-loading-spinner) {
-  transform: scale(1.2);
+.loading-icon {
+  font-size: 32px;
+  color: #409EFF;
+  animation: spin 1s linear infinite;
+}
+
+.loading-text {
+  font-size: 16px;
+  font-weight: 600;
+  color: #409EFF;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* Removed Crop Preview Styles */

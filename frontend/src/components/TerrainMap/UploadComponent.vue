@@ -19,8 +19,9 @@
       :before-upload="beforeUpload"
       accept=".txt,.csv"
       drag
+      :disabled="disabled"
     >
-      <i class="el-icon-upload"></i>
+      <el-icon><UploadFilled /></el-icon>
       <div class="el-upload__text">
         拖拽文件到此处或 <em>点击上传</em>
       </div>
@@ -53,6 +54,14 @@
 <script setup>
 import { ref } from 'vue';
 import { ElMessage } from 'element-plus';
+import { UploadFilled } from '@element-plus/icons-vue';
+
+defineProps({
+  disabled: {
+    type: Boolean,
+    default: false,
+  },
+});
 
 const emit = defineEmits(['import-turbines']);
 const uploadProgress = ref(0);
@@ -68,8 +77,6 @@ const convertDMSToDecimal = (dmsStr) => {
   const normalizedStr = dmsStr
     .replace(/′/g, "'")  // 替换特殊分符号为普通单引号
     .replace(/″/g, '"'); // 替换特殊秒符号为普通双引号
-
-  console.log("标准化后的 DMS 字符串:", normalizedStr); // 调试输出
 
   // 匹配带方向的格式
   const dmsRegexWithDirection = /(\d+)°(\d+)'(\d+(\.\d+)?)"([NSEW])/i;
@@ -91,8 +98,6 @@ const convertDMSToDecimal = (dmsStr) => {
     if (direction === 'S' || direction === 'W') {
       decimal = -decimal;
     }
-
-    console.log("带方向 DMS 转换结果:", decimal); // 调试输出
     return decimal;
   } else {
     // 尝试匹配不带方向指示符的格式
@@ -103,12 +108,10 @@ const convertDMSToDecimal = (dmsStr) => {
       const seconds = parseFloat(match[3]) / 3600;
 
       const decimal = degrees + minutes + seconds;
-      console.log("不带方向 DMS 转换结果:", decimal); // 调试输出
       return decimal;
     }
   }
 
-  console.log("非 DMS 格式，尝试直接解析:", dmsStr); // 调试输出
   // 如果不是度分秒格式，尝试直接解析为十进制
   return parseFloat(dmsStr);
 };
@@ -182,12 +185,30 @@ const validateTurbineData = (data) => {
 };
 
 const beforeUpload = (file) => {
-  const validTypes = ['text/plain', 'text/csv', 'application/vnd.ms-excel'];
-  if (!validTypes.includes(file.type)) {
+  const validExts = ['txt', 'csv'];
+  const ext = (file?.name || '').split('.').pop()?.toLowerCase();
+  if (!ext || !validExts.includes(ext)) {
     ElMessage.error('请上传 .txt 或 .csv 文件');
     return false;
   }
   return true;
+};
+
+const detectDelimiter = (text) => {
+  const sampleLines = text
+    .split('\n')
+    .map(l => l.trim())
+    .filter(Boolean)
+    .slice(0, 10);
+
+  const countDelimiter = (delimiter) =>
+    sampleLines.reduce((acc, line) => acc + (line.split(delimiter).length - 1), 0);
+
+  const commas = countDelimiter(',');
+  const tabs = countDelimiter('\t');
+
+  if (commas === 0 && tabs === 0) return ','; // default to comma
+  return commas >= tabs ? ',' : '\t';
 };
 
 const handleFileChange = (file) => {
@@ -199,32 +220,13 @@ const handleFileChange = (file) => {
 
   reader.onload = async (event) => {
     try {
-      // 添加这一行立即输出原始内容
-      console.log("文件内容原始数据:", event.target.result.substring(0, 200) + "...");
-
-      const content = event.target.result;
-      // 自动检测，用逗号分隔则使用逗号，否则使用制表符
-      const delimiter = content.indexOf(',') !== -1 ? ',' : '\t';
-
-      const lines = content.split('\n').filter(line => line.trim());
-      console.log("解析到的行数:", lines.length);
-
-      // 测试各种格式的转换是否正确
-      console.log("测试度分秒转换:");
-      const testCoords = [
-        "103°14′42″",
-        "103°14'42\"",
-        "24°03′44″",
-        "24°03'44\"",
-        "116.3912" // 测试十进制度数
-      ];
-
-      testCoords.forEach(coord => {
-        console.log(`${coord} => ${convertDMSToDecimal(coord)}`);
-      });
+      const raw = String(event.target?.result || '');
+      const content = raw.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      const delimiter = detectDelimiter(content);
 
       // 修改解析时也采用 delimiter 分隔
-      const parsedData = lines.map(line => line.split(delimiter));
+      const lines = content.split('\n').map(l => l.trim()).filter(Boolean);
+      const parsedData = lines.map(line => line.split(delimiter).map(v => v.trim()));
       const { isValid, errors } = validateTurbineData(parsedData);
 
       if (!isValid) {
@@ -234,30 +236,23 @@ const handleFileChange = (file) => {
       }
 
       const turbines = lines.map(line => {
-        const [name, longitude, latitude, hubHeight, rotorDiameter, model] = line.split(delimiter);
+        const [name, longitude, latitude, hubHeight, rotorDiameter, model] = line.split(delimiter).map(v => v.trim());
 
-        // 处理经纬度 - 确保详细记录转换过程便于调试
-        let lon = longitude.trim();
-        let lat = latitude.trim();
+        let lon = longitude;
+        let lat = latitude;
 
         let decimalLon, decimalLat;
 
-        console.log(`原始经度字符串: ${lon}`); // 调试输出 - 原始经度
         if (lon.includes('°')) {
           decimalLon = convertDMSToDecimal(lon);
-          console.log(`转换经度: ${lon} => ${decimalLon}`); // 调试输出 - 转换过程
         } else {
           decimalLon = parseFloat(lon);
-          console.log(`经度直接解析为十进制: ${lon} => ${decimalLon}`); // 调试输出 - 十进制解析
         }
 
-        console.log(`原始纬度字符串: ${lat}`); // 调试输出 - 原始纬度
         if (lat.includes('°')) {
           decimalLat = convertDMSToDecimal(lat);
-          console.log(`转换纬度: ${lat} => ${decimalLat}`); // 调试输出 - 转换过程
         } else {
           decimalLat = parseFloat(lat);
-          console.log(`纬度直接解析为十进制: ${lat} => ${decimalLat}`); // 调试输出 - 十进制解析
         }
 
         return {
@@ -271,11 +266,7 @@ const handleFileChange = (file) => {
   };
       });
 
-      // 在emit前后添加log
-      console.log("解析得到的风机数据:", turbines);
-      console.log("准备发送import-turbines事件...");
       emit('import-turbines', turbines);
-      console.log("import-turbines事件已发送");
 
       uploadStatus.value = 'success';
       uploadProgress.value = 100;
@@ -341,7 +332,7 @@ const handleFileChange = (file) => {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.05);
 }
 
-:deep(.el-upload-dragger i) {
+:deep(.el-upload-dragger .el-icon) {
   font-size: 40px;
   color: #c0c4cc;
   margin-bottom: 16px;

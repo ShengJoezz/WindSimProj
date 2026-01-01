@@ -9,10 +9,35 @@
 
 if __name__ == '__main__':
   import json
+  import math
   info = json.load(open("../info.json", 'r'))
+
+  def turbine_type(t):
+    # Prefer explicit numeric type (1..10)
+    raw_type = t.get('type', None)
+    try:
+      if raw_type is not None and math.isfinite(float(raw_type)):
+        int_type = int(float(raw_type))
+        if 1 <= int_type <= 10:
+          return int_type
+    except Exception:
+      pass
+
+    # Fallback: parse model id (1..10)
+    raw_model = t.get('model', None)
+    try:
+      if raw_model is not None and math.isfinite(float(raw_model)):
+        int_model = int(float(raw_model))
+        if 1 <= int_model <= 10:
+          return int_model
+    except Exception:
+      pass
+
+    return 1
+
   with open("Input/Turbines.txt", "w") as f:
     f.write('\n'.join([
-      '\t'.join(map(str, [t['x'], t['y'], t['hub'], t['d'], 1]))
+      '\t'.join(map(str, [t['x'], t['y'], t['hub'], t['d'], turbine_type(t)]))
       for t in info['turbines']
     ]))
   info['mesh']['lc2'] = [info['mesh']['lc2']]

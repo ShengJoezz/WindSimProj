@@ -25,10 +25,10 @@
         <el-button 
           class="close-button" 
           circle 
-          icon="el-icon-close" 
+          :icon="Close"
           @click="handleClose"
           size="small"
-        ></el-button>
+        />
       </div>
       
       <el-collapse v-model="activeSections" accordion class="custom-collapse">
@@ -46,7 +46,7 @@
               <el-button
                 type="primary"
                 @click="$emit('reset-camera')"
-                icon="el-icon-refresh"
+                :icon="Refresh"
                 aria-label="重置视角"
                 class="action-button"
               >
@@ -55,7 +55,7 @@
               <el-button
                 :type="wireframe ? 'warning' : 'primary'"
                 @click="$emit('toggle-wireframe')"
-                icon="el-icon-s-grid"
+                :icon="Grid"
                 :aria-pressed="wireframe"
                 aria-label="切换网格显示"
                 class="action-button"
@@ -122,6 +122,7 @@
  */
 
 import { ref, watch, computed } from "vue"; // Removed nextTick as it's not used
+import { Close, Refresh, Grid } from '@element-plus/icons-vue';
 
 const props = defineProps({
   visible: {

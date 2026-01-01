@@ -1718,6 +1718,16 @@ router.post('/:caseId/info', async (req, res) => {
                 // 注意：这里仍然使用风机群中心计算投影坐标
                 // 坐标转换将在预处理阶段进行
                 const { x, y } = calculateXY(turbine.longitude, turbine.latitude, windFarmCenterLon, windFarmCenterLat);
+                const rawModel = (turbine.model ?? turbine.type ?? 1);
+                const modelNum = Number(rawModel);
+                const modelId = (Number.isFinite(modelNum) && modelNum >= 1 && modelNum <= 10)
+                  ? String(Math.trunc(modelNum))
+                  : '1';
+                const rawType = (turbine.type ?? modelId);
+                const typeNum = Number(rawType);
+                const typeId = (Number.isFinite(typeNum) && typeNum >= 1 && typeNum <= 10)
+                  ? Math.trunc(typeNum)
+                  : Number(modelId);
                 return {
                     id: turbine.id,
                     lon: turbine.longitude,
@@ -1726,9 +1736,9 @@ router.post('/:caseId/info', async (req, res) => {
                     d: turbine.rotorDiameter,
                     x: parseFloat(x.toFixed(3)), // 相对于风机群中心的投影坐标（米）
                     y: parseFloat(y.toFixed(3)),
-                    type: turbine.type || 'GenericWTG',
+                    type: typeId,
                     name: turbine.name || `Turbine_${turbine.id}`,
-                    model: turbine.model || null
+                    model: modelId
                 };
             }),
             center: {

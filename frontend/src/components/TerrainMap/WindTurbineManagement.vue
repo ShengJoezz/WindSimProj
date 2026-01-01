@@ -21,10 +21,25 @@
     aria-labelledby="windTurbineManagementTitle"
   >
     <div class="sidebar-container management-panel">
+      <div class="drawer-header">
+        <h2 class="drawer-title" id="windTurbineManagementTitle">
+          <el-icon><Setting /></el-icon>
+          风机管理
+        </h2>
+        <el-button
+          class="close-button"
+          circle
+          size="small"
+          :icon="Close"
+          aria-label="关闭风机管理"
+          @click="handleClose"
+        />
+      </div>
+
       <el-collapse v-model="activeSections" accordion>
         <el-collapse-item name="windTurbineManagement">
           <template #title>
-            <h3 class="collapse-title" id="windTurbineManagementTitle">
+            <h3 class="collapse-title">
               <i class="el-icon-wind-power"></i> 风机管理
             </h3>
           </template>
@@ -32,8 +47,17 @@
           <el-tabs v-model="activeTab" class="management-tabs">
             <!-- Add Turbine Tab -->
             <el-tab-pane label="添加风机" name="add">
-              <WindTurbineForm @add-turbine="handleAddTurbine" />
-              <UploadComponent @import-turbines="handleBulkImport" />
+              <el-alert
+                v-if="!boundsReady"
+                class="bounds-alert"
+                type="warning"
+                show-icon
+                :closable="false"
+                title="地形边界未就绪，无法校验风机坐标"
+                description="请先等待地形加载完成；如果持续提示，可能是 GeoTIFF 坐标系不是 EPSG:4326（经纬度），建议转换为 WGS84/EPSG:4326 后重新上传。"
+              />
+              <WindTurbineForm :disabled="!boundsReady" @add-turbine="handleAddTurbine" />
+              <UploadComponent :disabled="!boundsReady" @import-turbines="handleBulkImport" />
             </el-tab-pane>
 
             <!-- Installed Turbines Tab -->
@@ -58,8 +82,9 @@
  * Right sidebar component for managing wind turbines, including adding new turbines and listing existing ones.
  */
 
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { ElMessage, ElNotification } from 'element-plus';
+import { Close, Setting } from '@element-plus/icons-vue';
 import WindTurbineForm from "./WindTurbineForm.vue";
 import WindTurbineList from "./WindTurbineList.vue";
 import UploadComponent from "./UploadComponent.vue";
@@ -80,14 +105,17 @@ const props = defineProps({
   },
 });
 
+const boundsReady = computed(() => {
+  const bounds = props.geographicBounds;
+  if (!bounds) return false;
+  const { minLat, maxLat, minLon, maxLon } = bounds;
+  return [minLat, maxLat, minLon, maxLon].every((v) => typeof v === 'number' && Number.isFinite(v));
+});
+
 // 添加一个辅助函数来检查边界
 const isWithinBounds = (turbine) => {
   const bounds = props.geographicBounds;
-  console.log('---边界检查调试---');
-  console.log('传入的 turbine 坐标:', turbine.longitude, turbine.latitude);
-  console.log('传入的地形边界 props:', bounds);
-  console.log('边界值的类型: minLat is a', typeof bounds.minLat);
-  console.log('------------------');
+  if (!boundsReady.value) return false;
   
   // 从用户输入中解析数字
   const lat = parseFloat(turbine.latitude);
@@ -96,14 +124,7 @@ const isWithinBounds = (turbine) => {
   // 从 props 中直接获取数字 (无需再解析)
   const { minLat, maxLat, minLon, maxLon } = bounds;
 
-  // 增加一个检查，确保边界数据已经加载
-  if (typeof minLat !== 'number' || typeof maxLat !== 'number' || 
-      typeof minLon !== 'number' || typeof maxLon !== 'number') {
-    console.warn("地形边界数据尚未加载，无法进行校验。");
-    // 在边界数据不可用时，可以选择是阻止还是允许。阻止更安全。
-    ElMessage.error("地形边界数据未就绪，请稍后再试。");
-    return false;
-  }
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
 
   // 现在这里是纯粹的数字比较，不会有类型错误
   if (lat >= minLat && lat <= maxLat && lon >= minLon && lon <= maxLon) {
@@ -125,7 +146,7 @@ const emit = defineEmits([
 // REMOVE: const store = useCaseStore(); // Remove this line
 
 const localVisible = ref(props.visible);
-const activeSections = ref(["windTurbineManagement"]);
+const activeSections = ref("windTurbineManagement");
 const activeTab = ref("add");
 
 // Sync localVisible with prop
@@ -150,16 +171,23 @@ const handleClose = () => {
 
 // 修改您的 handleAddTurbine 函数
 const handleAddTurbine = (turbine) => {
+  if (!boundsReady.value) {
+    ElMessage.error("地形边界未就绪，暂无法添加风机。");
+    return;
+  }
   if (!isWithinBounds(turbine)) {
     ElMessage.error(`风机 "${turbine.name}" 的坐标超出了当前地形边界。`);
     return; // 阻止添加
   }
-  console.log('[WindTurbineManagement] Emitting add-turbine:', turbine);
   emit("add-turbine", turbine);
 };
 
 // 修改您的 handleBulkImport 函数
 const handleBulkImport = (turbines) => {
+  if (!boundsReady.value) {
+    ElMessage.error("地形边界未就绪，暂无法导入风机。");
+    return;
+  }
   const validTurbines = [];
   const invalidNames = [];
 
@@ -219,6 +247,27 @@ const deleteTurbine = (turbine) => {
   display: flex;
   flex-direction: column;
   background: linear-gradient(135deg, #f9f9f9, #ffffff);
+}
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.drawer-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #2c3e50;
+}
+
+.bounds-alert {
+  margin: 0 16px 12px 16px;
 }
 
 .management-tabs {
