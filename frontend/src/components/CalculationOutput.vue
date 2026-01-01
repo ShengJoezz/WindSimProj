@@ -26,16 +26,44 @@
           <el-icon><Check /></el-icon> 计算完成
         </span>
         <span v-else>
-          <el-icon><i class="el-icon-play"></i></el-icon> 开始计算
+          <el-icon><VideoPlay /></el-icon> 开始计算
         </span>
       </el-button>
     </div>
+
+    <el-alert
+      v-if="initError"
+      type="error"
+      show-icon
+      :closable="false"
+      class="calculation-warning"
+    >
+      <template #title>初始化失败</template>
+      <template #default>
+        {{ initError }}
+        <el-button type="primary" link @click="retryLoad">重试</el-button>
+      </template>
+    </el-alert>
+
+    <el-alert
+      v-else-if="hasLoadedCase && !store.infoExists"
+      type="warning"
+      show-icon
+      :closable="false"
+      class="calculation-warning"
+    >
+      <template #title>尚未生成计算配置（info.json）</template>
+      <template #default>
+        请先在“参数设置”页面提交参数并生成 <code>info.json</code>，否则无法开始计算。
+        <el-button type="primary" link @click="goToParameters">去参数设置</el-button>
+      </template>
+    </el-alert>
 
     <div v-if="getCalculationStatus() === 'completed'" class="calculation-complete-message">
       <el-alert title="计算已完成。无需重新计算。" type="success" show-icon :closable="false" />
     </div>
 
-    <div class="flex-layout" v-if="getCalculationStatus() !== 'not_started'">
+    <div class="flex-layout" v-if="shouldShowDetails">
       <div class="main-content">
         <div class="task-list-section">
           <h3><i class="fas fa-tasks"></i> 执行步骤</h3>
@@ -75,7 +103,7 @@
               <div class="terminal-title">OpenFOAM 输出</div>
             </div>
             <div class="terminal-content" ref="terminalContent">
-              <pre class="output-content" ref="outputContent">{{ openfoamOutput }}</pre>
+              <pre class="output-content">{{ terminalOutput }}</pre>
             </div>
           </div>
         </div>
@@ -131,7 +159,7 @@
       </div>
     </div>
 
-    <div v-if="getCalculationStatus() === 'not_started'" class="empty-state">
+    <div v-if="!shouldShowDetails" class="empty-state">
       <div class="empty-state-icon">
         <i class="fas fa-wind fa-3x"></i>
       </div>
@@ -145,7 +173,7 @@
 <script setup>
 import { ref, onMounted, watch, nextTick, computed } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { Loading, Check, Close } from '@element-plus/icons-vue';
+import { Loading, Check, Close, VideoPlay } from '@element-plus/icons-vue';
 import axios from 'axios';
 import { useRoute, useRouter } from 'vue-router';
 import { useCaseStore } from '../store/caseStore';
@@ -155,6 +183,8 @@ const route = useRoute();
 const router = useRouter();
 const store = useCaseStore();
 const caseId = computed(() => route.params.caseId);
+const hasLoadedCase = ref(false);
+const initError = ref('');
 
 const getCalculationStatus = () => {
   if (store && typeof store.calculationStatus !== 'undefined') {
@@ -164,6 +194,8 @@ const getCalculationStatus = () => {
 };
 
 const buttonDisabled = computed(() => {
+  if (!hasLoadedCase.value) return true;
+  if (initError.value) return true;
   const status = getCalculationStatus();
   return status === 'running' || status === 'completed';
 });
@@ -179,9 +211,7 @@ const computationMessage = computed(() => {
 const overallProgress = computed(() => store.overallProgress || 0);
 
 const baseLog = ref('');
-const openfoamOutput = ref('');
 const terminalContent = ref(null);
-const outputContent = ref(null);
 const isCanceling = ref(false);
 
 const tasksList = computed(() => {
@@ -245,11 +275,26 @@ const messageIconClass = () => {
   return 'fa-info-circle';
 };
 
-const rebuildTerminalOutput = () => {
+const terminalOutput = computed(() => {
   const outputs = Array.isArray(store.calculationOutputs) ? store.calculationOutputs : [];
-  const appended = outputs.map(o => o?.message ?? '').join('');
-  openfoamOutput.value = [baseLog.value, appended].filter(Boolean).join('\n');
-};
+  const appended = outputs
+    .map(o => {
+      const msg = o?.message ?? '';
+      if (!msg) return '';
+      return msg.endsWith('\n') ? msg : `${msg}\n`;
+    })
+    .join('');
+  if (baseLog.value && appended) return `${baseLog.value}\n${appended}`;
+  return baseLog.value || appended || '';
+});
+
+const shouldShowDetails = computed(() => {
+  if (getCalculationStatus() !== 'not_started') return true;
+  if ((store.overallProgress || 0) > 0) return true;
+  if (Array.isArray(store.calculationOutputs) && store.calculationOutputs.length > 0) return true;
+  if (baseLog.value && baseLog.value.trim()) return true;
+  return false;
+});
 
 const loadBaseLog = async (id) => {
   baseLog.value = '';
@@ -262,40 +307,40 @@ const loadBaseLog = async (id) => {
   }
 };
 
-onMounted(async () => {
+const loadForCaseId = async (id) => {
+  hasLoadedCase.value = false;
+  initError.value = '';
+  baseLog.value = '';
   try {
-    if (caseId.value) await store.initializeCase(caseId.value);
+    if (id && (store.caseId !== id || store.currentCaseId !== id)) {
+      await store.initializeCase(id);
+    }
     await store.loadCalculationProgress();
-    await loadBaseLog(caseId.value);
-    rebuildTerminalOutput();
+    await loadBaseLog(id);
     scrollToBottom();
   } catch (error) {
     console.error("初始化计算组件失败:", error);
-    ElMessage.error("初始化计算组件失败，请检查网络或刷新页面。");
+    initError.value = error?.message || '初始化失败，请检查网络或刷新页面。';
+  } finally {
+    hasLoadedCase.value = true;
   }
+};
+
+onMounted(async () => {
+  await loadForCaseId(caseId.value);
 });
 
 watch(
   () => caseId.value,
   async (newId, oldId) => {
     if (!newId || newId === oldId) return;
-    try {
-      await store.initializeCase(newId);
-      await store.loadCalculationProgress();
-      await loadBaseLog(newId);
-      rebuildTerminalOutput();
-      scrollToBottom();
-    } catch (error) {
-      console.error("切换工况初始化失败:", error);
-      ElMessage.error("切换工况失败");
-    }
+    await loadForCaseId(newId);
   }
 );
 
 watch(
   () => (Array.isArray(store.calculationOutputs) ? store.calculationOutputs.length : 0),
   () => {
-    rebuildTerminalOutput();
     scrollToBottom();
   }
 );
@@ -308,45 +353,23 @@ const startComputation = async () => {
   }
 
   try {
-    const id = caseId.value;
-    if (!id) throw new Error('无效的工况ID');
-    const response = await axios.post(`/api/cases/${id}/calculate`);
-    if (!response.data.success) {
-      throw new Error(response.data.message || '启动计算失败 (API响应错误)');
+    if (initError.value) {
+      ElMessage.error('页面初始化失败，请先点击“重试”。');
+      return;
     }
-
-    if (store && typeof store.calculationStatus !== 'undefined') {
-      store.calculationStatus = 'running';
+    if (!store.infoExists) {
+      ElMessage.warning('请先在“参数设置”页面生成 info.json 后再开始计算。');
+      goToParameters();
+      return;
     }
-
-    if (typeof store.resetCalculationProgress === 'function') {
-      store.resetCalculationProgress();
-    }
-
-    await loadBaseLog(id);
-    rebuildTerminalOutput();
-
-    if (store) {
-      store.startTime = Date.now();
-    }
-
-    if (store && typeof store.saveCalculationProgress === 'function') {
-      await store.saveCalculationProgress();
-    }
-
+    baseLog.value = '';
+    await store.startCalculation();
     ElMessage.success("计算已成功启动");
 
   } catch (error) {
     console.error("启动计算失败:", error);
-    const errorMessage = error.response?.data?.message || error.message || '计算启动失败';
-    openfoamOutput.value += `\n启动失败: ${errorMessage}`;
+    const errorMessage = error?.message || '计算启动失败';
     ElMessage.error(`启动计算失败: ${errorMessage}`);
-
-    if (error.response?.status === 400 || error.response?.status === 500) {
-      if (store && typeof store.calculationStatus !== 'undefined') {
-        store.calculationStatus = 'not_started';
-      }
-    }
   }
 };
 
@@ -359,26 +382,8 @@ const resetComputation = async () => {
     const id = caseId.value;
     if (!id) throw new Error('无效的工况ID');
     await axios.delete(`/api/cases/${id}/calculation-progress`);
-
-    if (store && typeof store.calculationStatus !== 'undefined') {
-      store.calculationStatus = 'not_started';
-    }
-
-    if (typeof store.resetCalculationProgress === 'function') {
-      store.resetCalculationProgress();
-    }
-
-    await loadBaseLog(id);
-    rebuildTerminalOutput();
-
-    if (store && typeof store.saveCalculationProgress === 'function') {
-      try {
-        await store.saveCalculationProgress();
-      } catch (saveError) {
-        console.warn('保存重置状态失败，但重置操作已完成:', saveError);
-      }
-    }
-
+    baseLog.value = '';
+    store.resetCalculationProgress();
     ElMessage.success("计算已重置");
   } catch (error) {
     console.error("重置计算失败:", error);
@@ -409,6 +414,15 @@ const cancelComputation = async () => {
     isCanceling.value = false;
   }
 };
+
+const goToParameters = () => {
+  if (!caseId.value) return;
+  router.push({ name: 'ParameterSettings', params: { caseId: caseId.value } });
+};
+
+const retryLoad = async () => {
+  await loadForCaseId(caseId.value);
+};
 </script>
 
 <style scoped>
@@ -431,6 +445,10 @@ const cancelComputation = async () => {
   border-bottom: 1px solid #f0f2f5;
   padding-bottom: 0.8rem;
   flex-shrink: 0;
+}
+
+.calculation-warning {
+  margin-bottom: 1rem;
 }
 
 h2 {

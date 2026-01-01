@@ -1998,21 +1998,50 @@ router.delete('/:caseId/curve-files/:fileName', async (req, res) => {
     }
   });
   
-// 删除计算进度 (Maybe useful for forcing a recalculation state reset?)
+// 删除计算进度 + 重置 info.json 中的 calculationStatus（用于允许重新开始计算）
 router.delete('/:caseId/calculation-progress', async (req, res) => {
     const { caseId } = req.params;
     const progressPath = path.join(__dirname, `../uploads/${caseId}/calculation_progress.json`);
+    const infoJsonPath = path.join(__dirname, `../uploads/${caseId}/info.json`);
+
+    const entry = runningCalculations.get(caseId);
+    if (entry && entry.child && !entry.child.killed) {
+        return res.status(409).json({ success: false, message: '计算正在运行，请先取消计算后再重置。' });
+    }
+
     try {
+        let deletedProgress = false;
         if (fs.existsSync(progressPath)) {
             await fsPromises.unlink(progressPath);
+            deletedProgress = true;
             console.log(`计算进度文件已删除 (${caseId}): ${progressPath}`);
-            res.json({ success: true, message: '计算进度文件删除成功' });
-        } else {
-            res.json({ success: true, message: '计算进度文件不存在，无需删除' });
         }
+
+        let updatedInfoStatus = false;
+        if (fs.existsSync(infoJsonPath)) {
+            try {
+                const info = JSON.parse(await fsPromises.readFile(infoJsonPath, 'utf-8'));
+                info.calculationStatus = 'not_started';
+                info.lastCalculationReset = new Date().toISOString();
+                await fsPromises.writeFile(infoJsonPath, JSON.stringify(info, null, 2), 'utf-8');
+                updatedInfoStatus = true;
+            } catch (err) {
+                console.warn(`警告: 重置 info.json (${caseId}) 计算状态失败:`, err);
+            }
+        }
+
+        const parts = [];
+        parts.push(deletedProgress ? '计算进度已清理' : '计算进度文件不存在');
+        if (updatedInfoStatus) {
+            parts.push('计算状态已重置为未开始');
+        } else if (!fs.existsSync(infoJsonPath)) {
+            parts.push('未找到 info.json，未重置计算状态');
+        }
+
+        return res.json({ success: true, message: parts.join('；') });
     } catch (error) {
-        console.error(`删除计算进度 (${caseId}) 失败:`, error);
-        res.status(500).json({ success: false, message: '删除计算进度失败', error: error.message });
+        console.error(`删除计算进度/重置状态 (${caseId}) 失败:`, error);
+        return res.status(500).json({ success: false, message: '删除计算进度/重置状态失败', error: error.message });
     }
 });
 

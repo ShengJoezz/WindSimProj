@@ -535,22 +535,30 @@ export const useCaseStore = defineStore('caseStore', () => {
   };
 
   const startCalculation = async () => {
+    if (!caseId.value) {
+      throw new Error('无效的工况ID');
+    }
     try {
       const response = await axios.post(`/api/cases/${caseId.value}/calculate`);
-      if (response.data.success) {
-        calculationStatus.value = 'running';
-        startTime.value = Date.now();
-        overallProgress.value = 0;
-        knownTasks.forEach(task => { tasks.value[task.id] = 'pending'; });
-        calculationOutputs.value = [{ type: 'info', message: 'Calculation started via store.' }];
-        await saveCalculationProgress();
-      } else {
-        throw new Error(response.data.message || 'Failed to start calculation via store.');
+      if (!response.data?.success) {
+        throw new Error(response.data?.message || '启动计算失败');
       }
-    } catch (error) {
-      calculationStatus.value = 'error';
-      calculationOutputs.value.push({ type: 'error', message: `Failed to start calculation (store): ${error.message}` });
+
+      resetCalculationProgress();
+      calculationStatus.value = 'running';
+      startTime.value = Date.now();
+      calculationOutputs.value.push({
+        type: 'info',
+        message: `[SYSTEM] ${response.data?.message || '计算已启动'}\n`,
+      });
       await saveCalculationProgress();
+      return response.data;
+    } catch (error) {
+      const message = error?.response?.data?.message || error.message || '启动计算失败';
+      calculationStatus.value = 'error';
+      calculationOutputs.value.push({ type: 'error', message: `启动计算失败: ${message}\n` });
+      await saveCalculationProgress();
+      throw new Error(message);
     }
   };
 
