@@ -20,11 +20,43 @@
               <el-button :icon="Refresh" circle @click="fetchAllData" :loading="loading"></el-button>
             </el-tooltip>
             <el-tooltip content="导出图表">
-              <el-button :icon="Download" circle @click="exportCharts"></el-button>
+              <el-button :icon="Download" circle @click="exportCharts" :disabled="!isVisualizationReady"></el-button>
             </el-tooltip>
           </el-button-group>
         </div>
       </template>
+
+      <el-alert
+        v-if="blockingAlert"
+        :type="blockingAlert.type"
+        show-icon
+        :closable="false"
+        class="precompute-alert"
+      >
+        <template #title>{{ blockingAlert.title }}</template>
+        <template #default>
+          {{ blockingAlert.message }}
+          <el-button
+            v-if="blockingAlert.actionText"
+            type="primary"
+            link
+            @click="blockingAlert.action"
+            :loading="blockingAlert.loading"
+          >
+            {{ blockingAlert.actionText }}
+          </el-button>
+        </template>
+      </el-alert>
+
+      <div v-if="showPrecomputeLog" class="precompute-log">
+        <div class="precompute-log-header">
+          <span class="precompute-log-title">预计算日志</span>
+          <el-button type="info" link size="small" @click="clearPrecomputeLog">清空</el-button>
+        </div>
+        <div ref="precomputeLogRef" class="precompute-log-content">
+          <pre>{{ precomputeLogText }}</pre>
+        </div>
+      </div>
 
       <div class="viz-controls">
         <el-row :gutter="20">
@@ -177,9 +209,11 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { Refresh, Download, Loading, Picture, InfoFilled, Document } from '@element-plus/icons-vue';
 import * as echarts from 'echarts';
 import { debounce } from 'lodash-es';
-import { ElMessage, ElSlider, ElSelect, ElOption, ElCard, ElIcon, ElButtonGroup, ElTooltip, ElRow, ElCol, ElDescriptions, ElDescriptionsItem, ElInputNumber, ElButton } from 'element-plus';
+import { ElMessage, ElSlider, ElSelect, ElOption, ElCard, ElIcon, ElButtonGroup, ElTooltip, ElRow, ElCol, ElDescriptions, ElDescriptionsItem, ElInputNumber, ElButton, ElAlert } from 'element-plus';
 // Import the updated service function
 import { getMetadata, getSliceData, getProfileData, getWakeData, findClosestIndex, clearClientCaseCache, getPointWindSpeed } from '@/services/visualizationService';
+import { useCaseStore } from '@/store/caseStore';
+import { useRouter } from 'vue-router';
 
 // --- Helper for CSV Download ---
 function downloadCSV(data, filename) {
@@ -213,6 +247,8 @@ const colorScheme = {
 
 // --- Props ---
 const props = defineProps({ caseId: { type: String, required: true } });
+const caseStore = useCaseStore();
+const router = useRouter();
 
 // --- State Variables ---
 const loading = ref(false);
@@ -242,6 +278,8 @@ const wakeChart = ref(null);
 let profileInstance = null;
 let wakeInstance = null;
 let resizeObserver = null;
+const precomputeLogRef = ref(null);
+const isStartingPrecompute = ref(false);
 
 // --- Computed Properties ---
 const minHeight = computed(() => mainMetadata.value?.heightLevels?.[0] ?? 10);
@@ -262,12 +300,136 @@ const heightStep = computed(() => {
   return 1;
 });
 
+const isVisualizationReady = computed(() => {
+  return Boolean(mainMetadata.value && currentSliceImageUrl.value);
+});
+
+const showPrecomputeLog = computed(() => {
+  const status = caseStore.visualizationStatus;
+  if (!status) return false;
+  if (status === 'completed') return false;
+  return (caseStore.visualizationMessages || []).length > 0 || Boolean(caseStore.visualizationLastError);
+});
+
+const precomputeLogText = computed(() => {
+  const lines = caseStore.visualizationMessages || [];
+  const text = lines.join('');
+  if (caseStore.visualizationLastError && !text.includes(caseStore.visualizationLastError)) {
+    return `${text}\n${caseStore.visualizationLastError}`;
+  }
+  return text;
+});
+
+const blockingAlert = computed(() => {
+  if (!props.caseId) return null;
+
+  if (!caseStore.hasFetchedCalculationStatus) {
+    return { type: 'info', title: '加载中', message: '正在加载工况状态与可视化信息...', actionText: '', loading: false, action: () => {} };
+  }
+
+  if (caseStore.calculationStatus && caseStore.calculationStatus !== 'completed') {
+    return {
+      type: 'warning',
+      title: '需要先完成主计算',
+      message: '速度场分析依赖计算结果，请先在“计算输出”完成计算后再查看此页面。',
+      actionText: '去计算输出',
+      loading: false,
+      action: () => router.push({ name: 'CalculationOutput', params: { caseId: props.caseId } }),
+    };
+  }
+
+  if (!mainMetadata.value) {
+    if (loading.value || chartLoading.value.speedField || chartLoading.value.speedFieldImage) {
+      return { type: 'info', title: '加载中', message: '正在加载可视化数据...', actionText: '', loading: false, action: () => {} };
+    }
+
+    const vizStatus = caseStore.visualizationStatus || 'not_run';
+    if (vizStatus === 'starting' || vizStatus === 'running') {
+      return { type: 'info', title: '可视化预计算进行中', message: '正在生成速度场切片与分析缓存，请稍候或查看下方日志。', actionText: '', loading: false, action: () => {} };
+    }
+    if (vizStatus === 'completed') {
+      return {
+        type: 'error',
+        title: '可视化缓存异常',
+        message: '状态显示已完成，但未能加载元数据缓存。可尝试重新预计算。',
+        actionText: '重新预计算',
+        loading: isStartingPrecompute.value,
+        action: startPrecompute,
+      };
+    }
+    if (vizStatus === 'failed') {
+      return {
+        type: 'error',
+        title: '可视化预计算失败',
+        message: caseStore.visualizationLastError || '请查看下方日志后重试。',
+        actionText: '重新预计算',
+        loading: isStartingPrecompute.value,
+        action: startPrecompute,
+      };
+    }
+    return {
+      type: 'warning',
+      title: '未找到可视化缓存',
+      message: '此工况尚未生成速度场分析缓存，需要先运行“可视化预计算”。',
+      actionText: '运行预计算',
+      loading: isStartingPrecompute.value,
+      action: startPrecompute,
+    };
+  }
+
+  return null;
+});
+
+const scrollPrecomputeLogToBottom = () => {
+  nextTick(() => {
+    const el = precomputeLogRef.value;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  });
+};
+
+const clearPrecomputeLog = () => {
+  caseStore.visualizationMessages = [];
+  caseStore.visualizationLastError = '';
+};
+
+async function startPrecompute() {
+  if (!props.caseId) return;
+  if (isStartingPrecompute.value) return;
+  try {
+    isStartingPrecompute.value = true;
+    await caseStore.startVisualizationPrecompute();
+    ElMessage.success('已开始预计算，请查看下方日志。');
+  } catch (error) {
+    ElMessage.error(error?.message || '预计算启动失败');
+  } finally {
+    isStartingPrecompute.value = false;
+    scrollPrecomputeLogToBottom();
+  }
+}
+
 // --- Methods ---
+
+const ensureCaseLoaded = async (id) => {
+  if (!id) return false;
+  try {
+    if (caseStore.caseId !== id || caseStore.currentCaseId !== id) {
+      await caseStore.initializeCase(id);
+    } else if (typeof caseStore.fetchCalculationStatus === 'function') {
+      await caseStore.fetchCalculationStatus();
+    }
+    return true;
+  } catch (error) {
+    console.error('SpeedVisualization 初始化工况失败:', error);
+    ElMessage.error(error?.message || '初始化工况失败');
+    return false;
+  }
+};
 
 // 1. Reset State
 const resetVisualizationState = () => {
   console.log("重置可视化状态...");
-  loading.value = false; chartLoading.value = { speedField: false, speedFieldImage: false, profile: false, wake: false };
+  loading.value = false; chartLoading.value = { speedField: false, speedFieldImage: false, profile: false, wake: false, pointQuery: false };
   mainMetadata.value = null; currentHeight.value = 10; selectedTurbine.value = null;
   currentSliceImageUrl.value = null; currentImageDimensions.value = null; // REMOVED: currentTurbinePixelCoords.value = [];
   profileData.value = null; wakeData.value = null; turbineDetails.value = null; imageLoaded.value = false;
@@ -279,6 +441,10 @@ const resetVisualizationState = () => {
 // 2. Fetch All Data
 const fetchAllData = async () => {
   if (!props.caseId) { resetVisualizationState(); return; }
+  if (caseStore.calculationStatus && caseStore.calculationStatus !== 'completed') {
+    resetVisualizationState();
+    return;
+  }
   console.log(`为工况 ${props.caseId} 获取所有可视化数据...`);
   loading.value = true;
   // Partial reset
@@ -308,7 +474,10 @@ const fetchAllData = async () => {
     if (selectedTurbine.value) {
       await Promise.allSettled([fetchProfileData(selectedTurbine.value), fetchWakeData(selectedTurbine.value)]);
     }
-  } catch (error) { console.error('获取可视化数据失败:', error); ElMessage.error('加载可视化数据失败'); resetVisualizationState(); }
+  } catch (error) {
+    console.error('获取可视化数据失败:', error);
+    resetVisualizationState();
+  }
   finally { loading.value = false; nextTick(() => { initChartInstances(); }); }
 };
 
@@ -321,7 +490,9 @@ const fetchMetadata = async () => {
     mainMetadata.value = meta;
     console.log("主元数据加载成功:", meta);
   } catch (error) {
-    console.error('获取主元数据失败:', error); ElMessage.error(`加载工况 ${props.caseId} 的主元数据失败。`);
+    console.error('获取主元数据失败:', error);
+    caseStore.visualizationStatus = error?.response?.data?.visualizationStatus ?? caseStore.visualizationStatus;
+    caseStore.visualizationLastError = error?.response?.data?.message || error?.message || caseStore.visualizationLastError;
     mainMetadata.value = null; throw error;
   }
 };
@@ -747,18 +918,41 @@ watch(() => props.caseId, (newVal, oldVal) => {
         console.log(`观察者: 工况 ID 从 ${oldVal} 变为 ${newVal}, 重新获取所有数据...`);
         if (oldVal) { clearClientCaseCache(oldVal); }
         resetVisualizationState();
-        fetchAllData();
+        ensureCaseLoaded(newVal).then(() => fetchAllData());
     } else if (!newVal) { resetVisualizationState(); }
 });
 
+watch(
+  () => caseStore.visualizationStatus,
+  async (status) => {
+    if (status === 'completed' && props.caseId) {
+      await fetchAllData();
+    }
+    await nextTick();
+    scrollPrecomputeLogToBottom();
+  }
+);
+
+watch(
+  () => (caseStore.visualizationMessages || []).length,
+  () => {
+    scrollPrecomputeLogToBottom();
+  }
+);
+
 // --- Lifecycle Hooks ---
-onMounted(() => {
+onMounted(async () => {
   console.log(`SpeedVisualization 已挂载，工况 ID: ${props.caseId}`);
   window.addEventListener('resize', handleResize);
-  nextTick(() => {
-      if (props.caseId) { console.log("onMounted: 触发首次数据加载..."); fetchAllData(); }
-      else { console.warn("onMounted: 无效的工况 ID。"); resetVisualizationState(); }
-  });
+
+  await nextTick();
+  if (!props.caseId) {
+    resetVisualizationState();
+    return;
+  }
+
+  await ensureCaseLoaded(props.caseId);
+  await fetchAllData();
 });
 
 onUnmounted(() => {
@@ -816,6 +1010,46 @@ onUnmounted(() => {
   margin: 10px; /* 统一外边距 */
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.04); /* 使用内阴影 */
   flex-shrink: 0; /* 防止控制栏被压缩 */
+}
+
+.precompute-alert {
+  margin: 10px;
+}
+
+.precompute-log {
+  margin: 0 10px 10px;
+  border-radius: 8px;
+  background: #0b1220;
+  color: #e5e7eb;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  overflow: hidden;
+}
+
+.precompute-log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(15, 23, 42, 0.75);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.precompute-log-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.precompute-log-content {
+  max-height: 180px;
+  overflow: auto;
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .control-item {

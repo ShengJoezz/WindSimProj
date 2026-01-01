@@ -83,6 +83,9 @@ export const useCaseStore = defineStore('caseStore', () => {
   const socket = ref(null);
   const startTime = ref(null);
   const isSubmittingParameters = ref(false);
+  const visualizationStatus = ref(null); // null | 'not_run' | 'starting' | 'running' | 'completed' | 'failed'
+  const visualizationMessages = ref([]);
+  const visualizationLastError = ref('');
 
   // --- Computed ---
   const geographicSize = computed(() => {
@@ -205,7 +208,7 @@ export const useCaseStore = defineStore('caseStore', () => {
   }
 
   // --- Case Management Actions ---
-	  const initializeCase = async (id, name) => {
+  const initializeCase = async (id, name) => {
 	    return new Promise(async (resolve, reject) => {
 	      if (!id) {
 	        notifyError('缺少工况ID');
@@ -217,6 +220,10 @@ export const useCaseStore = defineStore('caseStore', () => {
 	        curveFiles.value = [];
 	        roughnessFile.value = null;
 	      }
+        // Reset visualization events when switching cases to avoid mixing logs across tabs/cases.
+        visualizationStatus.value = null;
+        visualizationMessages.value = [];
+        visualizationLastError.value = '';
 	      currentCaseId.value = id;
 	      localStorage.setItem('currentCaseId', id);
 	      caseId.value = id;
@@ -269,6 +276,7 @@ export const useCaseStore = defineStore('caseStore', () => {
     try {
       const response = await axios.get(`/api/cases/${caseId.value}/calculation-status`);
       const backendStatus = response.data.calculationStatus;
+      visualizationStatus.value = response.data.visualizationStatus ?? visualizationStatus.value;
 
       // [来自版本1的健壮性代码] 保护运行中的状态不被错误的后端状态覆盖
       if (calculationStatus.value === 'running' && backendStatus === 'not_started') {
@@ -562,6 +570,27 @@ export const useCaseStore = defineStore('caseStore', () => {
     }
   };
 
+  const startVisualizationPrecompute = async () => {
+    if (!caseId.value) throw new Error('无效的工况ID');
+    visualizationLastError.value = '';
+    visualizationMessages.value = [];
+    visualizationStatus.value = 'starting';
+    try {
+      const response = await axios.post(`/api/cases/${caseId.value}/precompute-visualization`);
+      if (response.status !== 202 && !response.data?.success) {
+        throw new Error(response.data?.message || '预计算启动失败');
+      }
+      visualizationMessages.value.push(`[SYSTEM] ${response.data?.message || '预计算已开始'}\n`);
+      return response.data;
+    } catch (error) {
+      const message = error?.response?.data?.message || error.message || '预计算启动失败';
+      visualizationStatus.value = 'failed';
+      visualizationLastError.value = message;
+      visualizationMessages.value.push(`[ERROR] ${message}\n`);
+      throw new Error(message);
+    }
+  };
+
   // --- Socket.io Actions (Robust version from code 1) ---
   const connectSocket = (id) => {
     if (socket.value && socket.value.connected && caseId.value === id) {
@@ -646,6 +675,36 @@ export const useCaseStore = defineStore('caseStore', () => {
         else if (!startTime.value) startTime.value = Date.now();
         saveCalculationProgress();
     });
+
+    // Visualization precompute events
+    socket.value.on('visualization_progress', (data) => {
+      const message = data?.message ?? data;
+      if (!message) return;
+      if (!visualizationStatus.value || visualizationStatus.value === 'starting') {
+        visualizationStatus.value = 'running';
+      }
+      visualizationMessages.value.push(`${message}\n`);
+      const maxLines = 200;
+      if (visualizationMessages.value.length > maxLines) {
+        visualizationMessages.value = visualizationMessages.value.slice(-maxLines);
+      }
+    });
+    socket.value.on('visualization_error', (data) => {
+      const message = data?.message ?? data;
+      if (!message) return;
+      visualizationStatus.value = 'failed';
+      visualizationLastError.value = String(message);
+      visualizationMessages.value.push(`[ERROR] ${message}\n`);
+      const maxLines = 200;
+      if (visualizationMessages.value.length > maxLines) {
+        visualizationMessages.value = visualizationMessages.value.slice(-maxLines);
+      }
+    });
+    socket.value.on('visualization_status', (data) => {
+      const status = data?.status;
+      if (status) visualizationStatus.value = status;
+      if (status === 'failed' && data?.error) visualizationLastError.value = String(data.error);
+    });
     
     // Wind Mast Store Listeners
     const windMastStore = useWindMastStore();
@@ -729,6 +788,9 @@ export const useCaseStore = defineStore('caseStore', () => {
     maxLongitude,
     curveFiles,
     roughnessFile,
+    visualizationStatus,
+    visualizationMessages,
+    visualizationLastError,
 
     // Computed
     geographicSize,
@@ -758,6 +820,7 @@ export const useCaseStore = defineStore('caseStore', () => {
     resetCalculationProgress,
     loadCalculationProgress,
     startCalculation,
+    startVisualizationPrecompute,
     
     connectSocket,
     disconnectSocket,
