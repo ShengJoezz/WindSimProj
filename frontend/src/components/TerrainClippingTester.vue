@@ -15,12 +15,12 @@
            @drop.prevent="handleFileDrop">
         <input ref="fileInput" type="file" accept=".tif,.tiff" @change="handleFileUpload" hidden />
         <div v-if="!selectedFile" class="upload-hint">
-          <i class="el-icon-upload"></i>
+          <el-icon class="upload-icon"><UploadFilled /></el-icon>
           <p>点击或拖拽上传 DEM (.tif)</p>
           <el-button type="primary" @click="triggerFileInput">选择文件</el-button>
         </div>
         <div v-else class="file-selected">
-          <div class="file-info"><i class="el-icon-document"></i>{{ selectedFile.name }}</div>
+          <div class="file-info"><el-icon class="file-icon"><Document /></el-icon>{{ selectedFile.name }}</div>
           <el-button size="small" type="danger" @click="resetFileSelection">移除</el-button>
         </div>
       </div>
@@ -35,12 +35,12 @@
         <input ref="turbineFileInput" type="file" accept=".txt,.xls,.xlsx"
                @change="handleTurbineUpload" hidden />
         <div v-if="!turbines.length" class="upload-hint">
-          <i class="el-icon-upload"></i>
+          <el-icon class="upload-icon"><UploadFilled /></el-icon>
           <p>导入风机坐标 (txt / excel) -- 支持拖拽</p>
           <el-button size="small" @click="turbineFileInput.click()">选择文件</el-button>
         </div>
         <div v-else class="file-selected">
-          <div class="file-info"><i class="el-icon-document"></i>已导入 {{ turbines.length }} 台风机</div>
+          <div class="file-info"><el-icon class="file-icon"><Document /></el-icon>已导入 {{ turbines.length }} 台风机</div>
           <el-button size="small" type="danger" @click="clearTurbines">清除</el-button>
         </div>
       </div>
@@ -76,15 +76,16 @@
               <h4>DEM 信息</h4>
               <el-descriptions :column="1" border>
                 <el-descriptions-item label="原始尺寸">{{ tifData.width }} × {{ tifData.height }} px</el-descriptions-item>
-                <el-descriptions-item label="地理范围">
-                  经度: {{ format(tifData.geoBounds.minX) }} -- {{ format(tifData.geoBounds.maxX) }}<br>
-                  纬度: {{ format(tifData.geoBounds.minY) }} -- {{ format(tifData.geoBounds.maxY) }}
+                <el-descriptions-item label="坐标系">{{ coordSystemText }}</el-descriptions-item>
+                <el-descriptions-item label="坐标范围">
+                  {{ coordLabels.x }}: {{ formatCoord(tifData.geoBounds.minX) }} -- {{ formatCoord(tifData.geoBounds.maxX) }}<br>
+                  {{ coordLabels.y }}: {{ formatCoord(tifData.geoBounds.minY) }} -- {{ formatCoord(tifData.geoBounds.maxY) }}
                 </el-descriptions-item>
-                <el-descriptions-item label="地理尺寸">
+                <el-descriptions-item label="区域尺寸">
                   {{ formatDistance(geographicSize.width) }} × {{ formatDistance(geographicSize.height) }}
                 </el-descriptions-item>
                 <el-descriptions-item label="分辨率">
-                  {{ formatResolution(pixelResolution.x) }} × {{ formatResolution(pixelResolution.y) }} (米/像素)
+                  {{ formatResolution(pixelResolution.x) }} × {{ formatResolution(pixelResolution.y) }} (m/像素)
                 </el-descriptions-item>
               </el-descriptions>
             </div>
@@ -117,10 +118,10 @@
                 <h5>裁切区域 (地理坐标)</h5>
                 <el-descriptions :column="1" border size="small">
                   <el-descriptions-item label="西南角">
-                    {{ format(clippingCoordinates.minX) }}, {{ format(clippingCoordinates.minY) }}
+                    {{ formatCoord(clippingCoordinates.minX) }}, {{ formatCoord(clippingCoordinates.minY) }}
                   </el-descriptions-item>
                   <el-descriptions-item label="东北角">
-                    {{ format(clippingCoordinates.maxX) }}, {{ format(clippingCoordinates.maxY) }}
+                    {{ formatCoord(clippingCoordinates.maxX) }}, {{ formatCoord(clippingCoordinates.maxY) }}
                   </el-descriptions-item>
                 </el-descriptions>
               </div>
@@ -171,6 +172,53 @@
   const turbineDrag      = ref(false); 
   
   /* ========= 新增：尺寸计算相关 ========= */
+
+  const inferCoordSystem = (geoKeys, bounds) => {
+    const projectedEpsg = geoKeys?.ProjectedCSTypeGeoKey;
+    const geographicEpsg = geoKeys?.GeographicTypeGeoKey;
+
+    if (projectedEpsg) {
+      return { type: 'projected', epsg: Number(projectedEpsg) || null, unit: 'm' };
+    }
+
+    // Heuristic fallback: if bbox looks like lon/lat degrees, treat as geographic even when GeoKeys are missing.
+    const looksGeographic =
+      bounds &&
+      Math.abs(bounds[0]) <= 180 &&
+      Math.abs(bounds[2]) <= 180 &&
+      Math.abs(bounds[1]) <= 90 &&
+      Math.abs(bounds[3]) <= 90;
+
+    if (geographicEpsg || looksGeographic) {
+      return { type: 'geographic', epsg: Number(geographicEpsg) || null, unit: 'deg' };
+    }
+
+    return { type: 'projected', epsg: null, unit: 'm' };
+  };
+
+  const coordLabels = computed(() => {
+    const type = tifData.value?.coordSystem?.type;
+    if (type === 'geographic') {
+      return { x: '经度', y: '纬度' };
+    }
+    return { x: 'X', y: 'Y' };
+  });
+
+  const coordSystemText = computed(() => {
+    const cs = tifData.value?.coordSystem;
+    if (!cs) return '--';
+    if (cs.type === 'geographic') {
+      return cs.epsg ? `地理坐标系 (EPSG:${cs.epsg})` : '地理坐标系 (经纬度)';
+    }
+    return cs.epsg ? `投影坐标系 (EPSG:${cs.epsg})` : '投影坐标系 (单位: 米)';
+  });
+
+  const formatCoord = (v) => {
+    if (typeof v !== 'number' || !Number.isFinite(v)) return '--';
+    const type = tifData.value?.coordSystem?.type;
+    const precision = type === 'geographic' ? 6 : 2;
+    return v.toFixed(precision);
+  };
   
   // 地理尺寸计算（原始DEM）
   const geographicSize = computed(() => {
@@ -178,9 +226,22 @@
       return { width: 0, height: 0 };
     }
     const g = tifData.value.geoBounds;
-    // 简化计算，假设为平面坐标系，实际应该考虑地球曲率
-    const width = Math.abs(g.maxX - g.minX) * 111320; // 经度转米（粗略）
-    const height = Math.abs(g.maxY - g.minY) * 110540; // 纬度转米（粗略）
+
+    const coordType = tifData.value?.coordSystem?.type;
+    // If bounds are lon/lat degrees, approximate meters with spherical Earth.
+    if (coordType === 'geographic') {
+      const R = 6371000;
+      const midLatRad = ((g.minY + g.maxY) / 2) * Math.PI / 180;
+      const deltaLonRad = (g.maxX - g.minX) * Math.PI / 180;
+      const deltaLatRad = (g.maxY - g.minY) * Math.PI / 180;
+      const width = Math.abs(R * deltaLonRad * Math.cos(midLatRad));
+      const height = Math.abs(R * deltaLatRad);
+      return { width, height };
+    }
+
+    // Projected coordinates (meters) - use raw deltas.
+    const width = Math.abs(g.maxX - g.minX);
+    const height = Math.abs(g.maxY - g.minY);
     return { width, height };
   });
   
@@ -214,8 +275,18 @@
       return { width: 0, height: 0 };
     }
     const coords = clippingCoordinates.value;
-    const width = Math.abs(coords.maxX - coords.minX) * 111320; // 经度转米
-    const height = Math.abs(coords.maxY - coords.minY) * 110540; // 纬度转米
+    const coordType = tifData.value?.coordSystem?.type;
+    if (coordType === 'geographic') {
+      const R = 6371000;
+      const midLatRad = ((coords.minY + coords.maxY) / 2) * Math.PI / 180;
+      const deltaLonRad = (coords.maxX - coords.minX) * Math.PI / 180;
+      const deltaLatRad = (coords.maxY - coords.minY) * Math.PI / 180;
+      const width = Math.abs(R * deltaLonRad * Math.cos(midLatRad));
+      const height = Math.abs(R * deltaLatRad);
+      return { width, height };
+    }
+    const width = Math.abs(coords.maxX - coords.minX);
+    const height = Math.abs(coords.maxY - coords.minY);
     return { width, height };
   });
   
@@ -257,7 +328,7 @@
     return `${(ratio * 100).toFixed(2)}%`;
   };
   
-  /* ========= 裁切框 → 经纬度 ========= */
+  /* ========= 裁切框 → 坐标 ========= */
   const clippingCoordinates = computed(()=>{
     if (!tifData.value || !previewCanvas.value || !previewCanvas.value.width || !previewCanvas.value.height) {
       return {minX:0,minY:0,maxX:0,maxY:0};
@@ -265,17 +336,16 @@
     const g  = tifData.value.geoBounds;
     const cw = previewCanvas.value.width;
     const ch = previewCanvas.value.height;
-    const lonPerPx = (g.maxX - g.minX) / cw;
-    const latPerPx = (g.maxY - g.minY) / ch; 
+    const xPerPx = (g.maxX - g.minX) / cw;
+    const yPerPx = (g.maxY - g.minY) / ch; 
     
-    const minLon = g.minX + clippingBox.x * lonPerPx;
-    const maxLon = minLon + clippingBox.size * lonPerPx;
-    const maxLat = g.maxY - clippingBox.y * latPerPx; 
-    const minLat = maxLat - clippingBox.size * latPerPx;
+    const minX = g.minX + clippingBox.x * xPerPx;
+    const maxX = minX + clippingBox.size * xPerPx;
+    const maxY = g.maxY - clippingBox.y * yPerPx; 
+    const minY = maxY - clippingBox.size * yPerPx;
     
-    return {minX:minLon, minY:minLat, maxX:maxLon, maxY:maxLat};
+    return {minX, minY, maxX, maxY};
   });
-  const format = v=>typeof v==='number'?v.toFixed(6):'--';
   
   /* ======================================================================
      1. DEM 文件读取与预览
@@ -305,6 +375,7 @@
   
       const width = img.getWidth(), height = img.getHeight();
       const gb    = img.getBoundingBox();
+      const coordSystem = inferCoordSystem(typeof img.getGeoKeys === 'function' ? img.getGeoKeys() : null, gb);
       const nodata= img.getGDALNoData();
       const dem   = (await img.readRasters({ samples:[0] }))[0];
   
@@ -317,6 +388,7 @@
       tifData.value={
         width,height,
         geoBounds:{minX:gb[0],minY:gb[1],maxX:gb[2],maxY:gb[3]},
+        coordSystem,
         minMaxValues:{min,max},
         demDataForPreview:dem,
         gdalNoData:nodata
@@ -424,8 +496,11 @@
     const g=tifData.value.geoBounds, cw=previewCanvas.value.width, ch=previewCanvas.value.height;
     ctx.save(); ctx.fillStyle='#ff0000'; ctx.strokeStyle='#fff'; ctx.lineWidth=1;
     turbines.value.forEach(t=>{
-      const x_pixel=(t.lon-g.minX)/(g.maxX-g.minX)*cw;
-      const y_pixel=(g.maxY-t.lat)/(g.maxY-g.minY)*ch;
+      const tx = typeof t.x === 'number' ? t.x : t.lon;
+      const ty = typeof t.y === 'number' ? t.y : t.lat;
+      if (!Number.isFinite(tx) || !Number.isFinite(ty)) return;
+      const x_pixel=(tx-g.minX)/(g.maxX-g.minX)*cw;
+      const y_pixel=(g.maxY-ty)/(g.maxY-g.minY)*ch;
       ctx.beginPath(); ctx.arc(x_pixel,y_pixel,4,0,Math.PI*2); ctx.fill(); ctx.stroke();
     });
     ctx.restore();
@@ -638,7 +713,7 @@
       if(isNaN(lon)||isNaN(lat)){ bad++; console.warn(`Line ${index+1} unparseable coordinates (lon: "${lonStr}", lat: "${latStr}") resolved to (lon: ${lon}, lat: ${lat}): "${line}"`); return; }
   
       if(lon<g.minX||lon>g.maxX||lat<g.minY||lat>g.maxY){ out++; return; }
-      ok.push({name,lon,lat});
+      ok.push({ name, x: lon, y: lat, lon, lat });
     });
   
     let messages = [];
@@ -690,8 +765,7 @@
   });
   </script>
   
-  <style scoped>
-  @import url("//unpkg.com/element-plus/dist/index.css");
+<style scoped>
   .terrain-clipping-container{max-width:1200px;margin:20px auto;padding:20px;background:#fff;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.1);}
   h2{text-align:center;margin-bottom:24px;font-size:1.8em;color:#303133;}
   h3,h4,h5{margin-top:24px;margin-bottom:16px;color:#303133;} h3{font-size:1.5em;} h4{font-size:1.2em;}
@@ -700,10 +774,10 @@
   .upload-area.is-active{border-color:#409EFF;background:#f0f7ff;}
   .turbine-area{background:#fff8e5;}
   .upload-hint{display:flex;flex-direction:column;align-items:center;gap:16px;color:#606266;}
-  .upload-hint i{font-size:48px;color:#c0c4cc;margin-bottom:8px;}
+  .upload-icon{font-size:48px;color:#c0c4cc;margin-bottom:8px;}
   .file-selected{display:flex;align-items:center;justify-content:space-between;padding:10px;background:#eef6ff;border-radius:4px;}
   .file-info{display:flex;align-items:center;gap:8px;font-weight:500;color:#303133;}
-  .file-info i{font-size:20px;color:#409EFF;}
+  .file-icon{font-size:20px;color:#409EFF;}
   
   .preview-section{margin-top:40px;padding-top:20px;border-top:1px solid #ebeef5;}
   .preview-container{display:flex;flex-wrap:wrap;gap:24px;margin-top:16px;}
@@ -725,6 +799,4 @@
   .loading-content{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px 20px;}
   .loading-content p{margin-top:20px;font-size:1.1em;color:#303133;}
   
-  .el-icon-upload::before { content: "📤"; }
-  .el-icon-document::before { content: "📄"; }
-  </style>
+</style>
