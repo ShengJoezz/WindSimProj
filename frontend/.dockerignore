@@ -1,12 +1,14 @@
-# Node / build artifacts
 node_modules
 dist
+dist-ssr
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
-# Local env files
-.env
-.env.*
-
-# Windows ADS junk files
+# Windows Zone Identifier files
 *:Zone.Identifier
+**/*:Zone.Identifier
 *Zone.Identifier*
-
+**/*Zone.Identifier*
