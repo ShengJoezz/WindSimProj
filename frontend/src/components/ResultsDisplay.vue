@@ -28,17 +28,38 @@
     <div class="header">
       <h1>仿真结果</h1>
       <div class="export-buttons">
-        <button class="export-button" @click="exportGrid">
+        <button class="export-button" @click="exportGrid" :disabled="!isResultsReady">
           <i class="fa fa-download"></i> 导出网格文件
         </button>
-        <button class="export-button" @click="exportLayerPhotos">
+        <button class="export-button" @click="exportLayerPhotos" :disabled="!isResultsReady">
           <i class="fa fa-image"></i>  导出当前层速度场
         </button>
-        <button class="export-button" @click="exportAllVelocityLayers">
+        <button class="export-button" @click="exportAllVelocityLayers" :disabled="!isResultsReady">
           <i class="fa fa-download"></i> 导出全部速度场（ZIP）
         </button>
       </div>
     </div>
+
+    <el-alert
+      v-if="statusAlert"
+      :type="statusAlert.type"
+      show-icon
+      :closable="false"
+      class="status-alert"
+    >
+      <template #title>{{ statusAlert.title }}</template>
+      <template #default>
+        {{ statusAlert.message }}
+        <el-button
+          v-if="statusAlert.actionText"
+          type="primary"
+          link
+          @click="statusAlert.action"
+        >
+          {{ statusAlert.actionText }}
+        </el-button>
+      </template>
+    </el-alert>
 
     <!-- 通知组件 -->
     <div v-if="notification.show" :class="['notification', `notification-${notification.type}`]">
@@ -47,7 +68,7 @@
     </div>
 
     <!-- 各区域视图 -->
-    <div class="viewer-sections">
+    <div v-if="isResultsReady" class="viewer-sections">
       <!-- 原有内容保持不变 -->
       <div class="viewer-section">
         <div class="section-header">
@@ -72,6 +93,12 @@
         />
       </div>
     </div>
+
+    <div v-else class="empty-results">
+      <div class="empty-results-title">暂无可用结果</div>
+      <div class="empty-results-desc">请先完成工况计算后再查看仿真结果与导出数据。</div>
+      <el-button type="primary" @click="goToCalculation">去计算输出</el-button>
+    </div>
   </div>
 </template>
 
@@ -79,6 +106,8 @@
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
 import VTKViewer from '@/components/VTKViewer.vue';
 import VelocityFieldDisplay from '@/components/VelocityFieldDisplay.vue';
+import { useCaseStore } from '@/store/caseStore';
+import { useRouter } from 'vue-router';
 
 const props = defineProps({
   caseId: {
@@ -88,10 +117,35 @@ const props = defineProps({
 });
 
 const caseId = computed(() => props.caseId);
+const caseStore = useCaseStore();
+const router = useRouter();
+const hasLoadedCase = ref(false);
 
 // 用于获取组件实例的引用
 const vtkViewerRef = ref(null);
 const velocityRef = ref(null);
+
+const isResultsReady = computed(() => {
+  if (!hasLoadedCase.value) return false;
+  if (!caseStore.hasFetchedCalculationStatus) return false;
+  return caseStore.calculationStatus === 'completed';
+});
+
+const goToCalculation = () => {
+  if (!caseId.value) return;
+  router.push({ name: 'CalculationOutput', params: { caseId: caseId.value } });
+};
+
+const statusAlert = computed(() => {
+  if (!caseId.value) return null;
+  if (!hasLoadedCase.value || !caseStore.hasFetchedCalculationStatus) {
+    return { type: 'info', title: '加载中', message: '正在加载工况状态...', actionText: '', action: () => {} };
+  }
+  if (caseStore.calculationStatus !== 'completed') {
+    return { type: 'warning', title: '计算未完成', message: '结果文件尚不可用，请先完成计算。', actionText: '去计算输出', action: goToCalculation };
+  }
+  return null;
+});
 
 // 通知反馈状态
 const notification = ref({
@@ -198,6 +252,14 @@ const handleResize = () => {
 
 onMounted(() => {
   window.addEventListener('resize', handleResize);
+  hasLoadedCase.value = false;
+  if (caseId.value && (caseStore.caseId !== caseId.value || caseStore.currentCaseId !== caseId.value)) {
+    caseStore.initializeCase(caseId.value).finally(() => {
+      hasLoadedCase.value = true;
+    });
+  } else {
+    hasLoadedCase.value = true;
+  }
 });
 
 onBeforeUnmount(() => {
@@ -233,6 +295,10 @@ onBeforeUnmount(() => {
   border-radius: 0 0 8px 8px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
   margin-bottom: 16px;
+}
+
+.status-alert {
+  margin: 0 24px 16px;
 }
 
 .header h1 {
@@ -462,5 +528,33 @@ onBeforeUnmount(() => {
 
 .fa-file-pdf {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpolyline points='14 2 14 8 20 8'/%3E%3Cline x1='16' y1='13' x2='8' y2='13'/%3E%3Cline x1='16' y1='17' x2='8' y2='17'/%3E%3Cpolyline points='10 9 9 9 8 9'/%3E%3C/svg%3E");
+}
+
+.export-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.empty-results {
+  margin: 24px;
+  padding: 28px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  text-align: center;
+}
+
+.empty-results-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 8px;
+}
+
+.empty-results-desc {
+  color: #6b7280;
+  margin-bottom: 16px;
 }
 </style>
