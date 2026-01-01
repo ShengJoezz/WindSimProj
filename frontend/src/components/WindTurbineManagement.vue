@@ -14,6 +14,42 @@
     <header class="header">
       <h1>风机性能数据分析</h1>
     </header>
+
+    <el-alert
+      v-if="statusAlert"
+      :type="statusAlert.type"
+      show-icon
+      :closable="false"
+      class="status-alert"
+    >
+      <template #title>{{ statusAlert.title }}</template>
+      <template #default>
+        {{ statusAlert.message }}
+        <el-button
+          v-if="statusAlert.actionText"
+          type="primary"
+          link
+          @click="statusAlert.action"
+        >
+          {{ statusAlert.actionText }}
+        </el-button>
+      </template>
+    </el-alert>
+
+    <el-alert
+      v-if="pageError"
+      type="error"
+      show-icon
+      :closable="false"
+      class="status-alert"
+    >
+      <template #title>无法加载风机性能输出</template>
+      <template #default>
+        {{ pageError }}
+        <el-button type="primary" link @click="retryLoad">重试</el-button>
+      </template>
+    </el-alert>
+
     <div class="tab-container">
       <div class="tab-buttons">
         <button class="tab-button" :class="{ active: activeTab === 'overview' }" @click="switchTab('overview')">总览</button>
@@ -203,7 +239,9 @@ import { ref, computed, onMounted, nextTick, watch, onBeforeUnmount } from 'vue'
 import axios from 'axios';
 import Chart from 'chart.js/auto';
 import Plotly from 'plotly.js-dist-min';
-import { useWindTurbineStore } from '@/store/windTurbineStore'; // 引入 Pinia Store
+import { useCaseStore } from '@/store/caseStore';
+import { useRouter } from 'vue-router';
+import { getApiErrorMessage } from '@/utils/notify.js';
 
 // 接收父组件传入的 caseId
 const props = defineProps({
@@ -216,6 +254,7 @@ const props = defineProps({
 // 定义状态变量
 const activeTab = ref('overview');
 const loading = ref(true);
+const pageError = ref('');
 
 // 定义三个数据的响应式变量
 const realHighData = ref([]);
@@ -233,7 +272,6 @@ const speedComparisonChart = ref(null);
 const powerComparisonChart = ref(null);
 const ctComparisonChart = ref(null);
 const fnComparisonChart = ref(null);
-const config=ref(null);
 
 // 图表实例
 let charts = {
@@ -245,8 +283,87 @@ let charts = {
   fnComparison: null
 };
 
-// 获取 Pinia Store 实例
-const windTurbineStore = useWindTurbineStore();
+const caseStore = useCaseStore();
+const router = useRouter();
+
+const goToCalculation = () => {
+  if (!props.caseId) return;
+  router.push({ name: 'CalculationOutput', params: { caseId: props.caseId } });
+};
+
+const statusAlert = computed(() => {
+  if (!props.caseId) return null;
+  if (!caseStore.hasFetchedCalculationStatus) {
+    return { type: 'info', title: '加载中', message: '正在加载工况状态与输出信息...', actionText: '', action: () => {} };
+  }
+  if (caseStore.calculationStatus !== 'completed') {
+    return {
+      type: 'warning',
+      title: '主计算未完成',
+      message: '风机性能分析依赖 Output 文件，请先完成计算后再进入此页面。',
+      actionText: '去计算输出',
+      action: goToCalculation,
+    };
+  }
+  return null;
+});
+
+const ensureCaseLoaded = async (id) => {
+  if (!id) return false;
+  try {
+    if (caseStore.caseId !== id || caseStore.currentCaseId !== id) {
+      await caseStore.initializeCase(id);
+    } else if (typeof caseStore.fetchCalculationStatus === 'function') {
+      await caseStore.fetchCalculationStatus();
+    }
+    return true;
+  } catch (error) {
+    console.error('WindTurbineManagement 初始化工况失败:', error);
+    pageError.value = getApiErrorMessage(error, '初始化工况失败');
+    return false;
+  }
+};
+
+const clearChartsAndPlots = () => {
+  try {
+    Object.keys(charts).forEach((key) => {
+      const chart = charts[key];
+      if (chart) {
+        try { chart.destroy(); } catch { /* ignore */ }
+        charts[key] = null;
+      }
+    });
+  } catch { /* ignore */ }
+
+  const plotEls = [
+    performanceOverviewChart.value,
+    spatialDistribution3DChart.value,
+    spatialDistribution2DChart.value,
+    performanceChangeChart.value,
+  ].filter(Boolean);
+
+  for (const el of plotEls) {
+    try { Plotly.purge(el); } catch { /* ignore */ }
+  }
+};
+
+const handleResize = () => {
+  Object.values(charts).forEach(chart => {
+    if (chart) chart.resize();
+  });
+
+  if (performanceOverviewChart.value) Plotly.relayout(performanceOverviewChart.value, { autosize: true });
+  if (spatialDistribution3DChart.value) Plotly.relayout(spatialDistribution3DChart.value, { autosize: true });
+  if (spatialDistribution2DChart.value) Plotly.relayout(spatialDistribution2DChart.value, { autosize: true });
+  if (performanceChangeChart.value) Plotly.relayout(performanceChangeChart.value, { autosize: true });
+};
+
+const retryLoad = async () => {
+  pageError.value = '';
+  clearChartsAndPlots();
+  const ok = await ensureCaseLoaded(props.caseId);
+  if (ok) await fetchData();
+};
 
 // 切换标签页
 function switchTab(tab) {
@@ -379,23 +496,55 @@ const avgCt = computed(() => {
 
 // 调用API获取数据
 async function fetchData() {
+  pageError.value = '';
   loading.value = true;
   try {
-    console.log(`开始获取风机数据，caseId: ${props.caseId}`); // 调试信息
+    // 如果主计算未完成，则不请求 Output 文件（避免空白+控制台错误）
+    if (caseStore.hasFetchedCalculationStatus && caseStore.calculationStatus !== 'completed') {
+      realHighData.value = [];
+      initPerfData.value = [];
+      adjPerfData.value = [];
+      return;
+    }
 
-    // 并行请求获取数据，**移除 config 参数，避免 "config is not defined" 错误**
-    const [realHighRes, initRes, adjustRes] = await Promise.all([
-      axios.get(`/api/cases/${props.caseId}/output-file/Output02-realHigh`),
-      axios.get(`/api/cases/${props.caseId}/output-file/Output04-U-P-Ct-fn(INIT)`),
-      axios.get(`/api/cases/${props.caseId}/output-file/Output06-U-P-Ct-fn(ADJUST)`)
-    ]);
+    clearChartsAndPlots();
 
-    console.log("数据请求成功"); // 调试信息
+    const requests = [
+      { name: 'Output02-realHigh', url: `/api/cases/${props.caseId}/output-file/Output02-realHigh` },
+      { name: 'Output04-U-P-Ct-fn(INIT)', url: `/api/cases/${props.caseId}/output-file/Output04-U-P-Ct-fn(INIT)` },
+      { name: 'Output06-U-P-Ct-fn(ADJUST)', url: `/api/cases/${props.caseId}/output-file/Output06-U-P-Ct-fn(ADJUST)` },
+    ];
+
+    const settled = await Promise.allSettled(requests.map(r => axios.get(r.url)));
+
+    const contents = {};
+    const missing = [];
+    settled.forEach((result, index) => {
+      const name = requests[index].name;
+      if (result.status === 'rejected') {
+        missing.push(name);
+        return;
+      }
+      const data = result.value?.data;
+      if (!data?.success || typeof data.content !== 'string') {
+        missing.push(name);
+        return;
+      }
+      contents[name] = data.content;
+    });
+
+    if (missing.length > 0) {
+      realHighData.value = [];
+      initPerfData.value = [];
+      adjPerfData.value = [];
+      pageError.value = `缺少输出文件：${missing.join('、')}。请先完成计算（并确保后处理输出已生成）。`;
+      return;
+    }
 
     // 解析数据
-    realHighData.value = parseRealHigh(realHighRes.data.content);
-    initPerfData.value = parsePerformance(initRes.data.content);
-    adjPerfData.value = parsePerformance(adjustRes.data.content);
+    realHighData.value = parseRealHigh(contents['Output02-realHigh']);
+    initPerfData.value = parsePerformance(contents['Output04-U-P-Ct-fn(INIT)']);
+    adjPerfData.value = parsePerformance(contents['Output06-U-P-Ct-fn(ADJUST)']);
 
     // 确保数据长度一致
     const minLength = Math.min(
@@ -404,46 +553,39 @@ async function fetchData() {
       adjPerfData.value.length
     );
 
+    if (minLength === 0) {
+      pageError.value = '输出文件为空或解析失败，请检查计算是否完成且 Output 文件格式正确。';
+      return;
+    }
+
     if (minLength < realHighData.value.length) realHighData.value = realHighData.value.slice(0, minLength);
     if (minLength < initPerfData.value.length) initPerfData.value = initPerfData.value.slice(0, minLength);
     if (minLength < adjPerfData.value.length) adjPerfData.value = adjPerfData.value.slice(0, minLength);
-
-    console.log(`数据加载完成，风机数量: ${realHighData.value.length}`); // 调试信息
-
-    // 立即更新store中的数据
-    windTurbineStore.setTurbineData({
-      combinedData: combinedData.value,
-      realHighData: realHighData.value,
-      turbineCount: turbineCount.value,
-      avgSpeed: avgSpeed.value,
-      totalPower: totalPower.value,
-      avgCt: avgCt.value,
-      caseId: props.caseId
-    });
 
     await nextTick();
     renderCharts();
   } catch (error) {
     console.error("Error fetching wind turbine output data:", error);
-    // 详细错误信息输出
-    if (error.response) {
-      console.error("服务器响应错误:", error.response.status, error.response.data);
-    } else if (error.request) {
-      console.error("请求未收到响应:", error.request);
-    } else {
-      console.error("请求设置错误:", error.message);
-    }
+    realHighData.value = [];
+    initPerfData.value = [];
+    adjPerfData.value = [];
+    pageError.value = getApiErrorMessage(error, '加载风机性能输出失败');
   } finally {
     loading.value = false;
   }
 }
 
 // 添加对caseId变化的监听
-watch(() => props.caseId, (newValue) => {
-  if (newValue) {
-    fetchData();
+watch(
+  () => props.caseId,
+  async (newValue, oldValue) => {
+    if (!newValue || newValue === oldValue) return;
+    pageError.value = '';
+    clearChartsAndPlots();
+    const ok = await ensureCaseLoaded(newValue);
+    if (ok) await fetchData();
   }
-});
+);
 
 // 设置颜色数组，确保图表颜色一致且美观
 const chartColors = {
@@ -459,11 +601,7 @@ const chartColors = {
 
 // 渲染所有图表
 function renderCharts() {
-  console.log("开始渲染图表..."); // 调试信息
-  // 清除旧图表
-  Object.values(charts).forEach(chart => {
-    if (chart) chart.destroy();
-  });
+  clearChartsAndPlots();
 
   renderSpeedComparisonOverviewChart();
   renderPowerComparisonOverviewChart();
@@ -476,10 +614,6 @@ function renderCharts() {
 function renderSpeedComparisonOverviewChart() {
 const ctx = speedComparisonOverviewChart.value?.getContext('2d');
 if (!ctx) return;
-
-console.log("combinedData.value:", combinedData.value);
-console.log("入流风速数据:", combinedData.value.map(item => item.initSpeed));
-console.log("计算风速数据:", combinedData.value.map(item => item.adjSpeed));
 
   charts.speedComparisonOverview = new Chart(ctx, {
     type: 'bar',
@@ -971,61 +1105,17 @@ x: { title: { display: true, text: '风机编号' } }
   }
 }
 
-// 组件挂载时加载数据
-onMounted(() => {
+onMounted(async () => {
   if (props.caseId) {
-    fetchData();
+    const ok = await ensureCaseLoaded(props.caseId);
+    if (ok) await fetchData();
   }
-
-  // 监听窗口大小变化，调整图表大小
-  window.addEventListener('resize', () => {
-    Object.values(charts).forEach(chart => {
-      if (chart) chart.resize();
-    });
-
-    // 重新布局Plotly图表
-    if (performanceOverviewChart.value) Plotly.relayout(performanceOverviewChart.value, { autosize: true });
-    if (spatialDistribution3DChart.value) Plotly.relayout(spatialDistribution3DChart.value, { autosize: true });
-    if (spatialDistribution2DChart.value) Plotly.relayout(spatialDistribution2DChart.value, { autosize: true });
-    if (performanceChangeChart.value) Plotly.relayout(performanceChangeChart.value, { autosize: true });
-  });
+  window.addEventListener('resize', handleResize);
 });
 
-// 在组件挂载时将数据存入 Pinia Store
-onMounted(() => {
-  console.log("风机组件已挂载，开始将数据存入 Pinia Store", props.caseId);
-
-  windTurbineStore.setTurbineData({
-    combinedData: combinedData.value,
-    realHighData: realHighData.value,
-    turbineCount: turbineCount.value,
-    avgSpeed: avgSpeed.value,
-    totalPower: totalPower.value,
-    avgCt: avgCt.value,
-    caseId: props.caseId
-  });
-
-  // 监听关键数据变化，同步更新 Pinia Store
-  watch([combinedData, realHighData, turbineCount, avgSpeed, totalPower, avgCt],
-    ([newCombinedData, newRealHighData, newTurbineCount, newAvgSpeed, newTotalPower, newAvgCt]) => {
-      windTurbineStore.setTurbineData({
-        combinedData: newCombinedData,
-        realHighData: newRealHighData,
-        turbineCount: newTurbineCount,
-        avgSpeed: newAvgSpeed,
-        totalPower: newTotalPower,
-        avgCt: newAvgCt,
-        caseId: props.caseId
-      });
-      console.log("Pinia Store 风机数据已更新");
-    },
-    { immediate: true } // 首次挂载时立即执行一次，确保初始数据被设置
-  );
-});
-
-// 组件卸载时清理全局变量，防止内存泄漏和数据混淆
 onBeforeUnmount(() => {
-  console.log("风机组件即将卸载，但保留 Pinia Store 数据");
+  window.removeEventListener('resize', handleResize);
+  clearChartsAndPlots();
 });
 
 // 将这个方法暴露给外部组件
@@ -1055,6 +1145,10 @@ defineExpose({
   color: white;
   border-radius: 10px;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.status-alert {
+  margin: 12px 0;
 }
 
 .header h1 {
