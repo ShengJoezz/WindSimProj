@@ -5,49 +5,98 @@
 -->
 <template>
     <div class="terrain-clipping-container">
-      <h2>DEM 文件裁切工具</h2>
+      <h2>地形 DEM 获取与裁剪</h2>
 
-      <!-- 0. 无需上传：从内置 China_Dem 自动拼接并裁切下载 -->
-      <el-card class="mosaic-card" shadow="never">
-        <template #header>
-          <div class="mosaic-card-header">无需上传：按坐标自动拼接下载（China DEM）</div>
-        </template>
+      <el-tabs v-model="activeTab" type="card" class="dem-tabs">
+        <el-tab-pane label="获取 DEM（内置中国DEM）" name="download">
+          <el-card class="mosaic-card" shadow="never">
+            <template #header>
+              <div class="mosaic-card-header">从内置 China_Dem 生成 DEM（无需上传）</div>
+            </template>
 
-        <el-form :inline="true" class="mosaic-form">
-          <el-form-item label="纬度">
-            <el-input-number v-model="mosaicForm.lat" :min="-90" :max="90" :step="0.0001" :precision="6" controls-position="right" />
-          </el-form-item>
-          <el-form-item label="经度">
-            <el-input-number v-model="mosaicForm.lon" :min="-180" :max="180" :step="0.0001" :precision="6" controls-position="right" />
-          </el-form-item>
-          <el-form-item label="半径(米)">
-            <el-input-number v-model="mosaicForm.radius" :min="100" :step="100" controls-position="right" />
-          </el-form-item>
-          <el-form-item label="最大分片">
-            <el-input-number v-model="mosaicForm.maxSources" :min="1" :max="500" :step="10" controls-position="right" />
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" :loading="isMosaicLoading" @click="downloadMosaicByCoords">生成并下载</el-button>
-          </el-form-item>
-        </el-form>
+            <el-alert type="info" show-icon :closable="false" class="mosaic-hint">
+              <template #title>推荐流程</template>
+              <template #default>
+                1) 在下方输入范围（方式 A/B）→ 2) 点击“生成并下载” → 3) 回到“新建工况/地形上传”上传此 DEM。
+                <br />
+                数据坐标系：<code>WGS84 / EPSG:4326（经纬度）</code>；首次使用可能需要构建索引，耗时稍长。
+              </template>
+            </el-alert>
 
-        <el-alert type="info" show-icon :closable="false" class="mosaic-hint">
-          <template #title>说明</template>
-          <template #default>
-            使用后端内置 <code>China_Dem</code> 数据：自动筛选覆盖分片 → 拼接(VRT) → 按范围裁切并下载。首次使用可能需要构建索引，耗时稍长。
-          </template>
-        </el-alert>
+            <div class="mosaic-mode-row">
+              <el-radio-group v-model="mosaicMode" size="small">
+                <el-radio-button label="coords">方式 A：中心点 + 半径（米）</el-radio-button>
+                <el-radio-button label="bbox">方式 B：BBox（高级）</el-radio-button>
+              </el-radio-group>
 
-        <div v-if="mosaicResult" class="mosaic-result">
-          <el-descriptions :column="1" border size="small">
-            <el-descriptions-item label="命中分片">{{ mosaicResult.sourceCount }}</el-descriptions-item>
-            <el-descriptions-item label="裁切范围">
-              {{ mosaicResult.clipBounds.minX.toFixed(6) }}, {{ mosaicResult.clipBounds.minY.toFixed(6) }} —
-              {{ mosaicResult.clipBounds.maxX.toFixed(6) }}, {{ mosaicResult.clipBounds.maxY.toFixed(6) }}
-            </el-descriptions-item>
-          </el-descriptions>
-        </div>
-      </el-card>
+              <el-button
+                v-if="canSyncFromClipBox"
+                type="primary"
+                link
+                @click="syncBboxFromClipBox"
+              >
+                使用当前裁切框范围填充 BBox
+              </el-button>
+            </div>
+
+            <el-form v-if="mosaicMode === 'coords'" :inline="true" class="mosaic-form">
+              <el-form-item label="纬度">
+                <el-input-number v-model="mosaicForm.lat" :min="-90" :max="90" :step="0.0001" :precision="6" controls-position="right" />
+              </el-form-item>
+              <el-form-item label="经度">
+                <el-input-number v-model="mosaicForm.lon" :min="-180" :max="180" :step="0.0001" :precision="6" controls-position="right" />
+              </el-form-item>
+              <el-form-item label="半径(米)">
+                <el-input-number v-model="mosaicForm.radius" :min="100" :step="100" controls-position="right" />
+              </el-form-item>
+              <el-form-item label="最大分片">
+                <el-input-number v-model="mosaicForm.maxSources" :min="1" :max="500" :step="10" controls-position="right" />
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" :loading="isMosaicLoading" @click="downloadMosaicByCoords">生成并下载</el-button>
+              </el-form-item>
+            </el-form>
+
+            <el-form v-else :inline="true" class="mosaic-form">
+              <el-form-item label="minX(经度)">
+                <el-input-number v-model="mosaicBbox.minX" :min="-180" :max="180" :step="0.0001" :precision="6" controls-position="right" />
+              </el-form-item>
+              <el-form-item label="minY(纬度)">
+                <el-input-number v-model="mosaicBbox.minY" :min="-90" :max="90" :step="0.0001" :precision="6" controls-position="right" />
+              </el-form-item>
+              <el-form-item label="maxX(经度)">
+                <el-input-number v-model="mosaicBbox.maxX" :min="-180" :max="180" :step="0.0001" :precision="6" controls-position="right" />
+              </el-form-item>
+              <el-form-item label="maxY(纬度)">
+                <el-input-number v-model="mosaicBbox.maxY" :min="-90" :max="90" :step="0.0001" :precision="6" controls-position="right" />
+              </el-form-item>
+              <el-form-item label="最大分片">
+                <el-input-number v-model="mosaicForm.maxSources" :min="1" :max="500" :step="10" controls-position="right" />
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" :loading="isMosaicLoading" @click="downloadMosaicByBbox">生成并下载</el-button>
+              </el-form-item>
+            </el-form>
+
+            <div v-if="mosaicResult" class="mosaic-result">
+              <el-descriptions :column="1" border size="small">
+                <el-descriptions-item label="命中分片">{{ mosaicResult.sourceCount }}</el-descriptions-item>
+                <el-descriptions-item label="裁切范围">
+                  {{ mosaicResult.clipBounds.minX.toFixed(6) }}, {{ mosaicResult.clipBounds.minY.toFixed(6) }} —
+                  {{ mosaicResult.clipBounds.maxX.toFixed(6) }}, {{ mosaicResult.clipBounds.maxY.toFixed(6) }}
+                </el-descriptions-item>
+              </el-descriptions>
+            </div>
+          </el-card>
+        </el-tab-pane>
+
+        <el-tab-pane label="裁切 DEM（上传文件）" name="clip">
+          <el-alert type="info" show-icon :closable="false" class="clip-hint">
+            <template #title>裁切流程</template>
+            <template #default>
+              1) 上传 DEM (.tif) → 2) 拖动/缩放裁切框 → 3) 点击“裁切并下载”。如需获取 DEM，请切换到上方“获取 DEM”标签页。
+            </template>
+          </el-alert>
   
       <!-- 1. DEM 上传 -->
       <div class="upload-area"
@@ -171,19 +220,13 @@
               <div class="action-buttons">
                 <el-button type="primary" @click="performClipping">裁切并下载 (后端)</el-button>
                 <el-button @click="centerClippingBox">居中裁切框</el-button>
-                <el-button
-                  type="success"
-                  :disabled="!canMosaicFromChinaDem"
-                  :loading="isMosaicLoading"
-                  @click="downloadMosaicByClipBox"
-                >
-                  内置DEM拼接下载（按当前裁切区域）
-                </el-button>
               </div>
             </div>
           </div>
         </div>
       </div>
+        </el-tab-pane>
+      </el-tabs>
     </div>
   </template>
   
@@ -199,6 +242,9 @@
   const isLoading     = ref(false);
   const loadingProgress = ref(0);
   const loadingMessage  = ref('');
+
+  const activeTab = ref('download');
+  const mosaicMode = ref('coords'); // 'coords' | 'bbox'
   
   /* ===== DEM ===== */
   const tifData           = ref(null);
@@ -227,6 +273,12 @@
     lon: null,
     radius: 5000,
     maxSources: 200,
+  });
+  const mosaicBbox = reactive({
+    minX: null,
+    minY: null,
+    maxX: null,
+    maxY: null,
   });
   const isMosaicLoading = ref(false);
   const mosaicResult = ref(null);
@@ -680,23 +732,39 @@
     }
   };
 
-  const canMosaicFromChinaDem = computed(() => {
+  const canSyncFromClipBox = computed(() => {
     const coordType = tifData.value?.coordSystem?.type;
     return Boolean(showClippingBox.value && coordType === 'geographic');
   });
 
-  const downloadMosaicByClipBox = async () => {
-    if (!showClippingBox.value) {
-      ElMessage.warning('请先在预览图中框选裁切区域');
-      return;
-    }
-    const coordType = tifData.value?.coordSystem?.type;
-    if (coordType !== 'geographic') {
-      ElMessage.warning('当前 DEM 为投影坐标系，内置 China_Dem 为经纬度坐标系；请上传经纬度(4326) DEM 或使用上方经纬度输入下载。');
+  const syncBboxFromClipBox = () => {
+    if (!canSyncFromClipBox.value) return;
+    const { minX, minY, maxX, maxY } = clippingCoordinates.value;
+    mosaicBbox.minX = Number(minX);
+    mosaicBbox.minY = Number(minY);
+    mosaicBbox.maxX = Number(maxX);
+    mosaicBbox.maxY = Number(maxY);
+    mosaicMode.value = 'bbox';
+    activeTab.value = 'download';
+    ElMessage.success('已使用裁切框范围填充 BBox');
+  };
+
+  const downloadMosaicByBbox = async () => {
+    const required = [mosaicBbox.minX, mosaicBbox.minY, mosaicBbox.maxX, mosaicBbox.maxY];
+    if (required.some(v => v === null || v === undefined || v === '')) {
+      ElMessage.warning('请填写完整的 BBox(minX/minY/maxX/maxY) 后再生成');
       return;
     }
 
-    const { minX, minY, maxX, maxY } = clippingCoordinates.value;
+    const minX = Number(mosaicBbox.minX);
+    const minY = Number(mosaicBbox.minY);
+    const maxX = Number(mosaicBbox.maxX);
+    const maxY = Number(mosaicBbox.maxY);
+    if (![minX, minY, maxX, maxY].every(Number.isFinite) || minX >= maxX || minY >= maxY) {
+      ElMessage.error('BBox 无效：请确认 min < max 且为有效数字');
+      return;
+    }
+
     isMosaicLoading.value = true;
     mosaicResult.value = null;
     try {
@@ -940,11 +1008,15 @@
   .file-info{display:flex;align-items:center;gap:8px;font-weight:500;color:#303133;}
   .file-icon{font-size:20px;color:#409EFF;}
 
-  .mosaic-card{margin-top:16px;border:1px solid #ebeef5;background:#fafcff;}
+  .dem-tabs{margin-top:12px;}
+  .mosaic-card{border:1px solid #ebeef5;background:#fafcff;}
   .mosaic-card-header{font-weight:600;color:#303133;}
+  .mosaic-mode-row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:8px 0 12px;flex-wrap:wrap;}
   .mosaic-form{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;}
   .mosaic-hint{margin-top:12px;}
   .mosaic-result{margin-top:12px;}
+
+  .clip-hint{margin-bottom:12px;}
   
   .preview-section{margin-top:40px;padding-top:20px;border-top:1px solid #ebeef5;}
   .preview-container{display:flex;flex-wrap:wrap;gap:24px;margin-top:16px;}
