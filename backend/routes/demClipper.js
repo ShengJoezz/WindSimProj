@@ -261,7 +261,10 @@ router.post('/clip', upload.single('demFile'), async (req, res, next) => {
     // 获取源投影和地理变换
     let srcProjection = null;
     try {
-      srcProjection = srcDataset.srs ? srcDataset.srs.wkt : null;
+      // gdal-async 的 SpatialReference 使用 toWKT() 导出
+      srcProjection = srcDataset.srs && typeof srcDataset.srs.toWKT === 'function'
+        ? srcDataset.srs.toWKT()
+        : null;
       console.log('源文件投影:', srcProjection ? '有效' : '无效或未定义');
     } catch (err) {
       console.warn('获取源文件投影失败:', err.message);
