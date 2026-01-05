@@ -350,14 +350,12 @@ onMounted(async () => {
   if (store.isPending && store.currentAnalysisId) {
     console.log(`检测到正在进行的分析 (ID: ${store.currentAnalysisId}), 开始状态轮询`);
     startStatusChecking();
-  } else if (store.analysisStatus !== 'idle' && store.currentAnalysisId) {
-    // If page loaded and status is success/error but logs might be missing, fetch results/logs again?
-    // Or just trust the existing state? For now, trust existing state.
-     console.log(`页面加载时检测到已完成/失败的分析 (ID: ${store.currentAnalysisId}, Status: ${store.analysisStatus})`);
   } else {
-      // Reset state if navigating here fresh or after non-pending analysis
-      // store.resetState(); // Careful: this might clear intended state if navigating back/forth
-      console.log("页面加载时无进行中分析，状态:", store.analysisStatus);
+      // 分析页默认用于“新建/发起分析”；若没有进行中的任务，则清空上次日志，避免新任务看起来像在复用旧输出
+      if (store.analysisStatus !== 'idle') {
+        store.resetState();
+      }
+      console.log("页面加载时无进行中分析，已重置状态。");
   }
 });
 
@@ -424,12 +422,18 @@ const setupWebSocket = () => {
               ElMessage.success('分析任务已成功完成!');
               // Optionally fetch results immediately after success notification
                store.fetchResults(store.currentAnalysisId);
+              if (result?.shouldRefreshList) {
+                store.fetchSavedAnalyses();
+              }
           } else {
               const errorMessage = result.message || '分析过程中发生未知错误';
               const errorDetails = result.error || '';
               store.setAnalysisStatus('error', errorMessage, errorDetails);
               store.addProgressMessage(`=> 分析失败: ${errorMessage} ${errorDetails}`);
               ElMessage.error(`分析任务失败: ${errorMessage}`);
+              if (result?.shouldRefreshList) {
+                store.fetchSavedAnalyses();
+              }
           }
       } else {
           console.log(`完成事件 (ID: ${result.analysisId}) 与当前分析 (ID: ${store.currentAnalysisId}) 不匹配，忽略`);

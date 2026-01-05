@@ -12,7 +12,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
-import { ElNotification } from 'element-plus';
 import { knownTasks } from '../utils/tasks.js';
 import { io } from 'socket.io-client';
 import { useWindMastStore } from './windMastStore';
@@ -750,34 +749,8 @@ export const useCaseStore = defineStore('caseStore', () => {
       if (status === 'failed' && data?.error) visualizationLastError.value = String(data.error);
     });
     
-    // Wind Mast Store Listeners
-    const windMastStore = useWindMastStore();
-    socket.value.on('windmast_analysis_progress', (data) => {
-      const message = data?.message ?? data;
-      if (message) windMastStore.addProgressMessage(message);
-    });
-    socket.value.on('windmast_analysis_error', (data) => {
-      const message = data?.message ?? data;
-      if (message) windMastStore.addProgressMessage(`后台错误: ${message}`);
-    });
-    socket.value.on('windmast_analysis_complete', (data) => {
-      const analysisId = data?.analysisId;
-      if (data.success) {
-        windMastStore.setAnalysisStatus('success');
-        ElNotification({ title: '成功', message: '测风塔数据分析完成', type: 'success', duration: 4000 });
-        if (analysisId) {
-          windMastStore.fetchResults(analysisId);
-        } else {
-          console.warn('windmast_analysis_complete missing analysisId:', data);
-        }
-        if (data?.shouldRefreshList) {
-          windMastStore.fetchSavedAnalyses();
-        }
-      } else {
-        windMastStore.setAnalysisStatus('error', data.message || '分析失败', data.error || '');
-        ElNotification({ title: '失败', message: `测风塔分析失败: ${data.message || ''}`, type: 'error', duration: 0 });
-      }
-    });
+    // WindMast 模块使用自己的 WebSocket 连接（/windmast/analysis），这里不再订阅 windmast_* 事件，
+    // 避免在工况页面与测风塔页面之间相互污染日志/状态（尤其是多次分析时会混入旧输出）。
 
     if (socket.value && !socket.value.connected) {
       socket.value.connect();

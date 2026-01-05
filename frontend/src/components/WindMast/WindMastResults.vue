@@ -139,7 +139,7 @@
           <el-table-column label="操作" width="200">
             <template #default="scope">
               <el-button 
-                v-if="scope.row.status === 'completed'"
+                v-if="scope.row.status === 'completed' || scope.row.status === 'completed_with_warnings'"
                 type="primary" 
                 size="small" 
                 @click="$router.push(`/windmast/results/${scope.row.id}`)"
