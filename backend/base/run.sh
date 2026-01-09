@@ -164,7 +164,13 @@ if [ $? -ne 0 ]; then
   echo "{\"action\":\"progress\", \"progress\": \"ERROR\", \"taskId\":\"modeling\"}"
   exit 1
 fi
-gmsh -3 modeling.geo -o flat.msh
+gmsh -3 modeling.geo -format msh2 -o flat.msh
+if [ $? -ne 0 ] || [ ! -s flat.msh ]; then
+  echo "[ERROR] gmsh 网格生成失败（可能是网格尺寸过小导致内存不足/OOM，被系统终止）。" >&2
+  echo "[ERROR] 建议：增大“最大网格尺寸(lc1)”/“最小网格尺寸(lc2)”，或缩小计算域，或提高容器内存/Swap 后重试。" >&2
+  echo "{\"action\":\"progress\", \"progress\": \"ERROR\", \"taskId\":\"modeling\"}"
+  exit 1
+fi
 emit_progress 50 "modeling"
 sleep 1
 

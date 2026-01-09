@@ -141,16 +141,33 @@ def buildTerrain(inp):
         e_inlet, e_outlet, e_front, e_back = [], [], [], []
         for iele in range(0, nele):
             if iele % 10000 == 0: print('writting elemnets %dw/%dw' % (iele / 10000, nele / 10000), end='\r')
-            data = [*map(int, msh.readline().split())]
+            line = msh.readline()
+            if not line:
+                raise RuntimeError("flat.msh 在读取 Elements 时意外结束（文件可能不完整：gmsh 被系统终止或写入失败）")
+            data = [*map(int, line.split())]
+            if len(data) < 3:
+                raise RuntimeError(f"flat.msh 元素行格式错误（列数不足）：{line.strip()[:200]}")
+
             if data[1] != 6:
                 continue
+
+            num_tags = data[2]
+            node_start = 3 + num_tags
+            if len(data) < node_start + 6:
+                raise RuntimeError(
+                    "flat.msh 元素行不完整（可能 gmsh 被系统终止或网格文件损坏）。"
+                    f" 期望至少 {node_start + 6} 列，实际 {len(data)} 列。行内容：{line.strip()[:200]}"
+                )
+
+            nodes = data[node_start:node_start + 6]
+
             numtri = numtri + 1
             out.write('%8d%3d%3d' % (numtri, 5, 6) +
-                      ''.join(['%8d' % (data[k] - 1) for k in (8, 10, 9, 5, 7, 6)]) + '\n')
+                      ''.join(['%8d' % (v - 1) for v in (nodes[3], nodes[5], nodes[4], nodes[0], nodes[2], nodes[1])]) + '\n')
             # 判断单元是否在边界上
             for p_bound, e_bound in [(p_inlet, e_inlet), (p_outlet, e_outlet),
                                      (p_front, e_front), (p_back, e_back)]:
-                a1, a2, a3 = [binarySearch(p_bound, 0, p_bound.size - 1, data[k]) >= 0 for k in (8, 10, 9)]
+                a1, a2, a3 = [binarySearch(p_bound, 0, p_bound.size - 1, v) >= 0 for v in (nodes[3], nodes[5], nodes[4])]
                 numface = 1 if a1 and a2 else \
                     3 if a1 and a3 else \
                     2 if a2 and a3 else 0
