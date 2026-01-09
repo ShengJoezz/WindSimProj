@@ -58,16 +58,28 @@ emit_progress 100 "overlay_curves"
 emit_task_start "validate_curves"
 echo "[Info] 正在验证所有必需的性能曲线文件是否都已提供..."
 
-# 从info.json中读取所有唯一的风机型号ID
-# 使用 jq 工具解析json, -r 表示输出原始字符串, .turbines[].model 获取每个涡轮机的模型字段, sort -u 去重并排序
-ids=$(jq -r '.turbines[].model' ../info.json | sort -u)
-
-# 检查jq是否成功执行，以及是否成功获取到ID
-if [ $? -ne 0 ] || [ -z "$ids" ]; then
-    echo "[ERROR] 无法从 info.json 读取风机型号，或者风机列表为空。请检查文件格式或确保已定义风机。" >&2
+turbine_count=$(jq -r '.turbines | length' ../info.json 2>/dev/null || echo "")
+if [ -z "$turbine_count" ]; then
+    echo "[ERROR] 无法从 info.json 读取风机列表长度（jq 解析失败）。请检查文件格式。" >&2
     echo "{\"action\":\"progress\", \"progress\": \"ERROR\", \"taskId\":\"validate_curves\"}"
-    exit 1 # 退出脚本，返回错误码1
+    exit 1
 fi
+
+# 未配置风机：纯流场仿真，无需性能曲线
+if [ "$turbine_count" -eq 0 ]; then
+    echo "[Info] 未配置风机，跳过性能曲线校验。"
+    emit_progress 100 "validate_curves"
+else
+    # 从info.json中读取所有唯一的风机型号ID
+    # 使用 jq 工具解析json, -r 表示输出原始字符串, .turbines[].model 获取每个涡轮机的模型字段, sort -u 去重并排序
+    ids=$(jq -r '.turbines[].model' ../info.json | sort -u)
+
+    # 检查jq是否成功执行，以及是否成功获取到ID
+    if [ $? -ne 0 ] || [ -z "$ids" ]; then
+        echo "[ERROR] 无法从 info.json 读取风机型号，请检查文件格式或确保已定义风机。" >&2
+        echo "{\"action\":\"progress\", \"progress\": \"ERROR\", \"taskId\":\"validate_curves\"}"
+        exit 1 # 退出脚本，返回错误码1
+    fi
 
 missing=0
 for id in $ids; do
@@ -87,6 +99,7 @@ if [ $missing -eq 1 ]; then
 fi
 echo "[Info] 所有必需的性能曲线文件均已找到。检查通过。"
 emit_progress 100 "validate_curves"
+fi
 # ========================================================
 
 # ===== [新增] 复制粗糙度文件 =====

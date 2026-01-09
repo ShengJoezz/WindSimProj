@@ -216,7 +216,7 @@
         </el-form-item>
 
         <!-- 风机性能曲线 - 最终修复版 -->
-        <el-form-item label="风机性能曲线" class="parent-form-item">
+        <el-form-item v-if="hasTurbines" label="风机性能曲线" class="parent-form-item">
           <div class="performance-curve-section">
             <!-- 输入指导 -->
             <div class="curve-input-guidance">
@@ -365,6 +365,15 @@
             </div>
           </div>
         </el-form-item>
+        <el-form-item v-else label="风机性能曲线" class="parent-form-item">
+          <el-alert
+            type="info"
+            show-icon
+            :closable="false"
+            title="未配置风机（可选）"
+            description="当前将进行纯流场仿真，无需上传性能曲线。如需模拟风机尾流，请先在“地形展示 > 风机管理”中添加/导入风机，再上传对应性能曲线文件。"
+          />
+        </el-form-item>
 
         <!-- 按钮区域保持不变... -->
         <el-form-item class="form-actions">
@@ -372,14 +381,14 @@
             <el-alert
               v-if="!hasTurbines"
               class="action-hint"
-              type="warning"
+              type="info"
               show-icon
               :closable="false"
-              title="尚未配置风机"
-              description="请先在“地形展示 > 风机管理”中添加或导入风机，然后再提交参数。"
+              title="未配置风机（可选）"
+              description="仍可提交参数并进行纯流场仿真。若需要风机尾流/功率等分析，请先在“地形展示 > 风机管理”中添加风机并上传性能曲线。"
             />
             <div class="actions-buttons">
-              <el-button type="primary" @click="handleGenerateClick" :disabled="isSubmitting || caseStore.infoExists || !hasTurbines" class="submit-button">
+              <el-button type="primary" @click="handleGenerateClick" :disabled="isSubmitting || caseStore.infoExists" class="submit-button">
                 <template v-if="isSubmitting && !caseStore.infoExists"> <el-icon class="is-loading"><Loading /></el-icon> <span>提交中...</span> </template>
                 <span v-else>提交参数</span>
               </el-button>
@@ -1044,22 +1053,28 @@ const handleGenerateClick = async () => {
     caseStore.maxLongitude,
   ].every((v) => typeof v === 'number' && Number.isFinite(v));
 
-  if (!hasGeographicBounds) {
+  if (!hasGeographicBounds && hasTurbines.value) {
     ElMessage.warning(
       '地理边界信息尚未加载，将使用风机中心作为 CFD 域中心（可能影响计算域定位）。' +
       '建议先打开“地形展示”页面加载地形。'
     );
   }
 
-  if (!hasTurbines.value) return ElMessage.error("请先上传风机布局数据");
-  const hasNewFiles = caseStore.curveFiles.length > 0;
-  const hasExistingFiles = existingFilesList.value.length > 0;
-  if (!hasNewFiles && !hasExistingFiles) return ElMessage.error("请先上传风机性能曲线文件");
+  if (!hasTurbines.value) {
+    if (!hasGeographicBounds) {
+      ElMessage.error('未配置风机且地形边界信息尚未加载。请先打开“地形展示”页面加载地形（或至少添加 1 台风机用于中心定位）。');
+      return;
+    }
+  } else {
+    const hasNewFiles = caseStore.curveFiles.length > 0;
+    const hasExistingFiles = existingFilesList.value.length > 0;
+    if (!hasNewFiles && !hasExistingFiles) return ElMessage.error("请先上传风机性能曲线文件");
 
-  const curveErrors = getCurveValidationErrors();
-  if (curveErrors.length > 0) {
-    ElMessage.error(curveErrors[0]);
-    return;
+    const curveErrors = getCurveValidationErrors();
+    if (curveErrors.length > 0) {
+      ElMessage.error(curveErrors[0]);
+      return;
+    }
   }
 
   // ===== [新增] 检查粗糙度文件是否已上传 =====
@@ -1078,7 +1093,7 @@ const handleGenerateClick = async () => {
         await caseStore.uploadRoughnessFile(); // 假设 store 中有这个 action
     }
 
-    if (hasNewFiles) await caseStore.uploadCurveFiles();
+    if (hasTurbines.value && caseStore.curveFiles.length > 0) await caseStore.uploadCurveFiles();
 
     await caseStore.submitParameters();
     await caseStore.generateInfoJson();

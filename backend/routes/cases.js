@@ -1756,8 +1756,7 @@ router.post('/:caseId/info', async (req, res) => {
 
     const schema = Joi.object({
         parameters: parametersSchema,
-        windTurbines: Joi.array().items(turbineSchema).min(1).required().messages({
-            'array.min': '至少需要提供一个风机信息',
+        windTurbines: Joi.array().items(turbineSchema).required().messages({
             'array.base': '风机信息必须是一个列表',
         }),
         // 添加地理范围字段
@@ -1775,40 +1774,7 @@ router.post('/:caseId/info', async (req, res) => {
     const { parameters, windTurbines, geographicBounds } = value;
 
     try {
-        // --- Calculate Wind Farm Center ---
-        let windFarmCenterLon, windFarmCenterLat;
-        if (windTurbines.length > 0) {
-            const longitudes = windTurbines.map(turbine => turbine.longitude);
-            const latitudes = windTurbines.map(turbine => turbine.latitude);
-            windFarmCenterLon = (longitudes.length > 0) ? (Math.min(...longitudes) + Math.max(...longitudes)) / 2 : 0;
-            windFarmCenterLat = (latitudes.length > 0) ? (Math.min(...latitudes) + Math.max(...latitudes)) / 2 : 0;
-        } else {
-            return res.status(400).json({ success: false, message: "风机列表不能为空" });
-        }
-
-        // --- Calculate CFD Domain Center (based on tif geographic bounds) ---
-        let cfdCenterLon, cfdCenterLat;
-        if (geographicBounds) {
-            // 验证地理范围的有效性
-            if (geographicBounds.maxLon <= geographicBounds.minLon || 
-                geographicBounds.maxLat <= geographicBounds.minLat) {
-                console.warn(`无效的地理范围 (${caseId}):`, geographicBounds);
-                return res.status(400).json({ success: false, message: "地理范围数据无效" });
-            }
-            
-            cfdCenterLon = (geographicBounds.minLon + geographicBounds.maxLon) / 2;
-            cfdCenterLat = (geographicBounds.minLat + geographicBounds.maxLat) / 2;
-            
-            console.log(`CFD domain center (tif-based): (${cfdCenterLon.toFixed(6)}, ${cfdCenterLat.toFixed(6)})`);
-            console.log(`Wind farm center: (${windFarmCenterLon.toFixed(6)}, ${windFarmCenterLat.toFixed(6)})`);
-        } else {
-            // fallback: 使用风机群中心
-            cfdCenterLon = windFarmCenterLon;
-            cfdCenterLat = windFarmCenterLat;
-            console.log(`Warning: No geographic bounds provided for case ${caseId}, using wind farm center as CFD domain center`);
-        }
-
-        // --- Read existing info.json to preserve status ---
+        // --- Read existing info.json to preserve status / fallback centers ---
         let existingInfo = {};
         const casePath = path.join(__dirname, '../uploads', caseId);
         const infoJsonPath = path.join(casePath, 'info.json');
@@ -1818,6 +1784,87 @@ router.post('/:caseId/info', async (req, res) => {
             } catch (readErr) {
                 console.warn(`读取现有 info.json (${caseId}) 失败，将重新创建:`, readErr);
             }
+        }
+
+        const hasTurbines = Array.isArray(windTurbines) && windTurbines.length > 0;
+
+        let persistedBounds = null;
+        if (existingInfo.geographicBounds && typeof existingInfo.geographicBounds === 'object') {
+            const candidate = {
+                minLon: existingInfo.geographicBounds.minLon,
+                maxLon: existingInfo.geographicBounds.maxLon,
+                minLat: existingInfo.geographicBounds.minLat,
+                maxLat: existingInfo.geographicBounds.maxLat,
+            };
+            const isFiniteBounds = [
+                candidate.minLon,
+                candidate.maxLon,
+                candidate.minLat,
+                candidate.maxLat,
+            ].every((v) => typeof v === 'number' && Number.isFinite(v));
+            if (isFiniteBounds) persistedBounds = candidate;
+        }
+
+        const effectiveGeographicBounds = geographicBounds || persistedBounds;
+
+        // --- Calculate geographic center (tif-based) ---
+        let geographicCenterLon = null;
+        let geographicCenterLat = null;
+        if (effectiveGeographicBounds) {
+            if (effectiveGeographicBounds.maxLon <= effectiveGeographicBounds.minLon ||
+                effectiveGeographicBounds.maxLat <= effectiveGeographicBounds.minLat) {
+                console.warn(`无效的地理范围 (${caseId}):`, effectiveGeographicBounds);
+                return res.status(400).json({ success: false, message: "地理范围数据无效" });
+            }
+            geographicCenterLon = (effectiveGeographicBounds.minLon + effectiveGeographicBounds.maxLon) / 2;
+            geographicCenterLat = (effectiveGeographicBounds.minLat + effectiveGeographicBounds.maxLat) / 2;
+        }
+
+        // --- Calculate Wind Farm Center ---
+        let windFarmCenterLon, windFarmCenterLat;
+        if (hasTurbines) {
+            const longitudes = windTurbines.map(turbine => turbine.longitude);
+            const latitudes = windTurbines.map(turbine => turbine.latitude);
+            windFarmCenterLon = (longitudes.length > 0) ? (Math.min(...longitudes) + Math.max(...longitudes)) / 2 : 0;
+            windFarmCenterLat = (latitudes.length > 0) ? (Math.min(...latitudes) + Math.max(...latitudes)) / 2 : 0;
+        } else {
+            const fallbackCenterCandidates = [
+                { lon: geographicCenterLon, lat: geographicCenterLat },
+                { lon: parameters?.center?.lon, lat: parameters?.center?.lat },
+                { lon: existingInfo.domain?.centerLon, lat: existingInfo.domain?.centerLat },
+                { lon: existingInfo.center?.lon, lat: existingInfo.center?.lat },
+                { lon: existingInfo.windFarmCenter?.lon, lat: existingInfo.windFarmCenter?.lat },
+            ];
+            const fallback = fallbackCenterCandidates.find(
+                (c) => Number.isFinite(c?.lon) && Number.isFinite(c?.lat)
+            );
+            if (!fallback) {
+                return res.status(400).json({
+                    success: false,
+                    message: "未配置风机且缺少地理边界/中心坐标，无法确定 CFD 域中心。请先打开“地形展示”加载地形，或添加至少 1 台风机。",
+                });
+            }
+            windFarmCenterLon = fallback.lon;
+            windFarmCenterLat = fallback.lat;
+        }
+
+        // --- Calculate CFD Domain Center (based on tif geographic bounds) ---
+        let cfdCenterLon, cfdCenterLat;
+        if (Number.isFinite(geographicCenterLon) && Number.isFinite(geographicCenterLat)) {
+            cfdCenterLon = geographicCenterLon;
+            cfdCenterLat = geographicCenterLat;
+
+            console.log(`CFD domain center (tif-based): (${cfdCenterLon.toFixed(6)}, ${cfdCenterLat.toFixed(6)})`);
+            console.log(`Wind farm center: (${windFarmCenterLon.toFixed(6)}, ${windFarmCenterLat.toFixed(6)})`);
+        } else {
+            // fallback: 使用风机群中心
+            cfdCenterLon = windFarmCenterLon;
+            cfdCenterLat = windFarmCenterLat;
+            console.log(`Warning: No geographic bounds provided for case ${caseId}, using wind farm center as CFD domain center`);
+        }
+
+        if (!Number.isFinite(cfdCenterLon) || !Number.isFinite(cfdCenterLat)) {
+            return res.status(400).json({ success: false, message: "无法确定 CFD 域中心坐标" });
         }
 
         // --- Construct info.json Content ---
@@ -1834,11 +1881,11 @@ router.post('/:caseId/info', async (req, res) => {
                 centerLat: parseFloat(cfdCenterLat.toFixed(6))
             },
             // 添加地理范围信息（如果提供的话）
-            geographicBounds: geographicBounds ? {
-                minLon: parseFloat(geographicBounds.minLon.toFixed(6)),
-                maxLon: parseFloat(geographicBounds.maxLon.toFixed(6)),
-                minLat: parseFloat(geographicBounds.minLat.toFixed(6)),
-                maxLat: parseFloat(geographicBounds.maxLat.toFixed(6))
+            geographicBounds: effectiveGeographicBounds ? {
+                minLon: parseFloat(effectiveGeographicBounds.minLon.toFixed(6)),
+                maxLon: parseFloat(effectiveGeographicBounds.maxLon.toFixed(6)),
+                minLat: parseFloat(effectiveGeographicBounds.minLat.toFixed(6)),
+                maxLat: parseFloat(effectiveGeographicBounds.maxLat.toFixed(6))
             } : null,
             // 风机群中心（用于坐标转换）
             windFarmCenter: {
@@ -1886,7 +1933,7 @@ router.post('/:caseId/info', async (req, res) => {
                 width: parameters.postProcessing?.layerDataWidth ?? 1000,
                 height: parameters.postProcessing?.layerDataHeight ?? 1000,
             },
-            turbines: windTurbines.map(turbine => {
+            turbines: hasTurbines ? windTurbines.map(turbine => {
                 // 注意：这里仍然使用风机群中心计算投影坐标
                 // 坐标转换将在预处理阶段进行
                 const { x, y } = calculateXY(turbine.longitude, turbine.latitude, windFarmCenterLon, windFarmCenterLat);
@@ -1912,7 +1959,7 @@ router.post('/:caseId/info', async (req, res) => {
                     name: turbine.name || `Turbine_${turbine.id}`,
                     model: modelId
                 };
-            }),
+            }) : [],
             center: {
                 // 保持向后兼容性，这里仍然是风机群中心
                 lon: parseFloat(windFarmCenterLon.toFixed(6)),
@@ -1929,8 +1976,8 @@ router.post('/:caseId/info', async (req, res) => {
         console.log(`info.json 已为工况 ${caseId} 生成/更新，包含CFD域中心信息。`);
         
         // 输出调试信息
-        if (geographicBounds) {
-            console.log(`  - 地理范围: Lon[${geographicBounds.minLon.toFixed(6)}, ${geographicBounds.maxLon.toFixed(6)}], Lat[${geographicBounds.minLat.toFixed(6)}, ${geographicBounds.maxLat.toFixed(6)}]`);
+        if (effectiveGeographicBounds) {
+            console.log(`  - 地理范围: Lon[${effectiveGeographicBounds.minLon.toFixed(6)}, ${effectiveGeographicBounds.maxLon.toFixed(6)}], Lat[${effectiveGeographicBounds.minLat.toFixed(6)}, ${effectiveGeographicBounds.maxLat.toFixed(6)}]`);
             console.log(`  - CFD域中心: (${cfdCenterLon.toFixed(6)}, ${cfdCenterLat.toFixed(6)})`);
             console.log(`  - 风机群中心: (${windFarmCenterLon.toFixed(6)}, ${windFarmCenterLat.toFixed(6)})`);
             

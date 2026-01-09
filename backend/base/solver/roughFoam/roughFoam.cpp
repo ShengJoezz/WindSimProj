@@ -109,7 +109,9 @@ static void read_Turbines()
 
     if (numTurbine <= 0)
     {
-        FatalErrorInFunction << "Input/Turbines.txt has no lines." << exit(FatalError);
+        numTurbine = 0;
+        Info<< "No turbines configured (Input/Turbines.txt is empty). Running terrain/roughness-only simulation." << nl;
+        return;
     }
     if (numTurbine > 200)
     {
@@ -130,12 +132,19 @@ static void read_Turbines()
 
 static void read_InputJSON()
 {
-    // numType from turbines (types are in XY[][4])
-    numType = int(XY[0][4]);
-    for (i = 0; i < numTurbine; i++) if (XY[i][4] > numType) numType = int(XY[i][4]);
-    if (numType <= 0 || numType > 10)
+    // numType from turbines (types are in XY[][4]) - optional for pure flow runs
+    if (numTurbine > 0)
     {
-        FatalErrorInFunction << "Invalid numType=" << numType << " (expected 1..10)." << exit(FatalError);
+        numType = int(XY[0][4]);
+        for (i = 0; i < numTurbine; i++) if (XY[i][4] > numType) numType = int(XY[i][4]);
+        if (numType <= 0 || numType > 10)
+        {
+            FatalErrorInFunction << "Invalid numType=" << numType << " (expected 1..10)." << exit(FatalError);
+        }
+    }
+    else
+    {
+        numType = 0;
     }
 
     file0 = fopenOrDie("Input/input.json", "r");
@@ -203,29 +212,32 @@ static void read_InputJSON()
     botHigh = scale * h1 / ceng;
 
     cJSON *cjson_mesh_lc2 = cJSON_GetObjectItem(cjson_mesh, "lc2");
-    if (!cjson_mesh_lc2 || !cJSON_IsArray(cjson_mesh_lc2))
+    if (numTurbine > 0)
     {
-        std::free(json_str); cJSON_Delete(cjson);
-        FatalErrorInFunction << "mesh.lc2 must be an array." << exit(FatalError);
-    }
-
-    int lc2Size = cJSON_GetArraySize(cjson_mesh_lc2);
-    if (lc2Size < numType)
-    {
-        std::free(json_str); cJSON_Delete(cjson);
-        FatalErrorInFunction << "mesh.lc2 size (" << lc2Size << ") < numType (" << numType << ")." << exit(FatalError);
-    }
-
-    for (i = 0; i < numTurbine; i++)
-    {
-        k = int(XY[i][4]) - 1;
-        cJSON *cjson_dx = cJSON_GetArrayItem(cjson_mesh_lc2, k);
-        if (!cjson_dx || !cJSON_IsNumber(cjson_dx))
+        if (!cjson_mesh_lc2 || !cJSON_IsArray(cjson_mesh_lc2))
         {
             std::free(json_str); cJSON_Delete(cjson);
-            FatalErrorInFunction << "mesh.lc2[" << k << "] is missing or not a number." << exit(FatalError);
+            FatalErrorInFunction << "mesh.lc2 must be an array." << exit(FatalError);
         }
-        dx[i] = scale * cjson_dx->valuedouble;
+
+        int lc2Size = cJSON_GetArraySize(cjson_mesh_lc2);
+        if (lc2Size < numType)
+        {
+            std::free(json_str); cJSON_Delete(cjson);
+            FatalErrorInFunction << "mesh.lc2 size (" << lc2Size << ") < numType (" << numType << ")." << exit(FatalError);
+        }
+
+        for (i = 0; i < numTurbine; i++)
+        {
+            k = int(XY[i][4]) - 1;
+            cJSON *cjson_dx = cJSON_GetArrayItem(cjson_mesh_lc2, k);
+            if (!cjson_dx || !cJSON_IsNumber(cjson_dx))
+            {
+                std::free(json_str); cJSON_Delete(cjson);
+                FatalErrorInFunction << "mesh.lc2[" << k << "] is missing or not a number." << exit(FatalError);
+            }
+            dx[i] = scale * cjson_dx->valuedouble;
+        }
     }
 
     // terrain radii
@@ -264,10 +276,19 @@ static void read_InputJSON()
     }
     std::fclose(file1);
 
-    Info<< "angle(rad)=" << angle
-        << " vInlet=" << vInlet
-        << " scale=" << scale
-        << " dx[0]=" << dx[0] << nl;
+    if (numTurbine > 0)
+    {
+        Info<< "angle(rad)=" << angle
+            << " vInlet=" << vInlet
+            << " scale=" << scale
+            << " dx[0]=" << dx[0] << nl;
+    }
+    else
+    {
+        Info<< "angle(rad)=" << angle
+            << " vInlet=" << vInlet
+            << " scale=" << scale << nl;
+    }
 }
 
 static char *numToStr(int num, char *str, int radix)
@@ -372,7 +393,10 @@ int main(int argc, char *argv[])
 
     read_Turbines();
     read_InputJSON();
-    read_U_P_Ct();
+    if (numTurbine > 0)
+    {
+        read_U_P_Ct();
+    }
 
 #include "setRootCase.H"
 #include "createTime.H"
@@ -502,7 +526,10 @@ int main(int argc, char *argv[])
 
 // =========================== update_vInlet() ============================ //
 #pragma region
-    update_vInlet();
+    if (numTurbine > 0)
+    {
+        update_vInlet();
+    }
 #pragma endregion
 
 // =========================== calc_P_Ct_fn() ============================= //
