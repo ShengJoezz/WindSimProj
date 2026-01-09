@@ -1,4 +1,12 @@
 # 输出函数：以 JSON 格式输出进度消息
+# 确保 OpenFOAM 环境已加载（WSL/非登录 shell 下 Node 启动时可能缺少 PATH 等环境）
+if [ -z "${WM_PROJECT_DIR:-}" ]; then
+  if [ -f /opt/openfoam2212/OpenFOAM-v2212/etc/bashrc ]; then
+    # shellcheck disable=SC1091
+    source /opt/openfoam2212/OpenFOAM-v2212/etc/bashrc
+  fi
+fi
+
 emit_progress() {
   echo "{\"action\":\"progress\",\"progress\": $1, \"taskId\":\"$2\"}"
   echo "[Debug] 当前工作目录: $(pwd)"

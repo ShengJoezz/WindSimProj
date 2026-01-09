@@ -1,4 +1,4 @@
 cJSON.c
 postFoam.cpp
 
-EXE = $(FOAM_APPBIN)/postFoam
+EXE = $(FOAM_USER_APPBIN)/postFoam
