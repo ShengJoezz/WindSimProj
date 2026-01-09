@@ -56,24 +56,28 @@ def writeGeo(input):
                  for k in data]) + "\n")
 
         # 处理风机点（如果有的话）
+        # Gmsh 实体 tag 必须为正整数，避免出现 curve 0 / point 0 相关的 Coherence 错误。
+        first_point_id = 1
+        turbine_point_ids = []
         for i in range(numTurbine):
             tempX = turbines[i]["x"]
             tempY = turbines[i]["y"]
             turbines[i]["x"] = tempX*math.cos(windAngle)+tempY*math.sin(windAngle)
             turbines[i]["y"] = -tempX*math.sin(windAngle)+tempY*math.cos(windAngle)
+            pid = first_point_id + i
+            turbine_point_ids.append(pid)
             geo.write('Point(%d) = {%f,%f,0,lc2};\n' %
-                      (i, turbines[i]["x"], turbines[i]["y"]))
+                      (pid, turbines[i]["x"], turbines[i]["y"]))
 
-        # 修复：使用 numTurbine 而不是依赖循环变量 i
-        # 创建域的四个角点
-        corner_point_start = numTurbine  # 第一个角点的索引
+        # 创建域的四个角点（紧接在风机点之后）
+        corner_point_start = first_point_id + numTurbine  # 第一个角点的索引
         geo.write('Point(%d) = {-lt/2,-lt/2,0,lc1};\n' % corner_point_start)
         geo.write('Point(%d) = {lt/2,-lt/2,0,lc1};\n' % (corner_point_start + 1))
         geo.write('Point(%d) = {lt/2,lt/2,0,lc1};\n' % (corner_point_start + 2))
         geo.write('Point(%d) = {-lt/2,lt/2,0,lc1};\n' % (corner_point_start + 3))
         
         # 创建域的边界线
-        line_start = corner_point_start  # 线的索引与点相同
+        line_start = corner_point_start  # 线的索引与点相同（不同实体类型 namespace 不冲突）
         geo.write('Line(%d) = {%d,%d};\n' % (line_start, corner_point_start, corner_point_start + 1))
         geo.write('Line(%d) = {%d,%d};\n' % (line_start + 1, corner_point_start + 1, corner_point_start + 2))
         geo.write('Line(%d) = {%d,%d};\n' % (line_start + 2, corner_point_start + 2, corner_point_start + 3))
@@ -98,7 +102,7 @@ def writeGeo(input):
             # 创建吸引子场
             attractor_field_id = numTurbine
             geo.write('Field[%d] = Attractor;\n' % attractor_field_id)
-            sequence1 = ",".join([str(i) for i in range(numTurbine)])
+            sequence1 = ",".join([str(pid) for pid in turbine_point_ids])
             geo.write('Field[%d].NodesList = {%s};\n' % (attractor_field_id, sequence1))
             
             # 创建阈值场
