@@ -337,6 +337,33 @@ export const useCaseStore = defineStore('caseStore', () => {
     }
   };
 
+  const ensureGeographicBounds = async () => {
+    const hasBounds = [
+      minLatitude.value,
+      maxLatitude.value,
+      minLongitude.value,
+      maxLongitude.value,
+    ].every((v) => typeof v === 'number' && Number.isFinite(v));
+
+    if (hasBounds) return true;
+    if (!caseId.value) return false;
+
+    try {
+      const response = await axios.get(`/api/cases/${caseId.value}/parameters`);
+      const bounds = response.data?.geographicBounds;
+      if (bounds) {
+        minLatitude.value = bounds.minLat;
+        maxLatitude.value = bounds.maxLat;
+        minLongitude.value = bounds.minLon;
+        maxLongitude.value = bounds.maxLon;
+        return true;
+      }
+    } catch (error) {
+      console.warn('ensureGeographicBounds failed:', error?.message || error);
+    }
+    return false;
+  };
+
   const generateInfoJson = async () => {
     try {
       const hasGeographicBounds = [
@@ -818,6 +845,7 @@ export const useCaseStore = defineStore('caseStore', () => {
     initializeCase,
     fetchCalculationStatus,
     submitParameters,
+    ensureGeographicBounds,
     generateInfoJson,
     downloadInfoJson,
     unlockParameters,

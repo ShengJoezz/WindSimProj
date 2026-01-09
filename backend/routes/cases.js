@@ -23,6 +23,7 @@ const { knownTasks } = require('../utils/tasks');
 const windTurbinesRouter = require('./windTurbinesRouter');
 const archiver = require('archiver');
 const pdfDataService = require('../services/pdfDataService'); // 引入 PDF 数据服务
+const gdal = require('gdal-async');
 
 // --- In-memory running calculation registry (per backend instance) ---
 // caseId -> { child, startedAt, cancelReason, killTimer, timeoutTimer }
@@ -80,6 +81,98 @@ const ensureVTKDirectories = (caseId) => {
             // console.log(`Created directory: ${dir}`); // Optional log
         }
     });
+};
+
+const getTerrainLonLatBounds = async (casePath) => {
+    const cachePath = path.join(casePath, 'terrain_bounds.json');
+    try {
+        if (fs.existsSync(cachePath)) {
+            const cached = JSON.parse(await fsPromises.readFile(cachePath, 'utf-8'));
+            const isValid = cached &&
+                typeof cached.minLon === 'number' && Number.isFinite(cached.minLon) &&
+                typeof cached.maxLon === 'number' && Number.isFinite(cached.maxLon) &&
+                typeof cached.minLat === 'number' && Number.isFinite(cached.minLat) &&
+                typeof cached.maxLat === 'number' && Number.isFinite(cached.maxLat) &&
+                cached.maxLon > cached.minLon &&
+                cached.maxLat > cached.minLat;
+            if (isValid) return cached;
+        }
+    } catch (e) {
+        console.warn(`读取 terrain_bounds.json 失败，将尝试从 GeoTIFF 重建: ${cachePath}`, e?.message || e);
+    }
+
+    const terrainPath = path.join(casePath, 'terrain.tif');
+    if (!fs.existsSync(terrainPath)) return null;
+
+    let ds = null;
+    try {
+        ds = await gdal.openAsync(terrainPath);
+        const gt = ds.geoTransform;
+        if (!Array.isArray(gt) || gt.length !== 6) return null;
+        const width = ds.rasterSize?.x;
+        const height = ds.rasterSize?.y;
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+
+        const transform = (px, py) => ([
+            gt[0] + px * gt[1] + py * gt[2],
+            gt[3] + px * gt[4] + py * gt[5],
+        ]);
+        const corners = [
+            transform(0, 0),
+            transform(width, 0),
+            transform(0, height),
+            transform(width, height),
+        ];
+        const xs = corners.map((p) => p[0]).filter(Number.isFinite);
+        const ys = corners.map((p) => p[1]).filter(Number.isFinite);
+        if (xs.length !== 4 || ys.length !== 4) return null;
+
+        let minLon = Math.min(...xs);
+        let maxLon = Math.max(...xs);
+        let minLat = Math.min(...ys);
+        let maxLat = Math.max(...ys);
+
+        // Ensure ordering
+        if (maxLon < minLon) [minLon, maxLon] = [maxLon, minLon];
+        if (maxLat < minLat) [minLat, maxLat] = [maxLat, minLat];
+
+        const hasSrs = !!ds.srs;
+        const isGeographic = hasSrs ? !!ds.srs.isGeographic() : false;
+        const isProjected = hasSrs ? !!ds.srs.isProjected() : false;
+        const looksLikeLonLat =
+            minLon >= -180 && maxLon <= 180 &&
+            minLat >= -90 && maxLat <= 90 &&
+            maxLon > minLon && maxLat > minLat;
+
+        // Only trust numeric range if no SRS is present; if SRS exists and is projected, do not guess.
+        const canUseAsLonLat = hasSrs ? isGeographic : looksLikeLonLat;
+        if (!canUseAsLonLat) {
+            console.warn(`terrain.tif 坐标系非经纬度或范围异常，无法作为 geographicBounds (${path.basename(casePath)}). isProjected=${isProjected}, bbox=[${minLon},${minLat},${maxLon},${maxLat}]`);
+            return null;
+        }
+
+        const bounds = {
+            minLon: Number(minLon.toFixed(6)),
+            maxLon: Number(maxLon.toFixed(6)),
+            minLat: Number(minLat.toFixed(6)),
+            maxLat: Number(maxLat.toFixed(6)),
+            source: 'terrain.tif',
+            createdAt: new Date().toISOString(),
+        };
+
+        try {
+            await fsPromises.writeFile(cachePath, JSON.stringify(bounds, null, 2), 'utf-8');
+        } catch (e) {
+            console.warn(`写入 terrain_bounds.json 失败（忽略）: ${cachePath}`, e?.message || e);
+        }
+
+        return bounds;
+    } catch (e) {
+        console.warn(`从 terrain.tif 读取地理范围失败: ${terrainPath}`, e?.message || e);
+        return null;
+    } finally {
+        try { ds?.close?.(); } catch { }
+    }
 };
 
 // --- 中间件和配置 ---
@@ -472,7 +565,12 @@ router.get("/:caseId/parameters", async (req, res) => {
             ? combinedParameters
             : defaultParams;
 
-        res.json({ success: true, parameters: finalParameters, geographicBounds: info.geographicBounds || null });
+        let geographicBounds = info.geographicBounds || null;
+        if (!geographicBounds) {
+            geographicBounds = await getTerrainLonLatBounds(casePath);
+        }
+
+        res.json({ success: true, parameters: finalParameters, geographicBounds });
 
     } catch (error) {
         console.error(`获取工况 ${caseId} 参数失败:`, error);

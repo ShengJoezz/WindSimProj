@@ -1046,12 +1046,12 @@ onBeforeUnmount(() => {
 
 // 页面控制与提交
 const handleGenerateClick = async () => {
-  const hasGeographicBounds = [
-    caseStore.minLatitude,
-    caseStore.maxLatitude,
-    caseStore.minLongitude,
-    caseStore.maxLongitude,
-  ].every((v) => typeof v === 'number' && Number.isFinite(v));
+  const computeHasGeographicBounds = () =>
+    [caseStore.minLatitude, caseStore.maxLatitude, caseStore.minLongitude, caseStore.maxLongitude].every(
+      (v) => typeof v === 'number' && Number.isFinite(v)
+    );
+
+  let hasGeographicBounds = computeHasGeographicBounds();
 
   if (!hasGeographicBounds && hasTurbines.value) {
     ElMessage.warning(
@@ -1062,8 +1062,12 @@ const handleGenerateClick = async () => {
 
   if (!hasTurbines.value) {
     if (!hasGeographicBounds) {
-      ElMessage.error('未配置风机且地形边界信息尚未加载。请先打开“地形展示”页面加载地形（或至少添加 1 台风机用于中心定位）。');
-      return;
+      const refreshed = await caseStore.ensureGeographicBounds();
+      hasGeographicBounds = computeHasGeographicBounds();
+      if (!refreshed || !hasGeographicBounds) {
+        ElMessage.error('未配置风机且地形边界信息尚未加载。请先打开“地形展示”页面加载地形（或至少添加 1 台风机用于中心定位）。');
+        return;
+      }
     }
   } else {
     const hasNewFiles = caseStore.curveFiles.length > 0;
