@@ -1813,7 +1813,7 @@ router.post('/:caseId/info', async (req, res) => {
         model: Joi.string().allow(null, '').optional(),
         type: Joi.number().allow(null, '').optional(),
         name: Joi.string().allow(null, '').optional(),
-    }).required();
+    });
 
     const parametersSchema = Joi.object({
         calculationDomain: Joi.object({
