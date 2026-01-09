@@ -48,6 +48,7 @@ const routes = [
         path: "parameters", // Existing
         name: "ParameterSettings",
         component: () => import("../components/ParameterSettings.vue"),
+        meta: { allowScroll: true },
       },
       {
         path: "calculation", // Existing

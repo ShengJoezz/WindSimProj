@@ -13,7 +13,7 @@
 <template>
   <div class="case-details-container">
     <!-- 子内容区域，用于显示当前路由对应的组件内容 -->
-    <div class="sub-main-content">
+    <div class="sub-main-content" :class="{ 'sub-main-content--scrollable': allowScroll }">
       <!-- 使用 v-slot 获取路由组件，再传入 caseId -->
       <router-view v-slot="{ Component }">
         <!-- 当 caseId 变化时强制重建子页面，避免复用组件导致状态串案 -->
@@ -34,6 +34,7 @@ const caseStore = useCaseStore();
 
 // 唯一真源：路由参数
 const routeCaseId = computed(() => route.params.caseId || null);
+const allowScroll = computed(() => route.meta?.allowScroll === true);
 
 const ensureCaseInitialized = async (caseId) => {
   if (!caseId) return;
@@ -75,10 +76,14 @@ onBeforeUnmount(() => {
 /* 子内容区域样式，用于显示路由内容 */
 .sub-main-content {
   flex: 1; /* 占据剩余空间 */
-  padding: 20px; /* 内边距 */
-  overflow-y: auto; /* 垂直滚动条 */
+  overflow: hidden; /* 禁止滚动，由子组件自行管理 */
   background-color: rgba(255, 255, 255, 0.8); /* 半透明白色背景 */
   position: relative; /* 相对定位 */
   z-index: 1; /* 层叠顺序 */
+}
+
+.sub-main-content.sub-main-content--scrollable {
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 </style>
