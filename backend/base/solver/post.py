@@ -122,10 +122,26 @@ def process_data():
         out.tofile("../speed.bin")
 
         print("[INFO] Saving metadata to ../output.json")
+        # Compute a robust visualization range (for colorbar) based on the data itself.
+        # Using wind_speed * 1.5 is often too small in complex terrain (speed-up can exceed 1.5x),
+        # which causes the plots to saturate at vmax and look "all red".
+        #
+        # To keep runtime/memory reasonable, estimate percentiles using a strided sample.
+        wind_speed = float(wind_info.get('speed', 1) or 1)
+        stride = max(1, int(min(width, height) / 200))  # ~200x200 samples per layer
+        sample = out[:, ::stride, ::stride].reshape(-1)
+        sample = sample[np.isfinite(sample)]
+
+        vmin = 0.0
+        vmax = wind_speed * 1.5
+        if sample.size:
+            # 99.5th percentile avoids single-point outliers while preventing saturation.
+            vmax = max(vmax, float(np.percentile(sample, 99.5)))
+
         output_meta = {
             "file": "speed.bin",
             "size": size,
-            "range": [0, wind_info.get('speed', 1) * 1.5],
+            "range": [float(vmin), float(vmax)],
             "dh": dh,
             "heights": height_levels # 把具体的高度列表也存起来，这在后续可视化时很有用
         }

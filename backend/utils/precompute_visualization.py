@@ -22,6 +22,7 @@ import matplotlib
 matplotlib.use("Agg")           # 服务器无显示环境
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import matplotlib.ticker as mticker
 
 # ------------------------------------------------------------------
 # 辅助：把 numpy 类型安全地序列化为 json
@@ -237,8 +238,21 @@ def precompute_all_data(case_id: str) -> bool:
         print("Wakes done.")
 
         # --------- 7. 高度切片 PNG + 像素坐标 -----------------------
+        # Color range: prefer output.json's range, but auto-expand using data percentiles
+        # to avoid saturation in complex terrain (otherwise the plot looks "all red").
         vmin, vmax = map(float, meta.get("range", [0, 15]))
-        cmap = plt.get_cmap("jet")
+        stride = max(1, int(min(Nx, Ny) / 200))  # ~200x200 samples per layer
+        sample = data[:, ::stride, ::stride].reshape(-1)
+        sample = sample[np.isfinite(sample)]
+        if sample.size:
+            vmax = max(vmax, float(np.percentile(sample, 99.5)))
+
+        cmap_name = os.getenv("WINDSIM_COLORMAP", "viridis")
+        try:
+            cmap = plt.get_cmap(cmap_name)
+        except ValueError:
+            print(f"Warning: unknown colormap '{cmap_name}', fallback to 'viridis'.", file=sys.stderr)
+            cmap = plt.get_cmap("viridis")
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
 
         img_w, dpi = 800, 100
@@ -262,8 +276,11 @@ def precompute_all_data(case_id: str) -> bool:
             ax.set_xlabel("X (m)")
             ax.set_ylabel("Y (m)")
             ax.set_title(f"Wind speed @ {z:.1f} m")
-            cbar = plt.colorbar(im, ax=ax, pad=0.02, shrink=0.8)
-            cbar.set_label("m/s")
+            cbar = plt.colorbar(im, ax=ax, pad=0.02, shrink=0.85, extend="max")
+            cbar.set_label("Wind speed (m/s)")
+            cbar.set_ticks(np.linspace(vmin, vmax, 6))
+            cbar.ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.1f"))
+            cbar.ax.tick_params(labelsize=8)
 
             # 计算风机像素位置
             fig.canvas.draw()

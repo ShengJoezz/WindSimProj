@@ -35,6 +35,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 
 
 ModelKind = Literal["simple", "floris"]
@@ -265,8 +266,12 @@ def _render_slice_png(
     vmin: float,
     vmax: float,
     title_suffix: str,
+    cmap_name: str,
 ) -> tuple[int, int]:
-    cmap = plt.get_cmap("jet")
+    try:
+        cmap = plt.get_cmap(str(cmap_name))
+    except ValueError:
+        cmap = plt.get_cmap("viridis")
     norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
 
     img_w, dpi = 800, 100
@@ -289,8 +294,11 @@ def _render_slice_png(
     ax.set_xlabel("X (m)")
     ax.set_ylabel("Y (m)")
     ax.set_title(f"Wind speed @ {height_m:.1f} m{title_suffix}")
-    cbar = plt.colorbar(im, ax=ax, pad=0.02, shrink=0.8)
-    cbar.set_label("m/s")
+    cbar = plt.colorbar(im, ax=ax, pad=0.02, shrink=0.85, extend="max")
+    cbar.set_label("Wind speed (m/s)")
+    cbar.set_ticks(np.linspace(vmin, vmax, 6))
+    cbar.ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.1f"))
+    cbar.ax.tick_params(labelsize=8)
 
     fig.canvas.draw()
     fw, fh = fig.get_size_inches() * dpi
@@ -660,6 +668,15 @@ def main(argv: list[str]) -> int:
     p.add_argument("--heights", default="all", help="Comma list of heights (m), or 'all'.")
     p.add_argument("--no-backup", action="store_true", help="Do not backup existing slice images.")
     p.add_argument("--dry-run", action="store_true", help="Validate inputs but do not write outputs.")
+    p.add_argument("--cmap", default="viridis", help="Matplotlib colormap name for slices (default: viridis).")
+    p.add_argument("--vmin", type=float, default=None, help="Override color scale min.")
+    p.add_argument("--vmax", type=float, default=None, help="Override color scale max.")
+    p.add_argument(
+        "--auto-vmax-percentile",
+        type=float,
+        default=99.5,
+        help="Auto-expand vmax using this percentile of speed.bin (0 disables). Default: 99.5",
+    )
 
     args = p.parse_args(argv)
 
@@ -686,10 +703,17 @@ def main(argv: list[str]) -> int:
     if x_coords.size == 0 or y_coords.size == 0:
         raise ValueError("visualization_cache/metadata.json missing xCoords_m/yCoords_m")
 
-    vmin = float(viz_meta.get("vmin", 0.0))
-    vmax = float(viz_meta.get("vmax", 15.0))
+    vmin = float(args.vmin) if args.vmin is not None else float(viz_meta.get("vmin", 0.0))
+    vmax = float(args.vmax) if args.vmax is not None else float(viz_meta.get("vmax", 15.0))
 
     cube, out_meta = _load_speed_cube(case_dir)
+    # Auto-expand vmax if the stored value is too low (common in complex terrain).
+    if args.vmax is None and float(args.auto_vmax_percentile or 0) > 0:
+        stride = max(1, int(min(cube.shape[1], cube.shape[2]) / 200))
+        sample = cube[:, ::stride, ::stride].reshape(-1)
+        sample = sample[np.isfinite(sample)]
+        if sample.size:
+            vmax = max(vmax, float(np.percentile(sample, float(args.auto_vmax_percentile))))
     heights_available = out_meta.get("heights") or viz_meta.get("heightLevels") or []
     if not heights_available:
         # Fallback to dh * layer index.
@@ -901,6 +925,7 @@ def main(argv: list[str]) -> int:
             vmin=vmin,
             vmax=vmax,
             title_suffix=" (wake overlay)",
+            cmap_name=str(args.cmap),
         )
         print(f"Wrote {out_png}")
 
