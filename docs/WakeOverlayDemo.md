@@ -58,6 +58,8 @@ python backend/utils/overlay_wake_on_slices.py \
 - `--hub-height` / `--rotor-diameter` / `--ct`：决定尾流宽度/强度。
 - `--wake-expansion-k`：尾流扩散速度（越大越“胖”）。
 - `--cmap`：颜色映射（默认 `viridis`）。常用：`viridis`/`cividis`（更均匀、观感更好）、`turbo`（更鲜艳）。
+- `--terrain-contours`：叠加 `terrain.tif` 的等高线，让切片更像山区地图（要求 DEM 为 WGS84 经纬度/EPSG:4326）。
+- `--contour-interval`：等高距（米，0=自动）。例如 `--contour-interval 50`。
 - `--heights 120,140`：只处理部分高度（默认 `all`）。
 - `--no-backup`：不备份（不建议）。
 - `--dry-run`：只检查输入不写文件。
@@ -90,7 +92,8 @@ CONDA_NO_PLUGINS=true conda run -n Wind_env python backend/utils/overlay_wake_on
   --ti 0.08 \
   --yaw-deg 20 \
   --floris-deflection-dm 2.5 \
-  --floris-x-res 300 --floris-y-res 300
+  --floris-x-res 300 --floris-y-res 300 \
+  --terrain-contours
 ```
 
 说明：
@@ -113,7 +116,8 @@ CONDA_NO_PLUGINS=true conda run -n Wind_env python backend/utils/overlay_wake_on
   --wind-from-deg 270 \
   --yaw-deg 20 \
   --floris-deflection-dm 2.5 \
-  --floris-x-res 300 --floris-y-res 300
+  --floris-x-res 300 --floris-y-res 300 \
+  --terrain-contours
 ```
 
 ---

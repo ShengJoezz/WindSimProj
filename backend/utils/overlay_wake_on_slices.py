@@ -207,6 +207,176 @@ def _wind_from_to_unit_vectors(wind_from_deg: float) -> tuple[np.ndarray, np.nda
     return u, v
 
 
+def _nice_step(value: float) -> float:
+    """Round a positive number to a 'nice' step: 1/2/5 * 10^n."""
+
+    if value <= 0:
+        return 0.0
+    exp = math.floor(math.log10(value))
+    f = value / (10**exp)
+    if f < 1.5:
+        nf = 1.0
+    elif f < 3.0:
+        nf = 2.0
+    elif f < 7.0:
+        nf = 5.0
+    else:
+        nf = 10.0
+    return nf * (10**exp)
+
+
+def _compute_contour_levels(
+    terrain_m: np.ndarray,
+    *,
+    interval_m: float | None,
+    major_every: int,
+    target_lines: int = 12,
+) -> tuple[np.ndarray, np.ndarray] | tuple[None, None]:
+    """Return (minor_levels, major_levels) or (None,None) if no variation."""
+
+    z = terrain_m
+    z = z[np.isfinite(z)]
+    if z.size == 0:
+        return None, None
+    zmin = float(np.min(z))
+    zmax = float(np.max(z))
+    if not (zmax > zmin):
+        return None, None
+
+    step = interval_m if interval_m and interval_m > 0 else _nice_step((zmax - zmin) / max(1, target_lines))
+    if step <= 0:
+        return None, None
+
+    start = math.floor(zmin / step) * step
+    end = math.ceil(zmax / step) * step
+    levels = np.arange(start, end + 0.5 * step, step, dtype=float)
+    if levels.size < 2:
+        return None, None
+
+    major_every = int(major_every or 0)
+    if major_every <= 1:
+        major = levels
+    else:
+        major = levels[::major_every]
+    return levels, major
+
+
+def _load_terrain_on_domain_grid(
+    *,
+    terrain_path: Path,
+    x_coords_m: np.ndarray,
+    y_coords_m: np.ndarray,
+    wind_from_deg_for_alignment: float,
+) -> np.ndarray:
+    """
+    Load terrain.tif and return elevation sampled on (y_coords_m, x_coords_m)
+    in the SAME coordinate system used by the CFD/slices.
+
+    This matches the existing buildTerrain.py mapping:
+      - DEM is in WGS84 lon/lat
+      - Convert DEM bounds to meters around center lon/lat
+      - Rotate query points by (wind_from_deg + 90) before sampling
+
+    Note: this is primarily for visualization and assumes the case's DEM is WGS84.
+    """
+
+    if not terrain_path.exists():
+        raise FileNotFoundError(terrain_path)
+
+    try:
+        import rasterio  # type: ignore
+    except Exception as e:
+        raise RuntimeError(
+            "rasterio is required for --terrain-contours. Install it in your python environment."
+        ) from e
+
+    with rasterio.open(terrain_path) as ds:
+        if ds.crs is None:
+            print(
+                f"Warning: DEM has no CRS. Contour overlay assumes WGS84 lon/lat: {terrain_path}",
+                file=sys.stderr,
+            )
+        elif hasattr(ds.crs, "is_geographic") and not ds.crs.is_geographic:
+            raise RuntimeError(
+                f"DEM CRS is not geographic (lon/lat). Contour overlay expects WGS84: {terrain_path} (crs={ds.crs})"
+            )
+
+        if ds.count < 1:
+            raise RuntimeError(f"Invalid DEM: {terrain_path} has no bands")
+        arr = ds.read(1).astype(np.float32)
+        nodata = ds.nodata
+        if nodata is not None:
+            arr = np.where(arr == float(nodata), np.nan, arr)
+
+        # bounds in degrees
+        left, bottom, right, top = ds.bounds.left, ds.bounds.bottom, ds.bounds.right, ds.bounds.top
+        lon0 = (left + right) / 2.0
+        lat0 = (bottom + top) / 2.0
+
+        # match buildTerrain.py conversion
+        EARTH_RADIUS_KM = 6371.0
+        RAD_PER_DEG = math.pi / 180.0
+        METER_PER_DEG_LAT = 1000.0 * EARTH_RADIUS_KM * RAD_PER_DEG
+        LONG_LAT_RATIO = math.cos(lat0 * RAD_PER_DEG)
+
+        xmin, xmax = [(v - lon0) * METER_PER_DEG_LAT * LONG_LAT_RATIO for v in (left, right)]
+        ymin, ymax = [(v - lat0) * METER_PER_DEG_LAT for v in (bottom, top)]
+
+        h, w = arr.shape
+        if not (w > 1 and h > 1):
+            raise RuntimeError(f"Invalid DEM size: {w}x{h}")
+
+        # Query grid (domain coords) -> rotated coords for DEM sampling.
+        # Use the same rotation used in buildTerrain.py (windAngle = (wind_from + 90) degrees).
+        theta = (float(wind_from_deg_for_alignment) + 90.0) * RAD_PER_DEG
+        cos_t = math.cos(theta)
+        sin_t = math.sin(theta)
+
+        # Broadcast to (ny,nx)
+        xx = x_coords_m.astype(np.float32)[None, :]
+        yy = y_coords_m.astype(np.float32)[:, None]
+
+        px = xx * cos_t + yy * sin_t
+        py = yy * cos_t - xx * sin_t
+
+        # Convert meters to fractional pixel indices.
+        # X: left->right increases; Y: top->bottom increases in raster row index.
+        ix = (px - float(xmin)) / float(xmax - xmin) * (w - 1)
+        iy = (float(ymax) - py) / float(ymax - ymin) * (h - 1)
+
+        # Clamp indices; outside DEM will be clipped to edge.
+        ix = np.clip(ix, 0.0, float(w - 1))
+        iy = np.clip(iy, 0.0, float(h - 1))
+
+        x0 = np.floor(ix).astype(np.int32)
+        y0 = np.floor(iy).astype(np.int32)
+        x1 = np.clip(x0 + 1, 0, w - 1)
+        y1 = np.clip(y0 + 1, 0, h - 1)
+
+        wx = (ix - x0).astype(np.float32)
+        wy = (iy - y0).astype(np.float32)
+
+        v00 = arr[y0, x0]
+        v10 = arr[y0, x1]
+        v01 = arr[y1, x0]
+        v11 = arr[y1, x1]
+
+        # Bilinear interpolation; handle NaNs by falling back to nearest where possible.
+        out = (
+            (1 - wx) * (1 - wy) * v00
+            + wx * (1 - wy) * v10
+            + (1 - wx) * wy * v01
+            + wx * wy * v11
+        ).astype(np.float32)
+
+        # If NaNs remain, fill with nearest neighbor sample.
+        nan_mask = ~np.isfinite(out)
+        if np.any(nan_mask):
+            out[nan_mask] = v00[nan_mask]
+
+        return out
+
+
 def _load_speed_cube(case_dir: Path) -> tuple[np.ndarray, dict]:
     meta_path = case_dir / "output.json"
     if not meta_path.exists():
@@ -267,6 +437,14 @@ def _render_slice_png(
     vmax: float,
     title_suffix: str,
     cmap_name: str,
+    x_coords_m: np.ndarray,
+    y_coords_m: np.ndarray,
+    terrain_m: np.ndarray | None,
+    contour_levels: np.ndarray | None,
+    contour_major_levels: np.ndarray | None,
+    contour_color: str,
+    contour_alpha: float,
+    contour_linewidth: float,
 ) -> tuple[int, int]:
     try:
         cmap = plt.get_cmap(str(cmap_name))
@@ -291,6 +469,34 @@ def _render_slice_png(
         extent=extent_m,
         aspect="auto",
     )
+
+    # Terrain contour overlay (optional)
+    if terrain_m is not None and contour_levels is not None and contour_levels.size >= 2:
+        try:
+            ax.contour(
+                x_coords_m,
+                y_coords_m,
+                terrain_m,
+                levels=contour_levels,
+                colors=contour_color,
+                linewidths=float(contour_linewidth),
+                alpha=float(contour_alpha),
+                zorder=3,
+            )
+            if contour_major_levels is not None and contour_major_levels.size >= 2:
+                ax.contour(
+                    x_coords_m,
+                    y_coords_m,
+                    terrain_m,
+                    levels=contour_major_levels,
+                    colors=contour_color,
+                    linewidths=float(contour_linewidth) * 1.6,
+                    alpha=min(1.0, float(contour_alpha) + 0.15),
+                    zorder=3,
+                )
+        except Exception:
+            # Contours are a visualization enhancement; do not fail the whole render.
+            pass
     ax.set_xlabel("X (m)")
     ax.set_ylabel("Y (m)")
     ax.set_title(f"Wind speed @ {height_m:.1f} m{title_suffix}")
@@ -677,6 +883,18 @@ def main(argv: list[str]) -> int:
         default=99.5,
         help="Auto-expand vmax using this percentile of speed.bin (0 disables). Default: 99.5",
     )
+    p.add_argument("--terrain-contours", action="store_true", help="Overlay DEM contours on the slice images.")
+    p.add_argument("--contour-interval", type=float, default=0.0, help="Contour interval in meters (0 = auto).")
+    p.add_argument("--contour-major-every", type=int, default=5, help="Every N-th contour drawn thicker.")
+    p.add_argument("--contour-color", default="white", help="Contour line color (default: white).")
+    p.add_argument("--contour-alpha", type=float, default=0.35, help="Contour line alpha (0..1).")
+    p.add_argument("--contour-linewidth", type=float, default=0.4, help="Contour line width in points.")
+    p.add_argument(
+        "--terrain-wind-from-deg",
+        type=float,
+        default=None,
+        help="Wind-from angle used for DEM alignment; default uses the case's visualization windAngle.",
+    )
 
     args = p.parse_args(argv)
 
@@ -753,6 +971,37 @@ def main(argv: list[str]) -> int:
     print(f"Wind: from={wind_from:.1f} deg, speed={wind_speed:.2f} m/s")
     print(f"Layout: {len(layout)} turbines (first: {layout[0].id} @ {layout[0].x_m:.1f},{layout[0].y_m:.1f})")
     print(f"Heights to process: {', '.join(f'{h:.1f}' for h in heights_to_process)}")
+
+    # Optional: Terrain contour overlay (computed once)
+    terrain_m = None
+    contour_levels = None
+    contour_major_levels = None
+    if args.terrain_contours:
+        try:
+            terrain_path = case_dir / "terrain.tif"
+            terrain_wind_from = (
+                float(args.terrain_wind_from_deg)
+                if args.terrain_wind_from_deg is not None
+                else float(viz_meta.get("windAngle", default_wind_from))
+            )
+            terrain_m = _load_terrain_on_domain_grid(
+                terrain_path=terrain_path,
+                x_coords_m=x_coords.astype(np.float32),
+                y_coords_m=y_coords.astype(np.float32),
+                wind_from_deg_for_alignment=float(terrain_wind_from),
+            )
+            interval = float(args.contour_interval) if float(args.contour_interval or 0) > 0 else None
+            contour_levels, contour_major_levels = _compute_contour_levels(
+                terrain_m,
+                interval_m=interval,
+                major_every=int(args.contour_major_every),
+            )
+            if contour_levels is None:
+                print("Note: terrain contour overlay skipped (DEM has no variation).")
+                terrain_m = None
+        except Exception as e:
+            print(f"Warning: failed to load/compute terrain contours: {e}", file=sys.stderr)
+            terrain_m = None
 
     floris_model = None
     floris_x_res = None
@@ -926,6 +1175,14 @@ def main(argv: list[str]) -> int:
             vmax=vmax,
             title_suffix=" (wake overlay)",
             cmap_name=str(args.cmap),
+            x_coords_m=x_coords,
+            y_coords_m=y_coords,
+            terrain_m=terrain_m,
+            contour_levels=contour_levels,
+            contour_major_levels=contour_major_levels,
+            contour_color=str(args.contour_color),
+            contour_alpha=float(args.contour_alpha),
+            contour_linewidth=float(args.contour_linewidth),
         )
         print(f"Wrote {out_png}")
 
