@@ -25,7 +25,7 @@ import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Literal
+from typing import Any, Iterable, Literal
 
 import numpy as np
 
@@ -400,23 +400,99 @@ def _simple_wake_ratio_field(
     return ratio
 
 
-def _floris_ratio_field(
+def _interp_ratio_to_base_grid(
+    *,
+    ratio_src: np.ndarray,
+    x_src: np.ndarray,
+    y_src: np.ndarray,
+    x_dst: np.ndarray,
+    y_dst: np.ndarray,
+) -> np.ndarray:
+    """
+    Resample a (len(y_src),len(x_src)) field onto (len(y_dst),len(x_dst)) via
+    separable 1D linear interpolation (x then y). This is fast and has no SciPy dependency.
+    """
+
+    if ratio_src.shape != (len(y_src), len(x_src)):
+        raise ValueError("ratio_src shape must match y_src/x_src lengths")
+
+    # Interpolate along x for each y row.
+    tmp = np.empty((len(y_src), len(x_dst)), dtype=np.float32)
+    for iy in range(len(y_src)):
+        tmp[iy] = np.interp(x_dst, x_src, ratio_src[iy]).astype(np.float32)
+
+    # Interpolate along y for each x column.
+    out = np.empty((len(y_dst), len(x_dst)), dtype=np.float32)
+    for ix in range(len(x_dst)):
+        out[:, ix] = np.interp(y_dst, y_src, tmp[:, ix]).astype(np.float32)
+
+    return out
+
+
+def _build_default_floris_config(*, turbine_type: str) -> dict[str, Any]:
+    """
+    Create a minimal FLORIS v4 configuration dict that is sufficient for
+    FlorisModel(...) + calculate_horizontal_plane(...).
+    """
+
+    return {
+        "name": "wake_overlay_default",
+        "description": "Default config for WindSimProj wake overlay demo",
+        "floris_version": "4",
+        "logging": {
+            "console": {"enable": False, "level": "WARNING"},
+            "file": {"enable": False, "level": "WARNING"},
+        },
+        "solver": {"type": "turbine_grid", "turbine_grid_points": 3},
+        "flow_field": {
+            # Values are overwritten via fmodel.set(...); still required by the schema.
+            "wind_speeds": [10.0],
+            "wind_directions": [270.0],
+            "wind_veer": 0.0,
+            "wind_shear": 0.0,
+            "air_density": 1.225,
+            "turbulence_intensities": [0.08],
+            # -1 means "use hub height" (FlorisModel will assign).
+            "reference_wind_height": -1.0,
+            "heterogeneous_inflow_config": None,
+            "multidim_conditions": None,
+        },
+        "farm": {
+            # Dummy layout required by schema; overwritten via fmodel.set(...).
+            "layout_x": [0.0],
+            "layout_y": [0.0],
+            # Either length-1 or length-N is acceptable.
+            "turbine_type": [str(turbine_type)],
+        },
+        "wake": {
+            "model_strings": {
+                "velocity_model": "gauss",
+                "deflection_model": "gauss",
+                "combination_model": "sosfs",
+                "turbulence_model": "none",
+            },
+            "enable_secondary_steering": False,
+            "enable_yaw_added_recovery": False,
+            "enable_active_wake_mixing": False,
+            "enable_transverse_velocities": False,
+            # Use model defaults by setting parameters to None.
+            "wake_deflection_parameters": {"gauss": None},
+            "wake_turbulence_parameters": {"none": None},
+            "wake_velocity_parameters": {"gauss": None},
+        },
+    }
+
+
+def _create_floris_model(
     *,
     turbines: list[LayoutPoint],
     wind_from_deg: float,
     wind_speed_mps: float,
     ti: float,
-    height_m: float,
-    x_bounds_m: tuple[float, float],
-    y_bounds_m: tuple[float, float],
-    nx: int,
-    ny: int,
-    floris_config: Path,
-) -> np.ndarray:
-    """
-    Compute a ratio field u / wind_speed on an (ny,nx) grid using FLORIS.
-    Requires FLORIS installed in the current python environment.
-    """
+    yaw_angles_deg: list[float] | None,
+    floris_config: dict[str, Any] | Path,
+):
+    """Create and configure a FLORIS model (does not write any files)."""
 
     try:
         from floris import FlorisModel  # type: ignore
@@ -427,66 +503,62 @@ def _floris_ratio_field(
             f"Import error: {e}"
         ) from e
 
-    if not floris_config.exists():
-        raise FileNotFoundError(floris_config)
+    configuration: dict[str, Any] | str | Path
+    if isinstance(floris_config, Path):
+        if not floris_config.exists():
+            raise FileNotFoundError(floris_config)
+        configuration = floris_config
+    else:
+        configuration = floris_config
 
-    fmodel = FlorisModel(str(floris_config))
+    fmodel = FlorisModel(configuration)
+    yaw_angles = None
+    if yaw_angles_deg is not None:
+        # FLORIS expects shape (n_findex, n_turbines). Here we only use one condition.
+        yaw_angles = [list(map(float, yaw_angles_deg))]
+
     fmodel.set(
         layout_x=[t.x_m for t in turbines],
         layout_y=[t.y_m for t in turbines],
         wind_directions=[float(wind_from_deg)],
         wind_speeds=[float(wind_speed_mps)],
         turbulence_intensities=[float(ti)],
+        yaw_angles=yaw_angles,
     )
 
+    # Not strictly required (calculate_horizontal_plane will solve for viz internally),
+    # but keeps the model state consistent for other APIs.
     fmodel.run()
+    return fmodel
 
-    # API surface differs a bit across FLORIS versions; try a couple of paths.
-    plane = None
-    last_err = None
-    for kwargs in (
-        dict(
-            height=float(height_m),
-            x_resolution=int(nx),
-            y_resolution=int(ny),
-            x_bounds=tuple(map(float, x_bounds_m)),
-            y_bounds=tuple(map(float, y_bounds_m)),
-        ),
-        dict(
-            height=float(height_m),
-            x_resolution=int(nx),
-            y_resolution=int(ny),
-            x1_bounds=tuple(map(float, x_bounds_m)),
-            x2_bounds=tuple(map(float, y_bounds_m)),
-        ),
-    ):
-        try:
-            plane = fmodel.calculate_horizontal_plane(**kwargs)
-            break
-        except Exception as e:
-            last_err = e
-            plane = None
 
-    if plane is None:
-        raise RuntimeError(f"Failed to compute FLORIS horizontal plane: {last_err}")
+def _floris_ratio_field_from_model(
+    *,
+    fmodel,
+    wind_speed_mps: float,
+    height_m: float,
+    x_bounds_m: tuple[float, float],
+    y_bounds_m: tuple[float, float],
+    nx: int,
+    ny: int,
+) -> np.ndarray:
+    """Compute ratio = U / wind_speed as (ny,nx) float32."""
 
-    # Convert plane to a (ny,nx) velocity grid.
-    u = None
-    if hasattr(plane, "df"):
-        df = plane.df  # pandas DataFrame
-        # Common FLORIS column names: x1,x2,u
-        for u_col in ("u", "U", "ws", "wind_speed"):
-            if u_col in df.columns:
-                u = df[u_col].to_numpy()
-                break
-        # If the plane is a regular grid, ordering should match reshape.
-    elif hasattr(plane, "u"):
-        u = np.asarray(plane.u)
+    plane = fmodel.calculate_horizontal_plane(
+        height=float(height_m),
+        x_resolution=int(nx),
+        y_resolution=int(ny),
+        x_bounds=tuple(map(float, x_bounds_m)),
+        y_bounds=tuple(map(float, y_bounds_m)),
+    )
 
-    if u is None:
-        raise RuntimeError("Unable to extract velocity data from FLORIS plane output.")
+    if not hasattr(plane, "df"):
+        raise RuntimeError("Unexpected FLORIS CutPlane output: missing .df")
+    df = plane.df
+    if "u" not in df.columns:
+        raise RuntimeError(f"Unexpected FLORIS CutPlane df columns: {list(df.columns)[:10]}")
 
-    u = np.asarray(u, dtype=np.float32).reshape((ny, nx))
+    u = df["u"].to_numpy(dtype=np.float32).reshape((ny, nx))
     ratio = u / float(wind_speed_mps)
     ratio = np.clip(ratio, 0.0, 1.0).astype(np.float32)
     return ratio
@@ -510,7 +582,11 @@ def main(argv: list[str]) -> int:
     p.add_argument("--layout-from-case", default=None, help="Read turbine layout from another case's info.json.")
 
     p.add_argument("--model", choices=["simple", "floris"], default="simple")
-    p.add_argument("--floris-config", type=Path, default=None, help="FLORIS YAML config (required for --model floris).")
+    p.add_argument("--floris-config", type=Path, default=None, help="Optional FLORIS YAML config; if omitted, uses a built-in default.")
+    p.add_argument("--floris-turbine-type", default="nrel_5MW", help="Turbine type name in FLORIS turbine_library (default: nrel_5MW).")
+    p.add_argument("--floris-x-res", type=int, default=0, help="FLORIS plane x resolution (0 = match CFD grid).")
+    p.add_argument("--floris-y-res", type=int, default=0, help="FLORIS plane y resolution (0 = match CFD grid).")
+    p.add_argument("--yaw-deg", type=float, default=None, help="Constant yaw angle (deg) applied to all turbines for FLORIS deflection.")
 
     p.add_argument("--wind-from-deg", type=float, default=None, help="Meteorological wind direction FROM (deg).")
     p.add_argument("--wind-speed", type=float, default=None, help="Wind speed used for FLORIS ratio (m/s).")
@@ -611,8 +687,40 @@ def main(argv: list[str]) -> int:
     print(f"Layout: {len(layout)} turbines (first: {layout[0].id} @ {layout[0].x_m:.1f},{layout[0].y_m:.1f})")
     print(f"Heights to process: {', '.join(f'{h:.1f}' for h in heights_to_process)}")
 
-    if args.model == "floris" and not args.floris_config:
-        raise ValueError("--floris-config is required when --model floris")
+    floris_model = None
+    floris_x_res = None
+    floris_y_res = None
+    if args.model == "floris":
+        floris_x_res = int(args.floris_x_res or 0)
+        floris_y_res = int(args.floris_y_res or 0)
+        if floris_x_res < 0 or floris_y_res < 0:
+            raise ValueError("--floris-x-res/--floris-y-res must be >= 0")
+        if floris_x_res == 0:
+            floris_x_res = len(x_coords)
+        if floris_y_res == 0:
+            floris_y_res = len(y_coords)
+
+        yaw_angles_deg = None
+        if args.yaw_deg is not None:
+            yaw_angles_deg = [float(args.yaw_deg)] * len(layout)
+        elif any(t.yaw_deg is not None for t in layout):
+            yaw_angles_deg = [float(t.yaw_deg or 0.0) for t in layout]
+
+        # Prefer user-provided YAML; otherwise use an internal minimal config.
+        floris_config: dict[str, Any] | Path
+        if args.floris_config:
+            floris_config = args.floris_config
+        else:
+            floris_config = _build_default_floris_config(turbine_type=str(args.floris_turbine_type))
+
+        floris_model = _create_floris_model(
+            turbines=layout,
+            wind_from_deg=wind_from,
+            wind_speed_mps=wind_speed,
+            ti=float(args.ti),
+            yaw_angles_deg=yaw_angles_deg,
+            floris_config=floris_config,
+        )
 
     # Backup existing images for the heights we touch.
     slices_img_dir = cache_dir / "slices_img"
@@ -652,18 +760,33 @@ def main(argv: list[str]) -> int:
                 max_deficit=float(args.max_deficit),
             )
         else:
-            ratio = _floris_ratio_field(
-                turbines=layout,
-                wind_from_deg=wind_from,
+            assert floris_model is not None and floris_x_res is not None and floris_y_res is not None
+
+            # Use CFD grid centers for bounds (align FLORIS sample points with speed.bin grid).
+            x_bounds = (float(x_coords[0]), float(x_coords[-1]))
+            y_bounds = (float(y_coords[0]), float(y_coords[-1]))
+
+            ratio_f = _floris_ratio_field_from_model(
+                fmodel=floris_model,
                 wind_speed_mps=wind_speed,
-                ti=float(args.ti),
                 height_m=height_m,
-                x_bounds_m=(float(extent_m[0]), float(extent_m[1])),
-                y_bounds_m=(float(extent_m[2]), float(extent_m[3])),
-                nx=len(x_coords),
-                ny=len(y_coords),
-                floris_config=args.floris_config,
+                x_bounds_m=x_bounds,
+                y_bounds_m=y_bounds,
+                nx=int(floris_x_res),
+                ny=int(floris_y_res),
             )
+            if floris_x_res == len(x_coords) and floris_y_res == len(y_coords):
+                ratio = ratio_f
+            else:
+                x_src = np.linspace(x_bounds[0], x_bounds[1], int(floris_x_res), dtype=np.float32)
+                y_src = np.linspace(y_bounds[0], y_bounds[1], int(floris_y_res), dtype=np.float32)
+                ratio = _interp_ratio_to_base_grid(
+                    ratio_src=ratio_f,
+                    x_src=x_src,
+                    y_src=y_src,
+                    x_dst=x_coords.astype(np.float32),
+                    y_dst=y_coords.astype(np.float32),
+                )
 
         # Apply ratio to the base field (preserve NaNs).
         combined = (base_slice * ratio).astype(np.float32)

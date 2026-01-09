@@ -76,22 +76,37 @@ python backend/utils/overlay_wake_on_slices.py \
 
 ## 5) 可选：使用 FLORIS 计算尾流平面
 
-需要你本地 Python 环境安装 FLORIS，并提供 FLORIS 配置 YAML：
+如果你的 FLORIS 安装在 Conda 环境（例如 `Wind_env`），建议用 `conda run` 调用脚本：
 
 ```bash
-pip install floris
-python backend/utils/overlay_wake_on_slices.py \
+CONDA_NO_PLUGINS=true conda run -n Wind_env python backend/utils/overlay_wake_on_slices.py \
   --caseId jieqing \
   --layout-file path/to/layout.csv \
   --layout-auto-center \
   --model floris \
-  --floris-config path/to/floris.yaml \
   --wind-from-deg 270 \
   --wind-speed 10 \
-  --ti 0.08
+  --ti 0.08 \
+  --yaw-deg 20 \
+  --floris-x-res 300 --floris-y-res 300
 ```
 
-说明：脚本会用 `ratio = U_plane / wind_speed` 的方式把 FLORIS 的缺速“乘到”地形 CFD 底图上。
+说明：
+
+- `--yaw-deg` 可让尾流出现明显“偏转”（不设置通常偏转不明显）。
+- `--floris-x-res/--floris-y-res` 影响速度与精细程度；脚本会把 FLORIS 平面插值到 CFD 网格再渲染 PNG。
+- `--floris-config` 是可选的：不传则使用脚本内置的最小默认配置（默认风机类型 `nrel_5MW`，可用 `--floris-turbine-type` 调整）。
+
+如果你想直接复用某个工况的风机坐标（例如 `testmi`），不需要准备 CSV：
+
+```bash
+CONDA_NO_PLUGINS=true conda run -n Wind_env python backend/utils/overlay_wake_on_slices.py \
+  --caseId jieqing \
+  --layout-from-case testmi \
+  --model floris \
+  --yaw-deg 20 \
+  --floris-x-res 300 --floris-y-res 300
+```
 
 ---
 
@@ -104,4 +119,3 @@ Backup saved to: .../visualization_cache/slices_img_backup_20260109_234451
 ```
 
 回滚最简单方式：把备份目录里的 `slice_height_*.png` 拷回 `visualization_cache/slices_img/` 覆盖即可。
-
