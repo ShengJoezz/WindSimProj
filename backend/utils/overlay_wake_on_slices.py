@@ -429,11 +429,25 @@ def _interp_ratio_to_base_grid(
     return out
 
 
-def _build_default_floris_config(*, turbine_type: str) -> dict[str, Any]:
+def _build_default_floris_config(
+    *,
+    turbine_type: str,
+    deflection_dm: float = 1.0,
+    use_secondary_steering: bool = True,
+) -> dict[str, Any]:
     """
     Create a minimal FLORIS v4 configuration dict that is sufficient for
     FlorisModel(...) + calculate_horizontal_plane(...).
     """
+
+    deflection_params: dict[str, Any] | None
+    if abs(float(deflection_dm) - 1.0) < 1e-9 and use_secondary_steering is True:
+        deflection_params = None
+    else:
+        deflection_params = {
+            "dm": float(deflection_dm),
+            "use_secondary_steering": bool(use_secondary_steering),
+        }
 
     return {
         "name": "wake_overlay_default",
@@ -476,7 +490,7 @@ def _build_default_floris_config(*, turbine_type: str) -> dict[str, Any]:
             "enable_active_wake_mixing": False,
             "enable_transverse_velocities": False,
             # Use model defaults by setting parameters to None.
-            "wake_deflection_parameters": {"gauss": None},
+            "wake_deflection_parameters": {"gauss": deflection_params},
             "wake_turbulence_parameters": {"none": None},
             "wake_velocity_parameters": {"gauss": None},
         },
@@ -530,6 +544,31 @@ def _create_floris_model(
     # but keeps the model state consistent for other APIs.
     fmodel.run()
     return fmodel
+
+
+def _compute_geometric_yaw_angles(
+    *,
+    fmodel,
+    minimum_yaw_angle: float,
+    maximum_yaw_angle: float,
+) -> list[float]:
+    """Compute a fast geometry-based yaw set (FLORIS YawOptimizationGeometric)."""
+
+    try:
+        from floris.optimization.yaw_optimization.yaw_optimizer_geometric import (  # type: ignore
+            YawOptimizationGeometric,
+        )
+    except Exception as e:
+        raise RuntimeError(f"Unable to import FLORIS yaw optimizer (geometric): {e}") from e
+
+    opt = YawOptimizationGeometric(
+        fmodel=fmodel,
+        minimum_yaw_angle=float(minimum_yaw_angle),
+        maximum_yaw_angle=float(maximum_yaw_angle),
+    )
+    df = opt.optimize()
+    yaw = df["yaw_angles_opt"].iloc[0]
+    return list(map(float, np.asarray(yaw, dtype=float).ravel().tolist()))
 
 
 def _floris_ratio_field_from_model(
@@ -587,6 +626,10 @@ def main(argv: list[str]) -> int:
     p.add_argument("--floris-x-res", type=int, default=0, help="FLORIS plane x resolution (0 = match CFD grid).")
     p.add_argument("--floris-y-res", type=int, default=0, help="FLORIS plane y resolution (0 = match CFD grid).")
     p.add_argument("--yaw-deg", type=float, default=None, help="Constant yaw angle (deg) applied to all turbines for FLORIS deflection.")
+    p.add_argument("--yaw-opt", choices=["none", "geometric"], default="none", help="Auto yaw optimization method for FLORIS (default: none).")
+    p.add_argument("--yaw-opt-min", type=float, default=-25.0, help="Min yaw angle for yaw optimization (deg).")
+    p.add_argument("--yaw-opt-max", type=float, default=25.0, help="Max yaw angle for yaw optimization (deg).")
+    p.add_argument("--floris-deflection-dm", type=float, default=1.0, help="Scale factor for FLORIS Gauss deflection model (dm). >1 gives more visible deflection.")
 
     p.add_argument("--wind-from-deg", type=float, default=None, help="Meteorological wind direction FROM (deg).")
     p.add_argument("--wind-speed", type=float, default=None, help="Wind speed used for FLORIS ratio (m/s).")
@@ -700,27 +743,75 @@ def main(argv: list[str]) -> int:
         if floris_y_res == 0:
             floris_y_res = len(y_coords)
 
-        yaw_angles_deg = None
-        if args.yaw_deg is not None:
-            yaw_angles_deg = [float(args.yaw_deg)] * len(layout)
-        elif any(t.yaw_deg is not None for t in layout):
-            yaw_angles_deg = [float(t.yaw_deg or 0.0) for t in layout]
-
         # Prefer user-provided YAML; otherwise use an internal minimal config.
         floris_config: dict[str, Any] | Path
         if args.floris_config:
-            floris_config = args.floris_config
-        else:
-            floris_config = _build_default_floris_config(turbine_type=str(args.floris_turbine_type))
+            # If user also wants to tweak deflection dm but provided a YAML, load it and patch in-memory.
+            if abs(float(args.floris_deflection_dm) - 1.0) > 1e-9:
+                try:
+                    import yaml  # type: ignore
+                except Exception as e:
+                    raise RuntimeError(
+                        "PyYAML is required to patch a FLORIS YAML config in-memory. "
+                        "Install pyyaml or omit --floris-config."
+                    ) from e
 
+                cfg_loaded = yaml.safe_load(args.floris_config.read_text(encoding="utf-8"))
+                if not isinstance(cfg_loaded, dict):
+                    raise ValueError("Invalid FLORIS YAML: expected a mapping at top-level.")
+                wake = cfg_loaded.setdefault("wake", {})
+                wd = wake.setdefault("wake_deflection_parameters", {})
+                # Ensure the deflection model key exists; default to 'gauss'.
+                defl_key = (
+                    (wake.get("model_strings") or {}).get("deflection_model", "gauss")
+                )
+                if isinstance(defl_key, str):
+                    defl_key = defl_key.lower()
+                else:
+                    defl_key = "gauss"
+                params = wd.get(defl_key) or {}
+                if params is None:
+                    params = {}
+                if not isinstance(params, dict):
+                    params = {}
+                params["dm"] = float(args.floris_deflection_dm)
+                wd[defl_key] = params
+                floris_config = cfg_loaded
+            else:
+                floris_config = args.floris_config
+        else:
+            floris_config = _build_default_floris_config(
+                turbine_type=str(args.floris_turbine_type),
+                deflection_dm=float(args.floris_deflection_dm),
+            )
+
+        # Start with baseline yaw (0) so yaw optimization, if enabled, can decide.
         floris_model = _create_floris_model(
             turbines=layout,
             wind_from_deg=wind_from,
             wind_speed_mps=wind_speed,
             ti=float(args.ti),
-            yaw_angles_deg=yaw_angles_deg,
+            yaw_angles_deg=None,
             floris_config=floris_config,
         )
+
+        # Decide yaw angles for wake deflection:
+        # 1) yaw optimization (if enabled) -> 2) constant yaw -> 3) per-turbine yaw in layout file -> 4) baseline 0.
+        yaw_angles_deg = None
+        if str(args.yaw_opt or "none").lower() == "geometric":
+            yaw_angles_deg = _compute_geometric_yaw_angles(
+                fmodel=floris_model,
+                minimum_yaw_angle=float(args.yaw_opt_min),
+                maximum_yaw_angle=float(args.yaw_opt_max),
+            )
+        elif args.yaw_deg is not None:
+            yaw_angles_deg = [float(args.yaw_deg)] * len(layout)
+        elif any(t.yaw_deg is not None for t in layout):
+            yaw_angles_deg = [float(t.yaw_deg or 0.0) for t in layout]
+
+        if yaw_angles_deg is not None:
+            floris_model.set(yaw_angles=[yaw_angles_deg])
+            floris_model.run()
 
     # Backup existing images for the heights we touch.
     slices_img_dir = cache_dir / "slices_img"

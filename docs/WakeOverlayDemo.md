@@ -88,12 +88,16 @@ CONDA_NO_PLUGINS=true conda run -n Wind_env python backend/utils/overlay_wake_on
   --wind-speed 10 \
   --ti 0.08 \
   --yaw-deg 20 \
+  --floris-deflection-dm 2.5 \
   --floris-x-res 300 --floris-y-res 300
 ```
 
 说明：
 
+- `--wind-from-deg 270` 表示**西风（从西往东吹）**；如果你想“从北往南吹”，用 `--wind-from-deg 0`。
 - `--yaw-deg` 可让尾流出现明显“偏转”（不设置通常偏转不明显）。
+- `--yaw-opt geometric` 可让 FLORIS 自动算一组偏航角（更像“优化/工程策略”），此时会忽略 `--yaw-deg`。
+- `--floris-deflection-dm` 会放大/缩小 FLORIS 的偏转量（演示用途，>1 会更“夸张”）。
 - `--floris-x-res/--floris-y-res` 影响速度与精细程度；脚本会把 FLORIS 平面插值到 CFD 网格再渲染 PNG。
 - `--floris-config` 是可选的：不传则使用脚本内置的最小默认配置（默认风机类型 `nrel_5MW`，可用 `--floris-turbine-type` 调整）。
 
@@ -104,7 +108,9 @@ CONDA_NO_PLUGINS=true conda run -n Wind_env python backend/utils/overlay_wake_on
   --caseId jieqing \
   --layout-from-case testmi \
   --model floris \
+  --wind-from-deg 270 \
   --yaw-deg 20 \
+  --floris-deflection-dm 2.5 \
   --floris-x-res 300 --floris-y-res 300
 ```
 
