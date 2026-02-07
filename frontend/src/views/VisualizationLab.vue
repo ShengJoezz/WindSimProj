@@ -13,6 +13,7 @@
         :closable="false"
         show-icon
         title="该页面仅用于新库验证，不接入业务流程，也不替换现有结果展示。"
+        description="若控制台出现 Tracking Prevention blocked access to storage，多数情况下只是浏览器隐私策略提示，不一定是功能失败原因。"
       />
 
       <div class="hero-actions">
@@ -52,8 +53,14 @@
           <el-descriptions-item label="Cesium">
             {{ dependencyStatus.cesium }}
           </el-descriptions-item>
+          <el-descriptions-item label="Cesium 来源">
+            {{ dependencySource.cesium }}
+          </el-descriptions-item>
           <el-descriptions-item label="cesium-wind">
             {{ dependencyStatus.cesiumWind }}
+          </el-descriptions-item>
+          <el-descriptions-item label="cesium-wind 来源">
+            {{ dependencySource.cesiumWind }}
           </el-descriptions-item>
           <el-descriptions-item label="场景状态">
             {{ sceneStatus }}
@@ -81,12 +88,16 @@
 import { computed, onBeforeUnmount, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 
-const CESIUM_VERSION = '1.135.0';
-const CESIUM_WIND_VERSION = '1.6.1';
-const CESIUM_BASE_URL = `https://unpkg.com/cesium@${CESIUM_VERSION}/Build/Cesium/`;
-const CESIUM_JS_URL = `${CESIUM_BASE_URL}Cesium.js`;
-const CESIUM_CSS_URL = `${CESIUM_BASE_URL}Widgets/widgets.css`;
-const CESIUM_WIND_URL = `https://unpkg.com/cesium-wind@${CESIUM_WIND_VERSION}/dist/CesiumWind.js`;
+const CESIUM_VERSION = '1.138.0';
+const CESIUM_WIND_VERSION = '1.0.4';
+const CESIUM_BASE_CANDIDATES = [
+  `https://cdn.jsdelivr.net/npm/cesium@${CESIUM_VERSION}/Build/Cesium/`,
+  `https://unpkg.com/cesium@${CESIUM_VERSION}/Build/Cesium/`,
+];
+const CESIUM_WIND_SCRIPT_CANDIDATES = [
+  `https://cdn.jsdelivr.net/npm/cesium-wind@${CESIUM_WIND_VERSION}/dist/cesium-wind.js`,
+  `https://unpkg.com/cesium-wind@${CESIUM_WIND_VERSION}/dist/cesium-wind.js`,
+];
 
 const viewerContainerRef = ref(null);
 const loading = ref(false);
@@ -95,6 +106,10 @@ const lastLog = ref('等待初始化');
 const dependencyStatus = ref({
   cesium: '未加载',
   cesiumWind: '未加载',
+});
+const dependencySource = ref({
+  cesium: '-',
+  cesiumWind: '-',
 });
 
 const particleCount = ref(2500);
@@ -137,8 +152,43 @@ function ensureScript(url, globalName) {
     document.head.appendChild(script);
   });
 
-  scriptLoaders.set(url, promise);
-  return promise;
+  const guardedPromise = promise.catch((error) => {
+    scriptLoaders.delete(url);
+    throw error;
+  });
+
+  scriptLoaders.set(url, guardedPromise);
+  return guardedPromise;
+}
+
+async function loadCesiumFromCandidates() {
+  const errors = [];
+  for (const baseUrl of CESIUM_BASE_CANDIDATES) {
+    const cssUrl = `${baseUrl}Widgets/widgets.css`;
+    const jsUrl = `${baseUrl}Cesium.js`;
+    try {
+      window.CESIUM_BASE_URL = baseUrl;
+      ensureCss(cssUrl);
+      const Cesium = await ensureScript(jsUrl, 'Cesium');
+      return { Cesium, source: jsUrl };
+    } catch (error) {
+      errors.push(`${jsUrl} -> ${error.message}`);
+    }
+  }
+  throw new Error(`Cesium 加载失败。${errors.join(' | ')}`);
+}
+
+async function loadCesiumWindFromCandidates() {
+  const errors = [];
+  for (const url of CESIUM_WIND_SCRIPT_CANDIDATES) {
+    try {
+      const CesiumWind = await ensureScript(url, 'CesiumWind');
+      return { CesiumWind, source: url };
+    } catch (error) {
+      errors.push(`${url} -> ${error.message}`);
+    }
+  }
+  throw new Error(`cesium-wind 加载失败。${errors.join(' | ')}`);
 }
 
 function buildMockWindData() {
@@ -191,19 +241,18 @@ async function initializeCesiumWind() {
   lastLog.value = '正在加载依赖...';
 
   try {
-    window.CESIUM_BASE_URL = CESIUM_BASE_URL;
-    ensureCss(CESIUM_CSS_URL);
-
-    await ensureScript(CESIUM_JS_URL, 'Cesium');
+    const cesiumResult = await loadCesiumFromCandidates();
     dependencyStatus.value.cesium = `已加载 (${CESIUM_VERSION})`;
+    dependencySource.value.cesium = cesiumResult.source;
 
-    await ensureScript(CESIUM_WIND_URL, 'CesiumWind');
+    const cesiumWindResult = await loadCesiumWindFromCandidates();
     dependencyStatus.value.cesiumWind = `已加载 (${CESIUM_WIND_VERSION})`;
+    dependencySource.value.cesiumWind = cesiumWindResult.source;
 
     destroyScene();
 
-    const Cesium = window.Cesium;
-    const CesiumWind = window.CesiumWind;
+    const Cesium = cesiumResult.Cesium;
+    const CesiumWind = cesiumWindResult.CesiumWind;
 
     viewer = new Cesium.Viewer(viewerContainerRef.value, {
       animation: false,
@@ -257,7 +306,7 @@ async function initializeCesiumWind() {
     windLayer.addTo(viewer);
 
     sceneStatus.value = '运行中';
-    lastLog.value = 'Cesium Wind 场景已启动';
+    lastLog.value = `Cesium Wind 已启动（${dependencySource.value.cesiumWind}）`;
   } catch (error) {
     console.error('Visualization lab init failed:', error);
     sceneStatus.value = '初始化失败';
