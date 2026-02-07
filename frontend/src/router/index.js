@@ -26,6 +26,7 @@ const routes = [
   { path: "/terrainTest", name: "terrainTest", component: () => import("../components/TerrainMap/SingleTurbineTest_zh.vue")},
   { path: "/terrainClip", name: "TerrainClipPage", component: () => import("../components/TerrainClippingTester.vue")},
   { path: "/comprehensive-test", name: "ComprehensiveTestPage", component: () => import("../components/ComprehensiveVizTester.vue")},
+  { path: "/visualization-lab", name: "VisualizationLab", component: () => import("../views/VisualizationLab.vue")},
   { path: "/3Dtest", name: "3DTestPage", component: () => import("../components/3DtestOld.vue")},
   { path: "/rou-downloader", name: "RouDownloader", component: () => import("../views/RouDownloaderPage.vue")},
   
