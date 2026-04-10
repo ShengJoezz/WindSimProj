@@ -23,6 +23,9 @@ emit_task_start "computation_start"
 emit_progress 0 "computation_start"
 sleep 1
 
+# 记录工况根目录，避免后续 cd 后把状态写回错误的位置
+CASE_ROOT_DIR="$(pwd)"
+
 # Step 1: Clean up files
 emit_task_start "clean_files"
 rm -f speed.bin
@@ -577,9 +580,10 @@ updateStatus() {
 }
 trap updateStatus EXIT
 
-info_json_path="../info.json"
+info_json_path="${CASE_ROOT_DIR}/info.json"
 if [ -f "$info_json_path" ]; then
-  jq '.calculationStatus = "completed"' "$info_json_path" > tmp.$$.json && mv tmp.$$.json "$info_json_path"
+  tmp_info_json="${CASE_ROOT_DIR}/tmp.$$.json"
+  jq '.calculationStatus = "completed"' "$info_json_path" > "$tmp_info_json" && mv "$tmp_info_json" "$info_json_path"
   echo "{\"action\": \"progress\", \"progress\": 100, \"taskId\": \"computation_end\", \"message\": \"计算完成\"}"
 else
   echo "{\"action\": \"progress\", \"progress\": 100, \"taskId\": \"computation_end\", \"message\": \"info.json 未找到，无法标记计算状态\"}"
