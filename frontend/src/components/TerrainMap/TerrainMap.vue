@@ -95,7 +95,7 @@ import { ref, onMounted, onBeforeUnmount, watch, computed } from "vue";
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router';
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
-import { ElLoading, ElMessage, ElMessageBox } from "element-plus";
+import { ElLoading, ElMessage } from "element-plus";
 import { Loading } from '@element-plus/icons-vue';
 import { useCaseStore } from "../../store/caseStore";
 import TopToolbar from "./TopToolbar.vue";
@@ -620,56 +620,101 @@ const resetCamera = () => {
   }
 };
 
-// 聚焦到指定风机
-const focusOnTurbine = (turbine) => {
+const focusOnTurbine = async (turbine) => {
+  if (!turbine?.id) return;
+  if (!camera || !controls) return;
+
+  const shouldAutoClose = (() => {
+    try {
+      return typeof window !== 'undefined' && window.innerWidth <= 1024;
+    } catch {
+      return false;
+    }
+  })();
+
+  // Try to ensure the mesh exists (race: list renders before the model finishes cloning)
+  if (!turbineMeshes.value.has(turbine.id) && isSceneInitialized.value) {
+    try {
+      await addWindTurbineToScene(turbine);
+    } catch (error) {
+      log(3, "[FOCUS_TURBINE] Failed to add turbine to scene before focus:", error);
+    }
+  }
+
+  let targetPos = null;
   const turbineGroup = turbineMeshes.value.get(turbine.id);
   if (turbineGroup) {
-    const position = turbineGroup.position.clone();
-    position.y += turbine.hubHeight;
+    targetPos = turbineGroup.position.clone();
+  } else {
+    const hasBounds =
+      typeof caseStore.minLatitude === "number" &&
+      typeof caseStore.maxLatitude === "number" &&
+      typeof caseStore.minLongitude === "number" &&
+      typeof caseStore.maxLongitude === "number" &&
+      Number.isFinite(caseStore.minLatitude) &&
+      Number.isFinite(caseStore.maxLatitude) &&
+      Number.isFinite(caseStore.minLongitude) &&
+      Number.isFinite(caseStore.maxLongitude);
 
-    new TWEEN.Tween(camera.position)
-      .to(
-        {
-          x: position.x + 200,
-          y: position.y + 100,
-          z: position.z + 200,
-        },
-        1000
-      )
-      .easing(TWEEN.Easing.Cubic.Out)
-      .start();
+    const lat = Number(turbine.latitude);
+    const lon = Number(turbine.longitude);
+    if (!hasBounds || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+      ElMessage.warning("场景尚未就绪（地形边界/风机坐标不可用），暂无法定位该风机。");
+      return;
+    }
 
-    new TWEEN.Tween(controls.target)
-      .to(
-        {
-          x: position.x,
-          y: position.y,
-          z: position.z,
-        },
-        1000
-      )
-      .easing(TWEEN.Easing.Cubic.Out)
-      .start();
+    const { x, z } = mapLatLonToXZ(lat, lon);
+    const y = Number.isFinite(x) && Number.isFinite(z) ? getTerrainHeight(x, z) : 0;
+    targetPos = new THREE.Vector3(x, y ?? 0, z);
   }
+
+  const hubHeight = Number(turbine.hubHeight);
+  if (Number.isFinite(hubHeight)) {
+    targetPos.y += hubHeight;
+  }
+
+  // On small screens the drawer can cover most of the viewport — auto close so the user can see the focus result.
+  if (shouldAutoClose) {
+    sidebars.value.management = false;
+  }
+
+  new TWEEN.Tween(camera.position)
+    .to(
+      {
+        x: targetPos.x + 200,
+        y: targetPos.y + 100,
+        z: targetPos.z + 200,
+      },
+      1000
+    )
+    .easing(TWEEN.Easing.Cubic.Out)
+    .start();
+
+  new TWEEN.Tween(controls.target)
+    .to(
+      {
+        x: targetPos.x,
+        y: targetPos.y,
+        z: targetPos.z,
+      },
+      1000
+    )
+    .easing(TWEEN.Easing.Cubic.Out)
+    .start();
 };
 
-// 确认删除风机
-const confirmDeleteTurbine = (turbine) => {
-  ElMessageBox.confirm(
-    `确定要删除风机 "${turbine.name}" 吗？`,
-    "删除确认",
-    {
-      confirmButtonText: "确定",
-      cancelButtonText: "取消",
-      type: "warning",
-    }
-  )
-    .then(async () => {
-      await caseStore.deleteWindTurbine(turbine.id);
-      deleteWindTurbineFromScene(turbine.id);
-      ElMessage.success(`风机 ${turbine.name} 已被删除`);
-    })
-    .catch(() => {});
+// 删除风机（确认弹窗在 WindTurbineList 内处理）
+const confirmDeleteTurbine = async (turbine, done) => {
+  try {
+    // 先从 3D 场景中移除风机模型
+    deleteWindTurbineFromScene(turbine.id);
+    // 再从 store 中删除数据
+    await caseStore.deleteWindTurbine(turbine.id);
+  } catch (error) {
+    log(3, "[TerrainMap] Failed to delete turbine:", error);
+  } finally {
+    if (typeof done === "function") done();
+  }
 };
 
 // Add wind turbine to Three.js scene // Step 6: Modify the Wind Turbine Creation Function
@@ -935,18 +980,27 @@ const deleteWindTurbineFromScene = (turbineId) => {
   log(2, `[DELETE_TURBINE] Deleting turbine ID: ${turbineId}`);
   const turbineGroup = turbineMeshes.value.get(turbineId);
   if (turbineGroup) {
+    // 立即设置不可见，确保下一帧不会渲染
+    turbineGroup.visible = false;
+    
+    // 从 turbineMeshes 中删除（先删除，防止 animate 循环访问）
+    turbineMeshes.value.delete(turbineId);
+    
+    // 从场景中移除
+    scene.remove(turbineGroup);
+    
+    // 清理资源
     turbineGroup.traverse((child) => {
       if (child.isMesh) {
-        child.geometry.dispose();
+        child.geometry?.dispose();
         if (Array.isArray(child.material)) {
           child.material.forEach((material) => material.dispose());
-        } else {
+        } else if (child.material) {
           child.material.dispose();
         }
       }
     });
-    scene.remove(turbineGroup);
-    turbineMeshes.value.delete(turbineId);
+    
     log(2, `[DELETE_TURBINE] Turbine ID: ${turbineId} deleted successfully.`);
   } else {
     log(2, `[DELETE_TURBINE] Turbine ID: ${turbineId} not found in turbineMeshes.`);

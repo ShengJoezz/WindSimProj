@@ -5,138 +5,237 @@
 -->
 <template>
     <div class="terrain-clipping-container">
-      <h2>地形 DEM 获取与裁剪</h2>
+      <!-- 页面标题 -->
+      <div class="page-header">
+        <div class="header-icon">
+          <el-icon :size="40"><MapLocation /></el-icon>
+        </div>
+        <div class="header-content">
+          <h2>地形 DEM 获取与裁剪</h2>
+          <p class="header-subtitle">支持从内置中国 DEM 数据库获取或上传自定义 DEM 进行裁剪处理</p>
+        </div>
+      </div>
 
-      <el-tabs v-model="activeTab" type="card" class="dem-tabs">
-        <el-tab-pane label="获取 DEM（内置中国DEM）" name="download">
-          <el-card class="mosaic-card" shadow="never">
-            <template #header>
-              <div class="mosaic-card-header">从内置 China_Dem 生成 DEM（无需上传）</div>
-            </template>
+      <el-tabs v-model="activeTab" class="dem-tabs">
+        <!-- Tab 1: 获取 DEM -->
+        <el-tab-pane name="download">
+          <template #label>
+            <span class="tab-label">
+              <el-icon class="tab-icon-el"><Download /></el-icon>
+              <span>获取 DEM</span>
+              <span class="tab-badge">内置</span>
+            </span>
+          </template>
+          
+          <div class="tab-content">
+            <!-- 流程提示 -->
+            <div class="workflow-hint">
+              <div class="workflow-step">
+                <span class="step-number">1</span>
+                <span class="step-text">输入范围</span>
+              </div>
+              <div class="workflow-arrow">→</div>
+              <div class="workflow-step">
+                <span class="step-number">2</span>
+                <span class="step-text">生成 DEM</span>
+              </div>
+              <div class="workflow-arrow">→</div>
+              <div class="workflow-step">
+                <span class="step-number">3</span>
+                <span class="step-text">上传至工况</span>
+              </div>
+            </div>
+            
+            <div class="info-banner">
+              <el-icon class="info-icon-el"><InfoFilled /></el-icon>
+              <div class="info-text">
+                数据坐标系：<code>WGS84 / EPSG:4326</code>（经纬度）· 首次使用可能需要构建索引
+              </div>
+            </div>
 
-            <el-alert type="info" show-icon :closable="false" class="mosaic-hint">
-              <template #title>推荐流程</template>
-              <template #default>
-                1) 在下方输入范围（方式 A/B）→ 2) 点击“生成并下载” → 3) 回到“新建工况/地形上传”上传此 DEM。
-                <br />
-                数据坐标系：<code>WGS84 / EPSG:4326（经纬度）</code>；首次使用可能需要构建索引，耗时稍长。
-              </template>
-            </el-alert>
-
-            <div class="mosaic-mode-row">
-              <el-radio-group v-model="mosaicMode" size="small">
-                <el-radio-button label="coords">方式 A：中心点 + 半径（米）</el-radio-button>
-                <el-radio-button label="bbox">方式 B：BBox（高级）</el-radio-button>
+            <!-- 模式选择 -->
+            <div class="mode-selector">
+              <el-radio-group v-model="mosaicMode" size="default">
+                <el-radio-button label="coords">
+                  <el-icon class="mode-icon-el"><Location /></el-icon> 中心点 + 半径
+                </el-radio-button>
+                <el-radio-button label="bbox">
+                  <el-icon class="mode-icon-el"><Grid /></el-icon> BBox 范围
+                </el-radio-button>
               </el-radio-group>
 
               <el-button
                 v-if="canSyncFromClipBox"
                 type="primary"
-                link
+                text
                 @click="syncBboxFromClipBox"
+                class="sync-btn"
               >
-                使用当前裁切框范围填充 BBox
+                <el-icon><Refresh /></el-icon> 从裁切框同步
               </el-button>
             </div>
 
-            <el-form v-if="mosaicMode === 'coords'" :inline="true" class="mosaic-form">
-              <el-form-item label="纬度">
-                <el-input-number v-model="mosaicForm.lat" :min="-90" :max="90" :step="0.0001" :precision="6" controls-position="right" />
-              </el-form-item>
-              <el-form-item label="经度">
-                <el-input-number v-model="mosaicForm.lon" :min="-180" :max="180" :step="0.0001" :precision="6" controls-position="right" />
-              </el-form-item>
-              <el-form-item label="半径(米)">
-                <el-input-number v-model="mosaicForm.radius" :min="100" :step="100" controls-position="right" />
-              </el-form-item>
-              <el-form-item label="最大分片">
-                <el-input-number v-model="mosaicForm.maxSources" :min="1" :max="500" :step="10" controls-position="right" />
-              </el-form-item>
-              <el-form-item>
-                <el-button type="primary" :loading="isMosaicLoading" @click="downloadMosaicByCoords">生成并下载</el-button>
-              </el-form-item>
-            </el-form>
+            <!-- 坐标输入表单 -->
+            <div class="form-card">
+              <div v-if="mosaicMode === 'coords'" class="form-grid coords-form">
+                <div class="form-field">
+                  <label>纬度 (°)</label>
+                  <el-input-number v-model="mosaicForm.lat" :min="-90" :max="90" :step="0.0001" :precision="6" controls-position="right" placeholder="如 24.06" />
+                </div>
+                <div class="form-field">
+                  <label>经度 (°)</label>
+                  <el-input-number v-model="mosaicForm.lon" :min="-180" :max="180" :step="0.0001" :precision="6" controls-position="right" placeholder="如 103.24" />
+                </div>
+                <div class="form-field">
+                  <label>半径 (米)</label>
+                  <el-input-number v-model="mosaicForm.radius" :min="100" :step="100" controls-position="right" placeholder="5000" />
+                </div>
+                <div class="form-action">
+                  <el-button type="primary" :loading="isMosaicLoading" @click="downloadMosaicByCoords" size="large">
+                    <span v-if="!isMosaicLoading">生成并下载</span>
+                    <span v-else>生成中...</span>
+                  </el-button>
+                </div>
+              </div>
 
-            <el-form v-else :inline="true" class="mosaic-form">
-              <el-form-item label="minX(经度)">
-                <el-input-number v-model="mosaicBbox.minX" :min="-180" :max="180" :step="0.0001" :precision="6" controls-position="right" />
-              </el-form-item>
-              <el-form-item label="minY(纬度)">
-                <el-input-number v-model="mosaicBbox.minY" :min="-90" :max="90" :step="0.0001" :precision="6" controls-position="right" />
-              </el-form-item>
-              <el-form-item label="maxX(经度)">
-                <el-input-number v-model="mosaicBbox.maxX" :min="-180" :max="180" :step="0.0001" :precision="6" controls-position="right" />
-              </el-form-item>
-              <el-form-item label="maxY(纬度)">
-                <el-input-number v-model="mosaicBbox.maxY" :min="-90" :max="90" :step="0.0001" :precision="6" controls-position="right" />
-              </el-form-item>
-              <el-form-item label="最大分片">
-                <el-input-number v-model="mosaicForm.maxSources" :min="1" :max="500" :step="10" controls-position="right" />
-              </el-form-item>
-              <el-form-item>
-                <el-button type="primary" :loading="isMosaicLoading" @click="downloadMosaicByBbox">生成并下载</el-button>
-              </el-form-item>
-            </el-form>
-
-            <div v-if="mosaicResult" class="mosaic-result">
-              <el-descriptions :column="1" border size="small">
-                <el-descriptions-item label="命中分片">{{ mosaicResult.sourceCount }}</el-descriptions-item>
-                <el-descriptions-item label="裁切范围">
-                  {{ mosaicResult.clipBounds.minX.toFixed(6) }}, {{ mosaicResult.clipBounds.minY.toFixed(6) }} —
-                  {{ mosaicResult.clipBounds.maxX.toFixed(6) }}, {{ mosaicResult.clipBounds.maxY.toFixed(6) }}
-                </el-descriptions-item>
-              </el-descriptions>
+              <div v-else class="form-grid bbox-form">
+                <div class="form-field">
+                  <label>西经度 (minX)</label>
+                  <el-input-number v-model="mosaicBbox.minX" :min="-180" :max="180" :step="0.0001" :precision="6" controls-position="right" />
+                </div>
+                <div class="form-field">
+                  <label>南纬度 (minY)</label>
+                  <el-input-number v-model="mosaicBbox.minY" :min="-90" :max="90" :step="0.0001" :precision="6" controls-position="right" />
+                </div>
+                <div class="form-field">
+                  <label>东经度 (maxX)</label>
+                  <el-input-number v-model="mosaicBbox.maxX" :min="-180" :max="180" :step="0.0001" :precision="6" controls-position="right" />
+                </div>
+                <div class="form-field">
+                  <label>北纬度 (maxY)</label>
+                  <el-input-number v-model="mosaicBbox.maxY" :min="-90" :max="90" :step="0.0001" :precision="6" controls-position="right" />
+                </div>
+                <div class="form-action">
+                  <el-button type="primary" :loading="isMosaicLoading" @click="downloadMosaicByBbox" size="large">
+                    <span v-if="!isMosaicLoading">生成并下载</span>
+                    <span v-else>生成中...</span>
+                  </el-button>
+                </div>
+              </div>
             </div>
-          </el-card>
+
+            <!-- 结果展示 -->
+            <div v-if="mosaicResult" class="result-card">
+              <div class="result-header">
+                <el-icon class="result-icon-el"><SuccessFilled /></el-icon>
+                <span>生成成功</span>
+              </div>
+              <div class="result-body">
+                <div class="result-item">
+                  <span class="result-label">命中分片</span>
+                  <span class="result-value">{{ mosaicResult.sourceCount }}</span>
+                </div>
+                <div class="result-item">
+                  <span class="result-label">裁切范围</span>
+                  <span class="result-value coords">
+                    {{ mosaicResult.clipBounds.minX.toFixed(4) }}, {{ mosaicResult.clipBounds.minY.toFixed(4) }} →
+                    {{ mosaicResult.clipBounds.maxX.toFixed(4) }}, {{ mosaicResult.clipBounds.maxY.toFixed(4) }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
         </el-tab-pane>
 
-        <el-tab-pane label="裁切 DEM（上传文件）" name="clip">
-          <el-alert type="info" show-icon :closable="false" class="clip-hint">
-            <template #title>裁切流程</template>
-            <template #default>
-              1) 上传 DEM (.tif) → 2) 拖动/缩放裁切框 → 3) 点击“裁切并下载”。如需获取 DEM，请切换到上方“获取 DEM”标签页。
-            </template>
-          </el-alert>
+        <!-- Tab 2: 裁切 DEM -->
+        <el-tab-pane name="clip">
+          <template #label>
+            <span class="tab-label">
+              <el-icon class="tab-icon-el"><Scissor /></el-icon>
+              <span>裁切 DEM</span>
+              <span class="tab-badge secondary">上传</span>
+            </span>
+          </template>
+          
+          <div class="tab-content">
+            <!-- 流程提示 -->
+            <div class="workflow-hint">
+              <div class="workflow-step">
+                <span class="step-number">1</span>
+                <span class="step-text">上传 DEM</span>
+              </div>
+              <div class="workflow-arrow">→</div>
+              <div class="workflow-step">
+                <span class="step-number">2</span>
+                <span class="step-text">调整裁切框</span>
+              </div>
+              <div class="workflow-arrow">→</div>
+              <div class="workflow-step">
+                <span class="step-number">3</span>
+                <span class="step-text">下载裁切结果</span>
+              </div>
+            </div>
+
+            <!-- 上传区域容器 -->
+            <div class="upload-section">
+              <!-- DEM 上传 -->
+              <div class="upload-card dem-upload"
+                   :class="{ 'is-active': isDragging, 'has-file': selectedFile }"
+                   @dragover.prevent="onDragOver"
+                   @dragleave.prevent="isDragging=false"
+                   @drop.prevent="handleFileDrop">
+                <input ref="fileInput" type="file" accept=".tif,.tiff" @change="handleFileUpload" hidden />
+                <div v-if="!selectedFile" class="upload-placeholder" @click="triggerFileInput">
+                  <div class="upload-icon-wrapper">
+                    <el-icon class="upload-icon"><UploadFilled /></el-icon>
+                  </div>
+                  <div class="upload-text">
+                    <p class="upload-title">上传 DEM 文件</p>
+                    <p class="upload-subtitle">点击或拖拽 .tif 文件到此处</p>
+                  </div>
+                  <el-button type="primary" size="small" @click.stop="triggerFileInput">选择文件</el-button>
+                </div>
+                <div v-else class="file-selected">
+                  <div class="file-info">
+                    <el-icon class="file-icon"><Document /></el-icon>
+                    <span class="file-name">{{ selectedFile.name }}</span>
+                  </div>
+                  <el-button size="small" type="danger" text @click="resetFileSelection">移除</el-button>
+                </div>
+              </div>
+
+              <!-- 风机上传 -->
+              <div v-if="tifData && !isLoading"
+                   class="upload-card turbine-upload"
+                   :class="{ 'is-active': turbineDrag, 'has-file': turbines.length }"
+                   @dragover.prevent="turbineDrag=true"
+                   @dragleave.prevent="turbineDrag=false"
+                   @drop.prevent="handleTurbineDrop">
+                <input ref="turbineFileInput" type="file" accept=".txt,.xls,.xlsx" @change="handleTurbineUpload" hidden />
+                <div v-if="!turbines.length" class="upload-placeholder" @click="turbineFileInput.click()">
+                  <div class="upload-icon-wrapper turbine">
+                    <el-icon class="turbine-icon"><Promotion /></el-icon>
+                  </div>
+                  <div class="upload-text">
+                    <p class="upload-title">导入风机坐标（可选）</p>
+                    <p class="upload-subtitle">支持 .txt / .xls / .xlsx 格式</p>
+                  </div>
+                  <el-button size="small" @click.stop="turbineFileInput.click()">选择文件</el-button>
+                </div>
+                <div v-else class="file-selected turbine">
+                  <div class="file-info">
+                    <el-icon class="turbine-icon"><Promotion /></el-icon>
+                    <span class="file-name">已导入 {{ turbines.length }} 台风机</span>
+                  </div>
+                  <el-button size="small" type="danger" text @click="clearTurbines">清除</el-button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </el-tab-pane>
+      </el-tabs>
   
-      <!-- 1. DEM 上传 -->
-      <div class="upload-area"
-           :class="{ 'is-active': isDragging }"
-           @dragover.prevent="onDragOver"
-           @dragleave.prevent="isDragging=false"
-           @drop.prevent="handleFileDrop">
-        <input ref="fileInput" type="file" accept=".tif,.tiff" @change="handleFileUpload" hidden />
-        <div v-if="!selectedFile" class="upload-hint">
-          <el-icon class="upload-icon"><UploadFilled /></el-icon>
-          <p>点击或拖拽上传 DEM (.tif)</p>
-          <el-button type="primary" @click="triggerFileInput">选择文件</el-button>
-        </div>
-        <div v-else class="file-selected">
-          <div class="file-info"><el-icon class="file-icon"><Document /></el-icon>{{ selectedFile.name }}</div>
-          <el-button size="small" type="danger" @click="resetFileSelection">移除</el-button>
-        </div>
-      </div>
-  
-      <!-- 2. 风机上传（支持拖拽） -->
-      <div v-if="tifData && !isLoading"
-           class="upload-area turbine-area"
-           :class="{ 'is-active': turbineDrag }"
-           @dragover.prevent="turbineDrag=true"
-           @dragleave.prevent="turbineDrag=false"
-           @drop.prevent="handleTurbineDrop">
-        <input ref="turbineFileInput" type="file" accept=".txt,.xls,.xlsx"
-               @change="handleTurbineUpload" hidden />
-        <div v-if="!turbines.length" class="upload-hint">
-          <el-icon class="upload-icon"><UploadFilled /></el-icon>
-          <p>导入风机坐标 (txt / excel) -- 支持拖拽</p>
-          <el-button size="small" @click="turbineFileInput.click()">选择文件</el-button>
-        </div>
-        <div v-else class="file-selected">
-          <div class="file-info"><el-icon class="file-icon"><Document /></el-icon>已导入 {{ turbines.length }} 台风机</div>
-          <el-button size="small" type="danger" @click="clearTurbines">清除</el-button>
-        </div>
-      </div>
-  
-      <!-- 3. Loading 对话框 -->
+      <!-- Loading 对话框 -->
       <el-dialog v-model="isLoading" :show-close="false"
                  :close-on-click-modal="false" :close-on-press-escape="false"
                  width="300px" center>
@@ -225,14 +324,13 @@
           </div>
         </div>
       </div>
-        </el-tab-pane>
-      </el-tabs>
     </div>
   </template>
   
   <script setup>
   import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount } from 'vue';
   import { ElMessage } from 'element-plus';
+  import { MapLocation, Download, InfoFilled, Location, Grid, Refresh, SuccessFilled, Scissor, Promotion, UploadFilled, Document } from '@element-plus/icons-vue';
   import * as GeoTIFF from 'geotiff';
   import * as XLSX from 'xlsx';
   
@@ -995,47 +1093,843 @@
   </script>
   
 <style scoped>
-  .terrain-clipping-container{max-width:1200px;margin:20px auto;padding:20px;background:#fff;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.1);}
-  h2{text-align:center;margin-bottom:24px;font-size:1.8em;color:#303133;}
-  h3,h4,h5{margin-top:24px;margin-bottom:16px;color:#303133;} h3{font-size:1.5em;} h4{font-size:1.2em;}
-  
-  .upload-area{border:2px dashed #dcdfe6;border-radius:8px;padding:40px;text-align:center;transition:.3s;background:#f9fafc;cursor:pointer;margin-top:16px;}
-  .upload-area.is-active{border-color:#409EFF;background:#f0f7ff;}
-  .turbine-area{background:#fff8e5;}
-  .upload-hint{display:flex;flex-direction:column;align-items:center;gap:16px;color:#606266;}
-  .upload-icon{font-size:48px;color:#c0c4cc;margin-bottom:8px;}
-  .file-selected{display:flex;align-items:center;justify-content:space-between;padding:10px;background:#eef6ff;border-radius:4px;}
-  .file-info{display:flex;align-items:center;gap:8px;font-weight:500;color:#303133;}
-  .file-icon{font-size:20px;color:#409EFF;}
+/* ===== 容器与页面头部 ===== */
+.terrain-clipping-container {
+  max-width: 1200px;
+  margin: 20px auto;
+  padding: 28px;
+  background: linear-gradient(135deg, #ffffff, #f8fafc);
+  border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+}
 
-  .dem-tabs{margin-top:12px;}
-  .mosaic-card{border:1px solid #ebeef5;background:#fafcff;}
-  .mosaic-card-header{font-weight:600;color:#303133;}
-  .mosaic-mode-row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:8px 0 12px;flex-wrap:wrap;}
-  .mosaic-form{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;}
-  .mosaic-hint{margin-top:12px;}
-  .mosaic-result{margin-top:12px;}
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #e5e7eb;
+}
 
-  .clip-hint{margin-bottom:12px;}
-  
-  .preview-section{margin-top:40px;padding-top:20px;border-top:1px solid #ebeef5;}
-  .preview-container{display:flex;flex-wrap:wrap;gap:24px;margin-top:16px;}
-  .preview-image-container{position:relative;flex:1 1 500px;min-width:300px;border:1px solid #e4e7ed;border-radius:4px;overflow:hidden;background:#f5f7fa; align-self: flex-start;}
-  .preview-image-container canvas{display:block;width:100%;height:auto; background-color: #eee;}
-  .clipping-controls{flex:1 1 300px;min-width:280px;display:flex;flex-direction:column;gap:24px;}
-  .dem-info, .clipping-info, .clipping-size-control { background-color: #fdfdfd; padding: 15px; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);}
-  
-  /* 新增裁剪信息区域样式 */
-  .clipping-info { border-left: 4px solid #67c23a; }
-  .clipping-info h4 { color: #67c23a; margin-top: 0; }
-  
-  .clipping-box{position:absolute;border:2px dashed #f56c6c;background:rgba(245,108,108,.15);cursor:move;box-sizing:border-box;}
-  .resize-handle{position:absolute;right:-6px;bottom:-6px;width:12px;height:12px;background:#f56c6c;border:1px solid #fff;border-radius:50%;cursor:nwse-resize;}
-  
-  .size-control{display:flex;flex-direction:column;gap:8px;margin:16px 0;}
-  .action-buttons{display:flex;gap:12px;margin-top:24px;flex-wrap:wrap;}
-  
-  .loading-content{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px 20px;}
-  .loading-content p{margin-top:20px;font-size:1.1em;color:#303133;}
-  
+.header-icon {
+  font-size: 48px;
+  line-height: 1;
+}
+
+.header-content h2 {
+  margin: 0 0 4px 0;
+  text-align: left;
+  font-size: 1.5em;
+  font-weight: 700;
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.header-subtitle {
+  margin: 0;
+  font-size: 14px;
+  color: #6b7280;
+}
+
+h3, h4, h5 {
+  margin-top: 16px;
+  margin-bottom: 10px;
+  color: #374151;
+  font-weight: 600;
+}
+h3 { font-size: 1.2em; }
+h4 { font-size: 1.05em; }
+h5 { font-size: 0.95em; color: #6b7280; }
+
+/* ===== 自定义 Tabs ===== */
+.dem-tabs {
+  margin-top: 0;
+}
+
+:deep(.el-tabs__header) {
+  margin-bottom: 0;
+  border: none;
+}
+
+:deep(.el-tabs__nav-wrap::after) {
+  display: none;
+}
+
+:deep(.el-tabs__nav) {
+  border: none !important;
+  background: #f1f5f9;
+  border-radius: 12px;
+  padding: 6px;
+}
+
+:deep(.el-tabs__item) {
+  border: none !important;
+  border-radius: 8px;
+  padding: 12px 24px;
+  height: auto;
+  line-height: 1.4;
+  font-weight: 500;
+  color: #64748b;
+  transition: all 0.25s ease;
+}
+
+:deep(.el-tabs__item:hover) {
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.05);
+}
+
+:deep(.el-tabs__item.is-active) {
+  background: white;
+  color: #3b82f6;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.tab-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tab-icon-el {
+  font-size: 16px;
+  color: inherit;
+}
+
+.info-icon-el {
+  font-size: 18px;
+  color: #f59e0b;
+  flex-shrink: 0;
+}
+
+.mode-icon-el {
+  font-size: 14px;
+  margin-right: 2px;
+}
+
+.result-icon-el {
+  font-size: 18px;
+  color: #22c55e;
+}
+
+.turbine-icon {
+  font-size: 28px;
+  color: #f59e0b;
+}
+
+.tab-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  color: white;
+  font-weight: 500;
+}
+
+.tab-badge.secondary {
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+}
+
+/* ===== Tab 内容区域 ===== */
+.tab-content {
+  padding: 20px 0;
+}
+
+/* ===== 工作流提示 ===== */
+.workflow-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 16px 24px;
+  background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
+  border-radius: 12px;
+  margin-bottom: 20px;
+}
+
+.workflow-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.step-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.step-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+}
+
+.workflow-arrow {
+  color: #9ca3af;
+  font-size: 16px;
+}
+
+/* ===== 信息横幅 ===== */
+.info-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #fefce8;
+  border: 1px solid #fef08a;
+  border-radius: 10px;
+  margin-bottom: 20px;
+}
+
+.info-banner .info-icon {
+  font-size: 18px;
+}
+
+.info-banner .info-text {
+  font-size: 13px;
+  color: #854d0e;
+}
+
+.info-banner code {
+  background: rgba(0, 0, 0, 0.05);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+/* ===== 模式选择器 ===== */
+.mode-selector {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.mode-icon {
+  margin-right: 4px;
+}
+
+.sync-btn {
+  font-size: 13px;
+}
+
+/* ===== 表单卡片 ===== */
+.form-card {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  align-items: end;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-field label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+}
+
+.form-field :deep(.el-input-number) {
+  width: 100%;
+}
+
+.form-action {
+  display: flex;
+  align-items: flex-end;
+}
+
+.form-action .el-button {
+  height: 40px;
+  min-width: 140px;
+}
+
+/* ===== 结果卡片 ===== */
+.result-card {
+  margin-top: 20px;
+  background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+  border: 1px solid #86efac;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.result-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: rgba(34, 197, 94, 0.1);
+  font-weight: 600;
+  color: #166534;
+}
+
+.result-icon {
+  font-size: 18px;
+}
+
+.result-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.result-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.result-label {
+  font-size: 13px;
+  color: #6b7280;
+  min-width: 80px;
+}
+
+.result-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: #374151;
+}
+
+.result-value.coords {
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.04);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+/* ===== 上传区域容器 ===== */
+.upload-section {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.upload-card {
+  border: 2px dashed #d1d5db;
+  border-radius: 12px;
+  padding: 24px;
+  text-align: center;
+  transition: all 0.3s ease;
+  background: #fafbfc;
+  cursor: pointer;
+}
+
+.upload-card:hover {
+  border-color: #3b82f6;
+  background: #f8faff;
+}
+
+.upload-card.is-active {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  transform: scale(1.01);
+}
+
+.upload-card.has-file {
+  border-style: solid;
+  border-color: #22c55e;
+  background: #f0fdf4;
+}
+
+.upload-card.turbine-upload {
+  border-color: #fbbf24;
+  background: linear-gradient(135deg, #fffbeb, #fef3c7);
+}
+
+.upload-card.turbine-upload:hover {
+  border-color: #f59e0b;
+}
+
+.upload-card.turbine-upload.has-file {
+  border-color: #22c55e;
+  background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+}
+
+.upload-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.upload-icon-wrapper {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #eff6ff, #dbeafe);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.upload-icon-wrapper.turbine {
+  background: linear-gradient(135deg, #fef3c7, #fde68a);
+}
+
+.upload-icon-wrapper .upload-icon {
+  font-size: 28px;
+  color: #3b82f6;
+}
+
+.emoji-icon {
+  font-size: 28px;
+}
+
+.upload-text {
+  text-align: center;
+}
+
+.upload-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.upload-subtitle {
+  margin: 4px 0 0 0;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.file-selected {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #eff6ff, #dbeafe);
+  border-radius: 8px;
+  border: 1px solid #bfdbfe;
+}
+
+.file-selected.turbine {
+  background: linear-gradient(135deg, #fef3c7, #fde68a);
+  border-color: #fbbf24;
+}
+
+.file-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+  color: #1e40af;
+}
+
+.file-icon {
+  font-size: 20px;
+  color: #3b82f6;
+}
+
+.file-name {
+  font-size: 14px;
+}
+
+/* ===== Tabs 样式优化 ===== */
+.dem-tabs {
+  margin-top: 12px;
+}
+
+:deep(.el-tabs__header) {
+  margin-bottom: 16px;
+}
+
+:deep(.el-tabs__nav) {
+  border: none !important;
+  background: #f1f5f9;
+  border-radius: 8px;
+  padding: 4px;
+}
+
+:deep(.el-tabs__item) {
+  border: none !important;
+  border-radius: 6px;
+  padding: 8px 20px;
+  font-weight: 500;
+  color: #64748b;
+  transition: all 0.2s ease;
+}
+
+:deep(.el-tabs__item:hover) {
+  color: #3b82f6;
+}
+
+:deep(.el-tabs__item.is-active) {
+  background: white;
+  color: #3b82f6;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* ===== 上传区域 ===== */
+.upload-area {
+  border: 2px dashed #d1d5db;
+  border-radius: 12px;
+  padding: 32px;
+  text-align: center;
+  transition: all 0.3s ease;
+  background: #fafbfc;
+  cursor: pointer;
+  margin-top: 16px;
+}
+
+.upload-area:hover {
+  border-color: #3b82f6;
+  background: #eff6ff;
+}
+
+.upload-area.is-active {
+  border-color: #3b82f6;
+  background: #dbeafe;
+  transform: scale(1.01);
+}
+
+.turbine-area {
+  background: linear-gradient(135deg, #fffbeb, #fef3c7);
+  border-color: #fbbf24;
+}
+
+.turbine-area:hover {
+  border-color: #f59e0b;
+  background: #fef3c7;
+}
+
+.upload-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: #6b7280;
+}
+
+.upload-icon {
+  font-size: 40px;
+  color: #9ca3af;
+  margin-bottom: 4px;
+}
+
+.file-selected {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #eff6ff, #dbeafe);
+  border-radius: 8px;
+  border: 1px solid #bfdbfe;
+}
+
+.file-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+  color: #1e40af;
+}
+
+.file-icon {
+  font-size: 20px;
+  color: #3b82f6;
+}
+
+/* ===== 卡片样式 ===== */
+.mosaic-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #ffffff, #fafbfc);
+  overflow: hidden;
+}
+
+:deep(.mosaic-card .el-card__header) {
+  background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+  border-bottom: 1px solid #e5e7eb;
+  padding: 14px 20px;
+}
+
+.mosaic-card-header {
+  font-weight: 600;
+  color: #374151;
+  font-size: 15px;
+}
+
+.mosaic-mode-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0 16px;
+  flex-wrap: wrap;
+}
+
+.mosaic-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+:deep(.mosaic-form .el-form-item) {
+  margin-bottom: 0;
+}
+
+:deep(.mosaic-form .el-form-item__label) {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.mosaic-hint, .clip-hint {
+  margin: 12px 0;
+  border-radius: 8px;
+}
+
+.mosaic-result {
+  margin-top: 16px;
+  padding: 12px;
+  background: #f0fdf4;
+  border-radius: 8px;
+  border: 1px solid #bbf7d0;
+}
+
+/* ===== 预览区域 ===== */
+.preview-section {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 2px solid #e5e7eb;
+}
+
+.preview-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin-top: 16px;
+}
+
+.preview-image-container {
+  position: relative;
+  flex: 1 1 500px;
+  min-width: 300px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+  align-self: flex-start;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.preview-image-container canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  background-color: #e5e7eb;
+}
+
+/* ===== 控制面板 ===== */
+.clipping-controls {
+  flex: 1 1 320px;
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.dem-info, .clipping-info, .clipping-size-control {
+  background: white;
+  padding: 16px;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  border: 1px solid #f1f5f9;
+}
+
+.dem-info h4 {
+  margin-top: 0;
+  color: #3b82f6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dem-info h4::before {
+  content: '📊';
+  font-size: 16px;
+}
+
+/* 裁剪信息区域样式 */
+.clipping-info {
+  border-left: 4px solid #22c55e;
+  background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+}
+
+.clipping-info h4 {
+  color: #16a34a;
+  margin-top: 0;
+}
+
+.clipping-info h4::before {
+  content: '✂️';
+  font-size: 16px;
+}
+
+.clipping-size-control h4 {
+  margin-top: 0;
+  color: #8b5cf6;
+}
+
+.clipping-size-control h4::before {
+  content: '⚙️';
+  font-size: 16px;
+}
+
+/* ===== 裁切框 ===== */
+.clipping-box {
+  position: absolute;
+  border: 2px dashed #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+  cursor: move;
+  box-sizing: border-box;
+  border-radius: 4px;
+}
+
+.resize-handle {
+  position: absolute;
+  right: -8px;
+  bottom: -8px;
+  width: 16px;
+  height: 16px;
+  background: #ef4444;
+  border: 2px solid white;
+  border-radius: 50%;
+  cursor: nwse-resize;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+/* ===== 尺寸控制 ===== */
+.size-control {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.size-control label {
+  font-size: 13px;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.clipping-coordinates {
+  margin-top: 16px;
+}
+
+.clipping-coordinates h5 {
+  margin-bottom: 8px;
+}
+
+/* ===== 按钮组 ===== */
+.action-buttons {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+.action-buttons .el-button--primary {
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  border: none;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.action-buttons .el-button--primary:hover {
+  background: linear-gradient(135deg, #60a5fa, #3b82f6);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
+}
+
+/* ===== 加载对话框 ===== */
+.loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+}
+
+.loading-content p {
+  margin-top: 20px;
+  font-size: 1em;
+  color: #374151;
+  font-weight: 500;
+}
+
+/* ===== Descriptions 样式优化 ===== */
+:deep(.el-descriptions) {
+  --el-descriptions-table-border: 1px solid #e5e7eb;
+}
+
+:deep(.el-descriptions__label) {
+  font-weight: 500;
+  color: #6b7280;
+  background: #f9fafb !important;
+}
+
+:deep(.el-descriptions__content) {
+  color: #374151;
+}
+
+/* ===== 输入框优化 ===== */
+:deep(.el-input-number) {
+  --el-input-border-radius: 8px;
+}
+
+:deep(.el-radio-button__inner) {
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+:deep(.el-radio-button:first-child .el-radio-button__inner) {
+  border-radius: 6px 0 0 6px;
+}
+
+:deep(.el-radio-button:last-child .el-radio-button__inner) {
+  border-radius: 0 6px 6px 0;
+}
+
+/* ===== 滑块优化 ===== */
+:deep(.el-slider__runway) {
+  height: 6px;
+  border-radius: 3px;
+}
+
+:deep(.el-slider__bar) {
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+}
+
+:deep(.el-slider__button) {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #3b82f6;
+}
 </style>

@@ -76,7 +76,7 @@ const emit = defineEmits(['toggle-sidebar', 'add-turbine']); // Removed 'toggle-
   position: absolute;
   top: 24px;
   left: 24px;
-  z-index: 10;
+  z-index: 50;  /* 低于 el-drawer (2000+) 但高于地形渲染器 */
   background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(8px);
   padding: 8px;

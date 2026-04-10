@@ -1,94 +1,104 @@
 <!--
  * @Author: joe 847304926@qq.com
  * @Date: 2025-01-12 21:52:31
- * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-04-01 12:25:25
- * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\WindTurbineManagement.vue
- * @Description:
- *
- * Copyright (c) 2025 by joe, All Rights Reserved.
+ * @LastEditors: AI Assistant
+ * @LastEditTime: 2026-02-03
+ * @Description: 风机管理面板 - 完全重新设计
 -->
 
-<!-- WindTurbineManagement.vue -->
 <template>
   <el-drawer
     v-model="localVisible"
     direction="rtl"
-    size="450px"
+    size="380px"
     :with-header="false"
-    custom-class="sidebar-drawer"
+    custom-class="turbine-drawer"
     :before-close="handleClose"
-    aria-labelledby="windTurbineManagementTitle"
   >
-    <div class="sidebar-container management-panel">
-      <div class="drawer-header">
-        <h2 class="drawer-title" id="windTurbineManagementTitle">
-          <el-icon><Setting /></el-icon>
-          风机管理
-        </h2>
-        <el-button
-          class="close-button"
-          circle
-          size="small"
-          :icon="Close"
-          aria-label="关闭风机管理"
-          @click="handleClose"
-        />
-      </div>
+    <div class="drawer-container">
+      <!-- 头部 -->
+      <header class="drawer-header">
+        <div class="header-title">
+          <svg class="header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 2v4m0 12v4M2 12h4m12 0h4"/>
+            <path d="M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/>
+          </svg>
+          <span>风机管理</span>
+        </div>
+        <button class="close-btn" @click="handleClose" title="关闭">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </header>
 
-      <el-collapse v-model="activeSections" accordion>
-        <el-collapse-item name="windTurbineManagement">
-          <template #title>
-            <h3 class="collapse-title">
-              <i class="el-icon-wind-power"></i> 风机管理
-            </h3>
-          </template>
+      <!-- 自定义 Tabs -->
+      <nav class="tab-nav">
+        <button 
+          class="tab-btn" 
+          :class="{ active: activeTab === 'add' }"
+          @click="activeTab = 'add'"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="16"/>
+            <line x1="8" y1="12" x2="16" y2="12"/>
+          </svg>
+          添加风机
+        </button>
+        <button 
+          class="tab-btn" 
+          :class="{ active: activeTab === 'list' }"
+          @click="activeTab = 'list'"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7"/>
+            <rect x="14" y="3" width="7" height="7"/>
+            <rect x="3" y="14" width="7" height="7"/>
+            <rect x="14" y="14" width="7" height="7"/>
+          </svg>
+          已安装
+          <span v-if="windTurbines.length" class="badge">{{ windTurbines.length }}</span>
+        </button>
+      </nav>
 
-          <el-tabs v-model="activeTab" class="management-tabs">
-            <!-- Add Turbine Tab -->
-            <el-tab-pane label="添加风机" name="add">
-              <el-alert
-                v-if="!boundsReady"
-                class="bounds-alert"
-                type="warning"
-                show-icon
-                :closable="false"
-                title="地形边界未就绪，无法校验风机坐标"
-                description="请先等待地形加载完成；如果持续提示，可能是 GeoTIFF 坐标系不是 EPSG:4326（经纬度），建议转换为 WGS84/EPSG:4326 后重新上传。"
-              />
-              <WindTurbineForm :disabled="!boundsReady" @add-turbine="handleAddTurbine" />
-              <UploadComponent :disabled="!boundsReady" @import-turbines="handleBulkImport" />
-            </el-tab-pane>
+      <!-- 内容区域 -->
+      <main class="drawer-content">
+        <!-- 添加风机 -->
+        <div v-show="activeTab === 'add'" class="tab-panel">
+          <el-alert
+            v-if="!boundsReady"
+            class="bounds-alert"
+            type="warning"
+            show-icon
+            :closable="false"
+            title="地形边界未就绪"
+            description="请等待地形加载完成"
+          />
+          <WindTurbineForm :disabled="!boundsReady" @add-turbine="handleAddTurbine" />
+          <UploadComponent :disabled="!boundsReady" @import-turbines="handleBulkImport" />
+        </div>
 
-            <!-- Installed Turbines Tab -->
-            <el-tab-pane label="已安装风机" name="display">
-              <WindTurbineList
-                :windTurbines="windTurbines"
-                @focus-turbine="focusTurbine"
-                @delete-turbine="deleteTurbine"
-              />
-            </el-tab-pane>
-          </el-tabs>
-        </el-collapse-item>
-      </el-collapse>
+        <!-- 已安装风机列表 -->
+        <div v-show="activeTab === 'list'" class="tab-panel">
+          <WindTurbineList
+            :windTurbines="windTurbines"
+            @delete-turbine="deleteTurbine"
+          />
+        </div>
+      </main>
     </div>
   </el-drawer>
 </template>
 
 <script setup>
-/**
- * WindTurbineManagement.vue
- *
- * Right sidebar component for managing wind turbines, including adding new turbines and listing existing ones.
- */
-
 import { computed, ref, watch } from "vue";
 import { ElMessage, ElNotification } from 'element-plus';
-import { Close, Setting } from '@element-plus/icons-vue';
 import WindTurbineForm from "./WindTurbineForm.vue";
 import WindTurbineList from "./WindTurbineList.vue";
 import UploadComponent from "./UploadComponent.vue";
-// REMOVE: import { useCaseStore } from "../../store/caseStore"; // No longer needed here for adding
 
 const props = defineProps({
   visible: {
@@ -112,44 +122,29 @@ const boundsReady = computed(() => {
   return [minLat, maxLat, minLon, maxLon].every((v) => typeof v === 'number' && Number.isFinite(v));
 });
 
-// 添加一个辅助函数来检查边界
 const isWithinBounds = (turbine) => {
   const bounds = props.geographicBounds;
   if (!boundsReady.value) return false;
   
-  // 从用户输入中解析数字
   const lat = parseFloat(turbine.latitude);
   const lon = parseFloat(turbine.longitude);
-
-  // 从 props 中直接获取数字 (无需再解析)
   const { minLat, maxLat, minLon, maxLon } = bounds;
 
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
 
-  // 现在这里是纯粹的数字比较，不会有类型错误
-  if (lat >= minLat && lat <= maxLat && lon >= minLon && lon <= maxLon) {
-    return true;
-  }
-  
-  return false;
+  return lat >= minLat && lat <= maxLat && lon >= minLon && lon <= maxLon;
 };
 
-// MODIFY: Ensure 'add-turbine' and 'import-turbines' are defined
 const emit = defineEmits([
   "update:visible",
-  "focus-turbine",
   "delete-turbine",
-  "add-turbine",       // Keep this
-  "import-turbines",   // Keep this
+  "add-turbine",
+  "import-turbines",
 ]);
 
-// REMOVE: const store = useCaseStore(); // Remove this line
-
 const localVisible = ref(props.visible);
-const activeSections = ref("windTurbineManagement");
 const activeTab = ref("add");
 
-// Sync localVisible with prop
 watch(
   () => props.visible,
   (newVal) => {
@@ -165,11 +160,11 @@ watch(
   }
 );
 
-const handleClose = () => {
-  emit("update:visible", false);
+const handleClose = (done) => {
+  localVisible.value = false;
+  if (typeof done === "function") done();
 };
 
-// 修改您的 handleAddTurbine 函数
 const handleAddTurbine = (turbine) => {
   if (!boundsReady.value) {
     ElMessage.error("地形边界未就绪，暂无法添加风机。");
@@ -177,12 +172,11 @@ const handleAddTurbine = (turbine) => {
   }
   if (!isWithinBounds(turbine)) {
     ElMessage.error(`风机 "${turbine.name}" 的坐标超出了当前地形边界。`);
-    return; // 阻止添加
+    return;
   }
   emit("add-turbine", turbine);
 };
 
-// 修改您的 handleBulkImport 函数
 const handleBulkImport = (turbines) => {
   if (!boundsReady.value) {
     ElMessage.error("地形边界未就绪，暂无法导入风机。");
@@ -195,148 +189,203 @@ const handleBulkImport = (turbines) => {
     if (isWithinBounds(turbine)) {
       validTurbines.push(turbine);
     } else {
-      // 收集无效风机的名称，如果没有名称则使用通用描述
-      invalidNames.push(turbine.name || '一个未命名风机');
+      invalidNames.push(turbine.name || '未命名');
     }
   }
 
-  // 1. 如果有无效风机，使用 ElNotification 给出详细警告。
-  //    Notification 更适合显示较长的列表信息。
   if (invalidNames.length > 0) {
     ElNotification({
       title: '导入警告',
-      message: `以下 ${invalidNames.length} 个风机因坐标超出地形边界而未被导入: ${invalidNames.join(', ')}`,
+      message: `${invalidNames.length} 个风机因坐标超出边界而未导入`,
       type: 'warning',
-      duration: 8000, // 持续显示8秒，方便用户阅读
+      duration: 5000,
     });
   }
 
-  // 2. 如果有有效的风机，发出事件并给出明确的成功提示。
   if (validTurbines.length > 0) {
-    ElMessage.success(`已准备好导入 ${validTurbines.length} 个有效的风机。`);
-    emit("import-turbines", validTurbines); // 只发出有效的风机列表
+    ElMessage.success(`已导入 ${validTurbines.length} 个风机`);
+    emit("import-turbines", validTurbines);
   }
   
-  // 3. (可选) 如果所有风机都无效，可以给出一个最终的错误提示。
   if (validTurbines.length === 0 && invalidNames.length > 0) {
-     ElMessage.error('本次导入的所有风机均无效，操作已中止。');
+     ElMessage.error('所有风机均无效');
   }
 };
 
-// Handle focusing on a turbine
-const focusTurbine = (turbine) => {
-  emit("focus-turbine", turbine);
-};
-
-// Handle deleting a turbine
-const deleteTurbine = (turbine) => {
-  emit("delete-turbine", turbine);
+const deleteTurbine = (turbine, done) => {
+  emit("delete-turbine", turbine, done);
 };
 </script>
 
 <style scoped>
-.sidebar-drawer {
-  background: #ffffff;
-  box-shadow: -2px 0 24px rgba(0, 0, 0, 0.15);
-  border-radius: 16px 0 0 16px;
+/* Drawer 样式 */
+.turbine-drawer {
+  border-radius: 16px 0 0 16px !important;
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.12) !important;
 }
 
-.sidebar-container {
-  padding: 24px;
-  height: 100%;
+:deep(.el-drawer__body) {
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+/* 容器 */
+.drawer-container {
   display: flex;
   flex-direction: column;
-  background: linear-gradient(135deg, #f9f9f9, #ffffff);
+  height: 100%;
+  background: #f8fafc;
 }
 
+/* 头部 */
 .drawer-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  flex-shrink: 0;
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: white;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.header-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.close-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.close-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.close-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Tab 导航 */
+.tab-nav {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  background: white;
+  border-bottom: 1px solid #e5e7eb;
+  flex-shrink: 0;
+}
+
+.tab-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tab-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.tab-btn:hover {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.tab-btn.active {
+  background: #3b82f6;
+  color: white;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+.badge {
+  background: rgba(255, 255, 255, 0.25);
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tab-btn:not(.active) .badge {
+  background: #e2e8f0;
+  color: #64748b;
+}
+
+/* 内容区域 */
+.drawer-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px;
+}
+
+.tab-panel {
+  min-height: 0;
+}
+
+/* 警告框 */
+.bounds-alert {
   margin-bottom: 12px;
 }
 
-.drawer-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0;
-  font-size: 18px;
-  font-weight: 700;
-  color: #2c3e50;
-}
-
-.bounds-alert {
-  margin: 0 16px 12px 16px;
-}
-
-.management-tabs {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-:deep(.el-tabs__header) {
-  margin-bottom: 20px;
-}
-
-:deep(.el-tabs__nav) {
-  background: #f2f6fc;
+:deep(.el-alert) {
   border-radius: 8px;
-  padding: 4px;
+  padding: 10px 12px;
 }
 
-:deep(.el-tabs__item) {
-  height: 40px;
-  line-height: 40px;
-  font-weight: 500;
-  color: #606266;
-  transition: all 0.3s ease;
-  border-radius: 6px;
+:deep(.el-alert__title) {
+  font-size: 13px;
 }
 
-:deep(.el-tabs__item.is-active) {
-  color: #409EFF;
-  background: #ffffff;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+:deep(.el-alert__description) {
+  font-size: 12px;
+  margin-top: 4px;
 }
 
-:deep(.el-tabs__active-bar) {
-  display: none;
+/* 滚动条 */
+.drawer-content::-webkit-scrollbar {
+  width: 5px;
 }
 
-.tab-content-wrapper {
-  overflow-y: auto;
-  height: calc(100% - 40px);
-  padding-right: 10px;
+.drawer-content::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-.collapse-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 18px;
-  font-weight: 600;
-  color: #2c3e50;
-  margin: 0;
+.drawer-content::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 3px;
 }
 
-/* 美化 collapse 组件 */
-:deep(.el-collapse-item__header) {
-  background-color: transparent;
-  border-bottom: 1px solid #e6e8eb;
-  padding: 16px;
-  font-weight: 600;
-  border-radius: 12px;
-  transition: all 0.3s ease;
-}
-
-:deep(.el-collapse-item__header:hover) {
-  background-color: rgba(64, 158, 255, 0.05);
-}
-
-:deep(.el-collapse-item__content) {
-  padding: 20px 8px;
-  border: none;
+.drawer-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
 }
 </style>

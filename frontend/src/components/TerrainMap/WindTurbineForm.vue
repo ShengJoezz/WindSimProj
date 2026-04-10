@@ -207,12 +207,12 @@ const turbineRules = {
     },
   ],
   hubHeight: [
-    { required: true, message: "请输入桅杆高度", trigger: "blur" },
-    { type: "number", min: 0, message: "桅杆高度必须为非负数字", trigger: "blur" },
+    { required: true, message: "请输入轮毂高度", trigger: "blur" },
+    { type: "number", min: 0, message: "轮毂高度必须为非负数字", trigger: "blur" },
   ],
   rotorDiameter: [
-    { required: true, message: "请输入转子直径", trigger: "blur" },
-    { type: "number", min: 0, message: "转子直径必须为非负数字", trigger: "blur" },
+    { required: true, message: "请输入叶轮直径", trigger: "blur" },
+    { type: "number", min: 0, message: "叶轮直径必须为非负数字", trigger: "blur" },
   ],
   // 新增：风机模型ID验证规则
   turbineModelId: [
@@ -280,7 +280,11 @@ const submitForm = async () => {
 
 <style scoped>
 .turbine-form {
-  padding: 16px 20px 24px 20px;
+  padding: 12px 16px 16px 16px;
+}
+
+:deep(.el-form-item) {
+  margin-bottom: 12px;
 }
 
 .stylish-input {
@@ -295,17 +299,17 @@ const submitForm = async () => {
 :deep(.el-form-item__label) {
   font-weight: 500;
   color: #606266;
-  font-size: 14px;
-  padding-bottom: 4px;
+  font-size: 13px;
+  padding-bottom: 2px;
 }
 
 /* 新增：模型ID部分样式 */
 .model-id-section {
   background: linear-gradient(135deg, #f8fafc, #f2f6fc);
-  padding: 16px;
+  padding: 12px;
   border-radius: 8px;
   border: 1px solid #e4e7ed;
-  margin: 16px 0;
+  margin: 12px 0;
 }
 
 .model-id-input-wrapper {
@@ -323,7 +327,7 @@ const submitForm = async () => {
 }
 
 .info-icon:hover {
-  color: #409EFF;
+  color: #3b82f6;
 }
 
 .model-id-hint {
@@ -345,28 +349,28 @@ const submitForm = async () => {
 
 .submit-button {
   width: 100%;
-  height: 44px;
-  background-color: #409eff;
-  border-color: #409eff;
+  height: 40px;
+  background-color: #3b82f6;
+  border-color: #3b82f6;
   color: white;
   transition: all 0.3s ease;
   border-radius: 8px;
   font-weight: 500;
-  font-size: 15px;
-  box-shadow: 0 4px 12px rgba(64, 158, 255, 0.25);
-  margin-top: 8px;
+  font-size: 14px;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
+  margin-top: 4px;
 }
 
 .submit-button:hover:not(:disabled) {
-  background-color: #66b1ff;
-  border-color: #66b1ff;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(64, 158, 255, 0.35);
+  background-color: #60a5fa;
+  border-color: #60a5fa;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.35);
 }
 
 .submit-button:active:not(:disabled) {
-  transform: translateY(1px);
-  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.2);
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
 }
 
 .submit-button:disabled {
@@ -377,7 +381,7 @@ const submitForm = async () => {
 }
 
 :deep(.el-input__inner) {
-  height: 40px;
+  height: 36px;
   border-radius: 8px;
 }
 

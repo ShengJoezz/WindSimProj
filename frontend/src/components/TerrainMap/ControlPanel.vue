@@ -188,31 +188,28 @@ const handleClose = () => {
 </script>
 
 <style scoped>
-.control-sidebar-drawer {
-  --primary-color: #409EFF;
-  --primary-light: rgba(64, 158, 255, 0.1);
-  --primary-dark: #337ecc;
-  --text-primary: #303133;
-  --text-secondary: #606266;
-  --bg-color: #f5f7fa;
+:root {
+  --primary-color: #3b82f6;
+  --primary-dark: #1d4ed8;
+  --primary-light: #eff6ff;
+  --text-primary: #1f2937;
+  --text-secondary: #6b7280;
   --card-bg: #ffffff;
-  --border-radius: 12px;
-  --box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  --border-radius: 8px;
+  --box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
-/* Ensure the drawer itself has the intended border radius and shadow */
 :deep(.el-drawer) {
-  border-radius: 16px 0 0 16px !important; /* Use !important if necessary to override defaults */
+  border-radius: 16px 0 0 16px !important;
   overflow: hidden !important;
   box-shadow: -8px 0 24px rgba(0, 0, 0, 0.15) !important;
 }
-/* Or target the specific class if :deep(.el-drawer) isn't specific enough */
+
 .control-sidebar-drawer.el-drawer {
   border-radius: 16px 0 0 16px;
   overflow: hidden;
   box-shadow: -8px 0 24px rgba(0, 0, 0, 0.15);
 }
-
 
 .control-sidebar-container {
   display: flex;
@@ -224,13 +221,13 @@ const handleClose = () => {
 
 /* 控制面板标题 */
 .control-header {
-  padding: 20px 24px;
+  padding: 14px 20px;
   background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
   color: white;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   position: relative;
 }
 
@@ -253,7 +250,7 @@ const handleClose = () => {
 
 .control-title {
   margin: 0;
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 600;
   letter-spacing: 0.5px;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
@@ -280,20 +277,19 @@ const handleClose = () => {
 /* 自定义折叠面板 */
 .custom-collapse {
   border: none;
-  margin: 16px 0;
+  margin: 12px 0;
   background: transparent;
-  padding: 0 16px; /* Add padding to align content */
+  padding: 0 12px;
 }
 
 :deep(.el-collapse-item__header) {
-  padding: 15px 20px;
-  font-size: 16px;
+  padding: 12px 16px;
+  font-size: 14px;
   border: none;
-  /* margin: 0 16px 4px; */ /* Removed margin to use padding on parent */
-  margin-bottom: 8px; /* Space between collapse items */
+  margin-bottom: 6px;
   border-radius: var(--border-radius);
   background: var(--card-bg);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
   transition: all 0.3s ease;
 }
 
@@ -330,10 +326,9 @@ const handleClose = () => {
 /* 控制部分样式 */
 .control-section {
   background: var(--card-bg);
-  padding: 16px;
+  padding: 12px;
   border-radius: var(--border-radius);
   box-shadow: var(--box-shadow);
-  /* margin: 0 16px; */ /* Removed margin, handled by parent's padding */
 }
 
 .control-buttons {
@@ -345,9 +340,10 @@ const handleClose = () => {
 
 .action-button {
   flex: 1;
-  height: 40px;
+  height: 36px;
   border-radius: 8px;
   font-weight: 500;
+  font-size: 13px;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
   transition: all 0.3s ease;
 }
@@ -403,9 +399,9 @@ const handleClose = () => {
 /* 底部信息 */
 .control-footer {
   margin-top: auto;
-  padding: 16px 24px;
-  background: rgba(64, 158, 255, 0.05);
-  border-top: 1px solid rgba(64, 158, 255, 0.1);
+  padding: 12px 16px;
+  background: rgba(59, 130, 246, 0.05);
+  border-top: 1px solid rgba(59, 130, 246, 0.1);
 }
 
 .footer-info {

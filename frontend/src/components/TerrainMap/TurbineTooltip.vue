@@ -1,49 +1,42 @@
 <!--
  * @Author: joe 847304926@qq.com
  * @Date: 2025-03-16 19:01:39
- * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-07-03 18:31:21
- * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\TurbineTooltip.vue
- * @Description: 
- * 
- * Copyright (c) 2025 by joe, All Rights Reserved.
+ * @LastEditors: AI Assistant
+ * @LastEditTime: 2026-02-03
+ * @Description: 紧凑型风机悬停提示框 - 优化 z-index 和定位
 -->
 
-<!-- TurbineTooltip.vue -->
 <template>
-  <div
-    v-if="turbine"
-    class="turbine-tooltip"
-    :style="{ top: position.y + 'px', left: position.x + 'px' }"
-  >
-    <div class="tooltip-title">{{ turbine.name ?? 'N/A' }}</div>
-    <div class="tooltip-content">
-      <div class="tooltip-item">
-        <span class="label">经度:</span>
-        <span class="value">{{ turbine.longitude !== undefined && turbine.longitude !== null ? turbine.longitude.toFixed(6) + '°' : 'N/A' }}</span>
+  <Teleport to="body">
+    <div
+      v-if="turbine"
+      class="turbine-tooltip"
+      :style="tooltipStyle"
+    >
+      <div class="tooltip-header">
+        <span class="turbine-icon">🌬️</span>
+        <span class="turbine-name">{{ turbine.name ?? 'N/A' }}</span>
       </div>
-      <div class="tooltip-item">
-        <span class="label">纬度:</span>
-        <span class="value">{{ turbine.latitude !== undefined && turbine.latitude !== null ? turbine.latitude.toFixed(6) + '°' : 'N/A' }}</span>
-      </div>
-      <div class="tooltip-item">
-        <span class="label">轮毂高度:</span>
-        <span class="value">{{ turbine.hubHeight ?? 'N/A' }}m</span>
-      </div>
-      <div class="tooltip-item">
-        <span class="label">叶轮直径:</span>
-        <span class="value">{{ turbine.rotorDiameter ?? 'N/A' }}m</span>
+      <div class="tooltip-body">
+        <div class="info-row">
+          <span class="label">坐标</span>
+          <span class="value">{{ formatCoord(turbine.longitude) }}, {{ formatCoord(turbine.latitude) }}</span>
+        </div>
+        <div class="info-row">
+          <span class="label">轮毂高度</span>
+          <span class="value">{{ turbine.hubHeight ?? 'N/A' }}m</span>
+        </div>
+        <div class="info-row">
+          <span class="label">叶轮直径</span>
+          <span class="value">⌀{{ turbine.rotorDiameter ?? 'N/A' }}m</span>
+        </div>
       </div>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <script setup>
-/**
- * TurbineTooltip.vue
- *
- * 当鼠标悬停在风机上时显示的信息提示组件。
- */
+import { computed } from 'vue';
 
 const props = defineProps({
   turbine: {
@@ -55,63 +48,106 @@ const props = defineProps({
     required: true,
   },
 });
+
+const formatCoord = (val) => {
+  if (val === undefined || val === null) return 'N/A';
+  return val.toFixed(4) + '°';
+};
+
+// 计算 tooltip 样式，确保不超出屏幕
+const tooltipStyle = computed(() => {
+  const tooltipWidth = 180;
+  const tooltipHeight = 110;
+  let x = props.position.x + 10;
+  let y = props.position.y + 10;
+  
+  // 右边界检测
+  if (x + tooltipWidth > window.innerWidth - 20) {
+    x = props.position.x - tooltipWidth - 10;
+  }
+  // 下边界检测
+  if (y + tooltipHeight > window.innerHeight - 20) {
+    y = props.position.y - tooltipHeight - 10;
+  }
+  
+  return {
+    left: `${x}px`,
+    top: `${y}px`,
+  };
+});
 </script>
 
 <style scoped>
 .turbine-tooltip {
-  position: absolute;
-  background: rgba(40, 44, 52, 0.85);
+  position: fixed;
+  background: rgba(25, 30, 38, 0.94);
   backdrop-filter: blur(10px);
-  padding: 16px;
-  border-radius: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
   color: #ffffff;
   pointer-events: none;
-  z-index: 100;
-  min-width: 220px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  transform: translateY(-4px);
-  animation: fadeIn 0.2s ease-out;
+  z-index: 9999;  /* 最高层级，确保始终可见 */
+  min-width: 150px;
+  max-width: 200px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  animation: tooltipIn 0.12s ease-out;
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+@keyframes tooltipIn {
+  from { 
+    opacity: 0; 
+    transform: scale(0.96) translateY(3px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: scale(1) translateY(0); 
+  }
 }
 
-.tooltip-title {
-  font-size: 16px;
+.tooltip-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  margin-bottom: 6px;
+}
+
+.turbine-icon {
+  font-size: 12px;
+}
+
+.turbine-name {
+  font-size: 12px;
   font-weight: 600;
-  margin-bottom: 12px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
 }
 
-.tooltip-content {
+.tooltip-body {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 3px;
 }
 
-.tooltip-item {
+.info-row {
   display: flex;
   justify-content: space-between;
-  font-size: 13px;
-  padding: 4px 0;
+  align-items: center;
+  font-size: 10px;
 }
 
-.tooltip-item .label {
-  color: rgba(255, 255, 255, 0.7);
-  font-weight: 500;
+.info-row .label {
+  color: rgba(255, 255, 255, 0.55);
 }
 
-.tooltip-item .value {
-  color: #ffffff;
+.info-row .value {
+  color: #fff;
   font-family: 'SF Mono', Menlo, Monaco, monospace;
-  background: rgba(255, 255, 255, 0.1);
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-weight: 500;
+  font-size: 10px;
 }
 </style>

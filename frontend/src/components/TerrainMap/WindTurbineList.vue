@@ -1,84 +1,82 @@
 <!--
  * @Author: joe 847304926@qq.com
  * @Date: 2025-03-16 19:02:30
- * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-07-14 19:32:21
- * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\TerrainMap\WindTurbineList.vue
- * @Description: 
- * 
- * Copyright (c) 2025 by joe, All Rights Reserved.
+ * @LastEditors: AI Assistant
+ * @LastEditTime: 2026-02-03
+ * @Description: 已安装风机列表 - 紧凑现代设计
 -->
 
-<!-- WindTurbineList.vue -->
 <template>
-  <div v-if="windTurbines.length" class="turbine-list">
-    <el-card
-      v-for="turbine in windTurbines"
-      :key="turbine.id"
-      class="turbine-card"
-    >
-      <div class="card-header">
-        <span class="turbine-name">{{ turbine.name }}</span>
-        <div class="turbine-actions">
-          <el-tooltip content="定位风机" placement="top">
-            <el-button
-              type="text"
-              :icon="Aim"
-              @click="$emit('focus-turbine', turbine)"
-              class="action-button"
-            />
-          </el-tooltip>
-          <el-tooltip content="删除风机" placement="top">
-            <el-button
-                type="text"
-                :icon="Delete"
-                @click="confirmDelete(turbine)"
-                class="action-button"
-                  :loading="deletingTurbineId === turbine.id"
-                  :disabled="deletingTurbineId !== null && deletingTurbineId !== turbine.id"
-            />
-          </el-tooltip>
+  <div class="turbine-list-container">
+    <div v-if="windTurbines.length" class="turbine-list">
+      <div
+        v-for="turbine in windTurbines"
+        :key="turbine.id"
+        class="turbine-item"
+      >
+        <!-- 卡片头部 -->
+        <div class="item-header">
+          <div class="turbine-indicator"></div>
+          <span class="turbine-name">{{ turbine.name }}</span>
+          <div class="item-actions">
+            <button 
+              class="action-btn delete-btn" 
+              @click="confirmDelete(turbine)"
+              :disabled="deletingTurbineId === turbine.id"
+              title="删除风机"
+            >
+              <svg v-if="deletingTurbineId !== turbine.id" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+              <span v-else class="loading-spinner"></span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 卡片内容 - 紧凑网格布局 -->
+        <div class="item-body">
+          <div class="info-grid">
+            <div class="info-cell">
+              <span class="info-label">经度</span>
+              <span class="info-value">{{ formatCoord(turbine.longitude) }}°</span>
+            </div>
+            <div class="info-cell">
+              <span class="info-label">纬度</span>
+              <span class="info-value">{{ formatCoord(turbine.latitude) }}°</span>
+            </div>
+            <div class="info-cell">
+              <span class="info-label">轮毂高度</span>
+              <span class="info-value">{{ turbine.hubHeight ?? '-' }} m</span>
+            </div>
+            <div class="info-cell">
+              <span class="info-label">叶轮直径</span>
+              <span class="info-value">{{ turbine.rotorDiameter ?? '-' }} m</span>
+            </div>
+          </div>
+          <div class="model-tag">
+            <span class="tag-label">模型</span>
+            <span class="tag-value">{{ getModelId(turbine) }}</span>
+          </div>
         </div>
       </div>
-      <!-- 在风机详情中添加模型ID显示 -->
-<div class="turbine-details">
-  <!-- 现有字段保持不变 -->
-  <div class="detail-item">
-    <span class="label">经度:</span>
-    <span class="value">{{ turbine.longitude?.toFixed(6) ?? 'N/A' }}°</span>
+    </div>
+
+    <!-- 空状态 -->
+    <div v-else class="empty-state">
+      <svg class="empty-icon" viewBox="0 0 64 64" fill="none">
+        <circle cx="32" cy="32" r="28" stroke="#ddd" stroke-width="2" stroke-dasharray="4 4"/>
+        <path d="M32 20v24M20 32h24" stroke="#ccc" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <p class="empty-text">暂无已安装的风机</p>
+      <p class="empty-hint">请在"添加风机"标签中添加</p>
+    </div>
   </div>
-  <div class="detail-item">
-    <span class="label">纬度:</span>
-    <span class="value">{{ turbine.latitude?.toFixed(6) ?? 'N/A' }}°</span>
-  </div>
-  <div class="detail-item">
-    <span class="label">桅杆高度:</span>
-    <span class="value">{{ turbine.hubHeight ?? 'N/A' }} m</span>
-  </div>
-  <div class="detail-item">
-    <span class="label">转子直径:</span>
-    <span class="value">{{ turbine.rotorDiameter ?? 'N/A' }} m</span>
-  </div>
-  <!-- 新增：显示模型ID -->
-  <div class="detail-item model-id-item">
-    <span class="label">模型ID:</span>
-    <span class="value model-id-value">{{ getModelId(turbine) }}</span>
-  </div>
-</div>
-    </el-card>
-  </div>
-  <el-empty v-else description="暂无已安装的风机" />
 </template>
 
 <script setup>
-/**
- * WindTurbineList.vue
- *
- * 展示已安装风机的列表组件，包含聚焦和删除操作。
- */
 import { ref } from 'vue';
 import { ElMessageBox } from 'element-plus';
-import { Aim, Delete } from '@element-plus/icons-vue';
 
 const props = defineProps({
   windTurbines: {
@@ -87,7 +85,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(["focus-turbine", "delete-turbine"]);
+const emit = defineEmits(["delete-turbine"]);
 
 const deletingTurbineId = ref(null);
 
@@ -101,150 +99,217 @@ const confirmDelete = (turbine) => {
       type: "warning",
     }
   )
-    .then(async () => {
-        deletingTurbineId.value = turbine.id;
-        await emit("delete-turbine", turbine);
-         deletingTurbineId.value = null;
+    .then(() => {
+      deletingTurbineId.value = turbine.id;
+      const done = () => {
+        if (deletingTurbineId.value === turbine.id) {
+          deletingTurbineId.value = null;
+        }
+      };
+      emit("delete-turbine", turbine, done);
     })
     .catch(() => {
       deletingTurbineId.value = null;
     });
 };
+
+const formatCoord = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num.toFixed(4) : '-';
+};
+
 const getModelId = (turbine) => {
-  return turbine.model || turbine.type || '1'; // 尝试多个字段，默认为1
+  return turbine.model || turbine.type || '1';
 };
 </script>
 
 <style scoped>
+.turbine-list-container {
+  padding: 0;
+}
+
 .turbine-list {
-  padding: 16px;
-  overflow-y: auto;
-  height: calc(100% - 40px);
-}
-
-.turbine-card {
-  margin-bottom: 20px;
-  border-radius: 12px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-  transition: all 0.3s ease;
-  border: 1px solid rgba(235, 238, 245, 0.8);
-  overflow: hidden;
-}
-
-.turbine-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  border-color: rgba(64, 158, 255, 0.3);
-}
-
-.card-header {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* 单个风机卡片 */
+.turbine-item {
+  background: #fff;
+  border-radius: 10px;
+  border: 1px solid #e8eaed;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.turbine-item:hover {
+  border-color: #409EFF;
+  box-shadow: 0 2px 12px rgba(64, 158, 255, 0.12);
+}
+
+/* 卡片头部 */
+.item-header {
+  display: flex;
   align-items: center;
-  padding: 16px;
-  background: linear-gradient(135deg, #f8fafc, #f2f6fc);
-  border-bottom: 1px solid #ebeef5;
+  gap: 10px;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+  border-bottom: 1px solid #e8eaed;
+}
+
+.turbine-indicator {
+  width: 8px;
+  height: 8px;
+  background: #10b981;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .turbine-name {
-  font-size: 16px;
+  flex: 1;
+  font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: #1f2937;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.item-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.action-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  transition: all 0.15s ease;
+  color: #64748b;
 }
 
-.turbine-name::before {
-  content: '';
-  display: block;
-  width: 10px;
-  height: 10px;
-  background: #409EFF;
+.action-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.delete-btn:hover {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.loading-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #e5e7eb;
+  border-top-color: #409EFF;
   border-radius: 50%;
+  animation: spin 0.6s linear infinite;
 }
 
-.turbine-actions {
-  display: flex;
-  gap: 12px;
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
-.turbine-actions .action-button {
-  padding: 8px;
-  border-radius: 8px;
-  transition: all 0.2s ease;
-  color: #606266;
+/* 卡片内容 */
+.item-body {
+  padding: 10px 12px;
 }
 
-.turbine-actions .action-button:hover {
-  background-color: rgba(64, 158, 255, 0.1);
-  color: #409EFF;
-}
-
-.turbine-details {
+.info-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-  padding: 16px;
-  background: #fff;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
 }
 
-.detail-item {
+.info-cell {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
-  background: #f9fafc;
-  border-radius: 8px;
-  transition: all 0.2s ease;
+  padding: 6px 8px;
+  background: #f8fafc;
+  border-radius: 6px;
+  font-size: 12px;
 }
 
-.detail-item:hover {
-  background: #f2f6fc;
-}
-
-.detail-item .label {
-  color: #909399;
+.info-label {
+  color: #64748b;
   font-weight: 500;
-  font-size: 13px;
 }
 
-.detail-item .value {
-  color: #303133;
+.info-value {
+  color: #1e293b;
   font-family: 'SF Mono', Menlo, Monaco, monospace;
   font-weight: 500;
+}
+
+/* 模型标签 */
+.model-tag {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: linear-gradient(135deg, #eff6ff, #dbeafe);
+  border-radius: 6px;
+  border: 1px solid #bfdbfe;
+}
+
+.tag-label {
+  font-size: 12px;
+  color: #3b82f6;
+  font-weight: 500;
+}
+
+.tag-value {
   font-size: 13px;
-  background: rgba(255, 255, 255, 0.7);
-  padding: 2px 8px;
-  border-radius: 4px;
-  border: 1px solid rgba(0, 0, 0, 0.05);
+  font-weight: 600;
+  color: #1d4ed8;
+  background: #fff;
+  padding: 2px 10px;
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
-/* 美化元素空态 */
-:deep(.el-empty) {
-  padding: 40px 0;
+/* 空状态 */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
 }
 
-:deep(.el-empty__image) {
+.empty-icon {
+  width: 64px;
+  height: 64px;
+  margin-bottom: 16px;
   opacity: 0.6;
 }
 
-:deep(.el-empty__description) {
-  margin-top: 20px;
-  color: #909399;
-}
-.model-id-item {
-  grid-column: span 2; /* 让模型ID占据整行 */
-  background: linear-gradient(135deg, #f0f7ff, #e8f4f8);
-  border: 1px solid #b3d8ff;
+.empty-text {
+  font-size: 14px;
+  color: #64748b;
+  margin: 0 0 4px 0;
 }
 
-.model-id-value {
-  background: #409EFF;
-  color: white;
-  padding: 4px 12px;
-  border-radius: 12px;
-  font-weight: 600;
+.empty-hint {
   font-size: 12px;
+  color: #94a3b8;
+  margin: 0;
 }
 </style>

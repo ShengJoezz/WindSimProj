@@ -290,22 +290,22 @@ const handleFileChange = (file) => {
 
 <style scoped>
 .upload-section {
-  padding: 20px;
+  padding: 12px;
   background: #f9fafc;
-  border-radius: 12px;
-  margin-top: 24px;
+  border-radius: 8px;
+  margin-top: 16px;
   border: 1px dashed #dcdfe6;
   transition: all 0.3s ease;
 }
 
 .upload-section:hover {
-  border-color: #409EFF;
+  border-color: #3b82f6;
   background: #f2f6fc;
-  border-radius: 12px;
+  border-radius: 8px;
 }
 
 .upload-wrapper {
-  margin-bottom: 20px;
+  margin-bottom: 12px;
 }
 
 :deep(.el-upload) {
@@ -314,28 +314,28 @@ const handleFileChange = (file) => {
 
 :deep(.el-upload-dragger) {
   width: 100%;
-  height: 180px;
+  height: 100px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   border: 2px dashed #dcdfe6;
-  border-radius: 12px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.8);
   transition: all 0.3s ease;
 }
 
 :deep(.el-upload-dragger:hover) {
   background: #ffffff;
-  border-color: #409EFF;
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.05);
+  border-color: #3b82f6;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
 :deep(.el-upload-dragger .el-icon) {
-  font-size: 40px;
+  font-size: 28px;
   color: #c0c4cc;
-  margin-bottom: 16px;
+  margin-bottom: 8px;
 }
 
 :deep(.el-upload__text) {
@@ -345,19 +345,19 @@ const handleFileChange = (file) => {
 }
 
 :deep(.el-upload__text em) {
-  color: #409EFF;
+  color: #3b82f6;
   font-style: normal;
   font-weight: 600;
 }
 
 :deep(.el-upload__tip) {
   color: #909399;
-  font-size: 13px;
-  line-height: 1.5;
-  margin-top: 12px;
-  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 8px;
+  padding: 6px 10px;
   background: rgba(255, 255, 255, 0.8);
-  border-radius: 8px;
+  border-radius: 6px;
   border: 1px solid #ebeef5;
 }
 
