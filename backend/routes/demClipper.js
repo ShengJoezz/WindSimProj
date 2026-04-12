@@ -20,8 +20,44 @@ const { v4: uuidv4 } = require('uuid');
 
 const CHINA_DEM_ROOT = path.join(__dirname, '../China_Dem');
 const DEM_INDEX_PATH = path.join(__dirname, '../../temp/china_dem_index.json');
+const CASE_ID_RE = /^[A-Za-z0-9]{1,50}$/;
 let chinaDemIndexCache = null;
 let chinaDemIndexBuildPromise = null;
+
+const resetCaseStateAfterTerrainReplace = async (caseDir) => {
+  const transientFiles = [
+    'speed.bin',
+    'output.json',
+    'results.json',
+    'calculation_progress.json',
+    'terrain_bounds.json',
+    'terrain_original.tif',
+    'terrain_temp.tif',
+  ];
+  const transientDirs = [
+    'run',
+    'visualization_cache',
+  ];
+
+  await Promise.all([
+    ...transientFiles.map((name) => fs.remove(path.join(caseDir, name)).catch(() => {})),
+    ...transientDirs.map((name) => fs.remove(path.join(caseDir, name)).catch(() => {})),
+  ]);
+
+  const infoPath = path.join(caseDir, 'info.json');
+  if (!await fs.pathExists(infoPath)) return;
+
+  try {
+    const info = await fs.readJson(infoPath);
+    info.calculationStatus = 'not_started';
+    info.visualizationStatus = 'not_run';
+    info.lastCalculationStart = null;
+    info.lastCalculationReset = new Date().toISOString();
+    await fs.writeJson(infoPath, info, { spaces: 2 });
+  } catch (err) {
+    console.warn('[DEM] 更新 info.json 计算状态失败:', err.message);
+  }
+};
 
 const listTifFilesRecursive = async (dir) => {
   const results = [];
@@ -460,6 +496,7 @@ router.post('/clip', upload.single('demFile'), async (req, res, next) => {
       success: true,
       message: 'DEM裁切成功',
       data: {
+        outputId,
         downloadUrl,
         clipInfo: {
           originalBounds,
@@ -562,6 +599,7 @@ router.post('/mosaic-clip', async (req, res, next) => {
       success: true,
       message: 'DEM 拼接裁切成功',
       data: {
+        outputId: result.outputId,
         downloadUrl,
         sourceCount: result.sourceCount,
         clipBounds: result.bounds,
@@ -624,6 +662,7 @@ router.post('/download-by-coords', async (req, res, next) => {
       success: true,
       message: 'DEM 拼接裁切成功',
       data: {
+        outputId: result.outputId,
         downloadUrl,
         sourceCount: result.sourceCount,
         clipBounds: result.bounds,
@@ -669,6 +708,48 @@ router.get('/download/:id', async (req, res, next) => {
 
   } catch (error) {
     console.error('文件下载错误:', error);
+    next(error);
+  }
+});
+
+router.post('/apply-to-case', async (req, res, next) => {
+  try {
+    const { caseId, outputId } = req.body || {};
+    const normalizedCaseId = String(caseId || '').trim();
+    const normalizedOutputId = String(outputId || '').trim();
+
+    if (!CASE_ID_RE.test(normalizedCaseId)) {
+      return res.status(400).json({ success: false, message: '无效的工况 ID' });
+    }
+    if (!normalizedOutputId) {
+      return res.status(400).json({ success: false, message: '缺少 outputId' });
+    }
+
+    const caseDir = path.join(__dirname, '../uploads', normalizedCaseId);
+    const sourceFilePath = path.join(__dirname, '../../clipped', `clipped_${normalizedOutputId}.tif`);
+    const targetFilePath = path.join(caseDir, 'terrain.tif');
+
+    if (!await fs.pathExists(caseDir)) {
+      return res.status(404).json({ success: false, message: '目标工况不存在' });
+    }
+    if (!await fs.pathExists(sourceFilePath)) {
+      return res.status(404).json({ success: false, message: '待写入的 DEM 文件不存在或已过期' });
+    }
+
+    await fs.ensureDir(caseDir);
+    await fs.copy(sourceFilePath, targetFilePath, { overwrite: true });
+    await resetCaseStateAfterTerrainReplace(caseDir);
+
+    return res.status(200).json({
+      success: true,
+      message: 'DEM 已写入工况 terrain.tif，旧计算结果已失效，请重新计算。',
+      data: {
+        caseId: normalizedCaseId,
+        terrainPath: targetFilePath,
+      },
+    });
+  } catch (error) {
+    console.error('DEM 写入工况失败:', error);
     next(error);
   }
 });

@@ -469,7 +469,7 @@ function parsePerformance(content) {
   });
 }
 
-// 计算组合数据（以 realHighData 为基准，假设三组数据行数一致）
+// 计算组合数据（仅在三组数据严格对齐时使用）
 const combinedData = computed(() => {
   if (realHighData.value.length && initPerfData.value.length && adjPerfData.value.length) {
     return realHighData.value.map((item, i) => {
@@ -565,21 +565,26 @@ async function fetchData() {
     initPerfData.value = parsePerformance(contents['Output04-U-P-Ct-fn(INIT)']);
     adjPerfData.value = parsePerformance(contents['Output06-U-P-Ct-fn(ADJUST)']);
 
-    // 确保数据长度一致
-    const minLength = Math.min(
+    const lengths = [
       realHighData.value.length,
       initPerfData.value.length,
       adjPerfData.value.length
-    );
+    ];
+    const minLength = Math.min(...lengths);
+    const maxLength = Math.max(...lengths);
 
     if (minLength === 0) {
       pageError.value = '输出文件为空或解析失败，请检查计算是否完成且 Output 文件格式正确。';
       return;
     }
 
-    if (minLength < realHighData.value.length) realHighData.value = realHighData.value.slice(0, minLength);
-    if (minLength < initPerfData.value.length) initPerfData.value = initPerfData.value.slice(0, minLength);
-    if (minLength < adjPerfData.value.length) adjPerfData.value = adjPerfData.value.slice(0, minLength);
+    if (minLength !== maxLength) {
+      realHighData.value = [];
+      initPerfData.value = [];
+      adjPerfData.value = [];
+      pageError.value = '输出文件行数不一致，无法安全对齐风机性能数据。请重新计算，并检查 Output02/04/06 是否完整生成。';
+      return;
+    }
 
     await nextTick();
     renderCharts();

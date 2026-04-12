@@ -344,9 +344,16 @@ static void read_U_P_Ct()
 
 static void update_vInlet()
 {
-    vInlet = (int)(windU[0] + 0.5);
-    Info << "angle=" << angle << " vInlet=" << vInlet
-         << " scale=" << scale << " dx[0]=" << dx[0] << endl;
+    // Keep the inlet velocity configured in input.json.
+    // Overwriting it with the first turbine's sampled local wind speed makes
+    // the solution order-dependent and rounds away fractional inlet speeds.
+    Info << "angle=" << angle << " keeping configured vInlet=" << vInlet
+         << " scale=" << scale;
+    if (numTurbine > 0)
+    {
+        Info << " firstWindU=" << windU[0] << " dx[0]=" << dx[0];
+    }
+    Info << endl;
 }
 
 static void LonLat2UTM(double longitude, double latitude, double &UTME, double &UTMN)
@@ -1044,7 +1051,7 @@ int main(int argc, char *argv[])
 #pragma region
     char strPath[64], strNum[32];
     std::strcpy(strPath, "Output/txt/");
-    numToStr(vInlet, strNum, 10);
+    numToStr((int)(vInlet + 0.5), strNum, 10);
     std::strcat(strPath, std::strcat(strNum, ".txt"));
 
     file1 = fopenOrDie(strPath, "w");

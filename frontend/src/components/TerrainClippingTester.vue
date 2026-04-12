@@ -16,6 +16,21 @@
         </div>
       </div>
 
+      <el-alert
+        v-if="linkedCaseId"
+        type="success"
+        :closable="false"
+        class="case-link-alert"
+      >
+        <template #title>已绑定工况 {{ linkedCaseId }}</template>
+        <template #default>
+          {{ caseLinkMessage }}
+          <el-button v-if="returnToPath" type="success" link @click="goBackToCase">
+            返回当前工况
+          </el-button>
+        </template>
+      </el-alert>
+
       <el-tabs v-model="activeTab" class="dem-tabs">
         <!-- Tab 1: 获取 DEM -->
         <el-tab-pane name="download">
@@ -142,6 +157,16 @@
                     {{ mosaicResult.clipBounds.maxX.toFixed(4) }}, {{ mosaicResult.clipBounds.maxY.toFixed(4) }}
                   </span>
                 </div>
+              </div>
+              <div v-if="canUploadToCase" class="result-actions">
+                <el-button
+                  type="success"
+                  :loading="isApplyingToCase"
+                  @click="applyGeneratedDemToCase"
+                >
+                  上传至工况 {{ linkedCaseId }}
+                </el-button>
+                <el-button v-if="returnToPath" @click="goBackToCase">返回当前工况</el-button>
               </div>
             </div>
           </div>
@@ -319,6 +344,16 @@
               <div class="action-buttons">
                 <el-button type="primary" @click="performClipping">裁切并下载 (后端)</el-button>
                 <el-button @click="centerClippingBox">居中裁切框</el-button>
+                <el-button
+                  v-if="canUploadToCase"
+                  type="success"
+                  plain
+                  :loading="isApplyingToCase"
+                  @click="applyGeneratedDemToCase"
+                >
+                  写入当前工况
+                </el-button>
+                <el-button v-if="linkedCaseId && returnToPath" @click="goBackToCase">返回当前工况</el-button>
               </div>
             </div>
           </div>
@@ -329,6 +364,7 @@
   
   <script setup>
   import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount } from 'vue';
+  import { useRoute, useRouter } from 'vue-router';
   import { ElMessage } from 'element-plus';
   import { MapLocation, Download, InfoFilled, Location, Grid, Refresh, SuccessFilled, Scissor, Promotion, UploadFilled, Document } from '@element-plus/icons-vue';
   import * as GeoTIFF from 'geotiff';
@@ -340,9 +376,12 @@
   const isLoading     = ref(false);
   const loadingProgress = ref(0);
   const loadingMessage  = ref('');
+  const isApplyingToCase = ref(false);
 
   const activeTab = ref('download');
   const mosaicMode = ref('coords'); // 'coords' | 'bbox'
+  const route = useRoute();
+  const router = useRouter();
   
   /* ===== DEM ===== */
   const tifData           = ref(null);
@@ -380,6 +419,39 @@
   });
   const isMosaicLoading = ref(false);
   const mosaicResult = ref(null);
+  const generatedOutputId = ref('');
+
+  const linkedCaseId = computed(() => {
+    const raw = String(route.query.caseId || '').trim();
+    return /^[A-Za-z0-9]{1,50}$/.test(raw) ? raw : '';
+  });
+
+  const returnToPath = computed(() => {
+    const raw = typeof route.query.returnTo === 'string' ? route.query.returnTo : '';
+    if (raw.startsWith('/')) return raw;
+    return linkedCaseId.value ? `/cases/${linkedCaseId.value}/terrain` : '';
+  });
+
+  const caseLinkMessage = computed(() => {
+    if (!linkedCaseId.value) return '';
+    return '生成后的 DEM 可以直接写回 terrain.tif。写入后会清理旧计算结果与可视化缓存，需要重新计算。';
+  });
+
+  const canUploadToCase = computed(() => Boolean(linkedCaseId.value && generatedOutputId.value));
+
+  const resetGeneratedOutput = () => {
+    generatedOutputId.value = '';
+  };
+
+  const goBackToCase = () => {
+    if (returnToPath.value) {
+      router.push(returnToPath.value);
+      return;
+    }
+    if (linkedCaseId.value) {
+      router.push({ name: 'TerrainView', params: { caseId: linkedCaseId.value } });
+    }
+  };
   
   /* ========= 新增：尺寸计算相关 ========= */
 
@@ -801,6 +873,27 @@
     return json;
   };
 
+  const applyGeneratedDemToCase = async () => {
+    if (!canUploadToCase.value) {
+      ElMessage.warning('当前没有可写入工况的 DEM 结果');
+      return;
+    }
+
+    isApplyingToCase.value = true;
+    try {
+      const json = await postJson('/api/dem/apply-to-case', {
+        caseId: linkedCaseId.value,
+        outputId: generatedOutputId.value,
+      });
+      ElMessage.success(json.message || 'DEM 已写入当前工况');
+    } catch (e) {
+      ElMessage.error('写入工况失败：' + e.message);
+      console.error('DEM apply-to-case error:', e);
+    } finally {
+      isApplyingToCase.value = false;
+    }
+  };
+
   const downloadMosaicByCoords = async () => {
     if (mosaicForm.lat === null || mosaicForm.lon === null || mosaicForm.radius === null) {
       ElMessage.warning('请填写纬度/经度/半径后再生成');
@@ -809,6 +902,7 @@
 
     isMosaicLoading.value = true;
     mosaicResult.value = null;
+    resetGeneratedOutput();
     try {
       const json = await postJson('/api/dem/download-by-coords', {
         lat: mosaicForm.lat,
@@ -816,6 +910,7 @@
         radius: mosaicForm.radius,
         maxSources: mosaicForm.maxSources,
       });
+      generatedOutputId.value = String(json.data.outputId || '');
       mosaicResult.value = {
         sourceCount: json.data.sourceCount,
         clipBounds: json.data.clipBounds,
@@ -865,6 +960,7 @@
 
     isMosaicLoading.value = true;
     mosaicResult.value = null;
+    resetGeneratedOutput();
     try {
       const json = await postJson('/api/dem/mosaic-clip', {
         minX,
@@ -873,6 +969,7 @@
         maxY,
         maxSources: mosaicForm.maxSources,
       });
+      generatedOutputId.value = String(json.data.outputId || '');
       mosaicResult.value = {
         sourceCount: json.data.sourceCount,
         clipBounds: json.data.clipBounds,
@@ -898,6 +995,7 @@
       return;
     }
     isLoading.value=true; loadingProgress.value=0; loadingMessage.value='裁切中…';
+    resetGeneratedOutput();
     try{
       const {minX,minY,maxX,maxY}=clippingCoordinates.value;
       const fd=new FormData();
@@ -921,6 +1019,7 @@
       const json=await res.json();
       loadingProgress.value=90;
       if(json.success && json.data && json.data.downloadUrl){
+        generatedOutputId.value = String(json.data.outputId || '');
         let downloadUrl = json.data.downloadUrl;
         if (!downloadUrl.startsWith('http') && !downloadUrl.startsWith('/')) {
             downloadUrl = '/' + downloadUrl;
@@ -1854,6 +1953,17 @@ h5 { font-size: 0.95em; color: #6b7280; }
   gap: 12px;
   margin-top: 20px;
   flex-wrap: wrap;
+}
+
+.case-link-alert {
+  margin-bottom: 20px;
+}
+
+.result-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 0 24px 24px;
 }
 
 .action-buttons .el-button--primary {

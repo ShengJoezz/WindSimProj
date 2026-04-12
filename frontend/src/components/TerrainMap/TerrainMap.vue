@@ -31,6 +31,7 @@
         description="未找到地形文件，请先上传 terrain.tif"
       >
         <el-button type="primary" @click="goToCases">返回工况列表</el-button>
+        <el-button type="success" @click="openTerrainTool">去地形工具</el-button>
       </el-empty>
 
       <el-empty v-else description="地形加载失败，请检查文件或服务器日志">
@@ -41,6 +42,7 @@
     <!-- Top Toolbar -->
     <TopToolbar
       @toggle-sidebar="toggleSidebar"
+      @open-terrain-tool="openTerrainTool"
       @add-turbine="handleAddTurbineClick"
     />
 
@@ -237,6 +239,22 @@ const rawGeoBounds = computed(() => {
 
 const goToCases = () => {
   router.push({ name: "Cases" });
+};
+
+const openTerrainTool = () => {
+  const currentCaseId = route.params.caseId;
+  if (!currentCaseId) {
+    router.push({ name: 'TerrainClipPage' });
+    return;
+  }
+
+  router.push({
+    name: 'TerrainClipPage',
+    query: {
+      caseId: String(currentCaseId),
+      returnTo: route.fullPath,
+    },
+  });
 };
 
 const reloadTerrain = async () => {
