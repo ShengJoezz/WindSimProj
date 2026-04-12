@@ -65,6 +65,7 @@ const routes = [
         path: "wind-management", // Existing
         name: "WindManagement",
         component: () => import("../components/WindTurbineManagement.vue"),
+        meta: { allowScroll: true },
       },
       {
         path: "speed-visualization", // Choose a path
