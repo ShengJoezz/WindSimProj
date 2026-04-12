@@ -286,6 +286,25 @@ let charts = {
 const caseStore = useCaseStore();
 const router = useRouter();
 
+const getSolverScale = () => {
+  const rawScale = Number(caseStore.parameters?.grid?.scale);
+  return Number.isFinite(rawScale) && rawScale > 0 ? rawScale : 1;
+};
+
+const normalizeRealHighUnits = (rows) => {
+  const scale = getSolverScale();
+  if (scale === 1) return rows;
+
+  return rows.map((row) => ({
+    ...row,
+    dxy: row.dxy / scale,
+    x: row.x / scale,
+    y: row.y / scale,
+    z: row.z / scale,
+    height: row.height / scale,
+  }));
+};
+
 const goToCalculation = () => {
   if (!props.caseId) return;
   router.push({ name: 'CalculationOutput', params: { caseId: props.caseId } });
@@ -542,7 +561,7 @@ async function fetchData() {
     }
 
     // 解析数据
-    realHighData.value = parseRealHigh(contents['Output02-realHigh']);
+    realHighData.value = normalizeRealHighUnits(parseRealHigh(contents['Output02-realHigh']));
     initPerfData.value = parsePerformance(contents['Output04-U-P-Ct-fn(INIT)']);
     adjPerfData.value = parsePerformance(contents['Output06-U-P-Ct-fn(ADJUST)']);
 
