@@ -18,6 +18,7 @@ const clientCache = {
   metadata: {}, // Stores main metadata (heights, turbine list with km coords, etc.)
   profile: {},  // Stores wind profile data per turbine
   wake: {},     // Stores wake data per turbine
+  volume: {},   // Stores raw 3D speed volume per case
   // Note: Slice data (image URL, pixel coords, dimensions) is generally not cached client-side
   //       as it changes frequently with height selection.
 };
@@ -26,6 +27,7 @@ const clientCache = {
 const getMetadataKey = (caseId) => `metadata_${caseId}`;
 const getProfileKey = (caseId, turbineId) => `profile_${caseId}_${turbineId}`;
 const getWakeKey = (caseId, turbineId) => `wake_${caseId}_${turbineId}`;
+const getVolumeKey = (caseId) => `volume_${caseId}`;
 
 /**
  * 获取工况的主元数据（不包含特定切片的像素信息）。
@@ -175,6 +177,79 @@ export const getWakeData = async (caseId, turbineId) => {
 };
 
 /**
+ * 获取工况对应的真实三维速度场数据。
+ * 这里直接读取 speed.bin，而不是读取预生成 PNG 切片。
+ * @param {string} caseId 工况 ID
+ * @param {object} metadata visualization-metadata 返回的元数据
+ * @returns {Promise<object>} 包含原始体数据和网格信息的对象
+ */
+export const getVolumeData = async (caseId, metadata) => {
+  const cacheKey = getVolumeKey(caseId);
+  if (clientCache.volume[cacheKey]) {
+    console.log(`缓存命中 (客户端 - 速度体数据): ${cacheKey}`);
+    return clientCache.volume[cacheKey];
+  }
+
+  const heightLevels = Array.isArray(metadata?.heightLevels)
+    ? metadata.heightLevels.map((value) => Number(value))
+    : [];
+  const xCoords = Array.isArray(metadata?.xCoords_m)
+    ? metadata.xCoords_m.map((value) => Number(value))
+    : [];
+  const yCoords = Array.isArray(metadata?.yCoords_m)
+    ? metadata.yCoords_m.map((value) => Number(value))
+    : [];
+
+  if (!heightLevels.length || !xCoords.length || !yCoords.length) {
+    throw new Error('可视化元数据缺少 heightLevels/xCoords_m/yCoords_m，无法加载真实速度体数据。');
+  }
+
+  try {
+    const response = await axios.get(`/uploads/${caseId}/speed.bin`, {
+      responseType: 'arraybuffer',
+    });
+
+    const buffer = response.data instanceof ArrayBuffer
+      ? response.data
+      : response.data?.buffer;
+
+    if (!(buffer instanceof ArrayBuffer)) {
+      throw new Error('speed.bin 响应不是有效的二进制缓冲区。');
+    }
+
+    const width = xCoords.length;
+    const height = yCoords.length;
+    const layers = heightLevels.length;
+    const expectedValues = width * height * layers;
+    const values = new Float32Array(buffer);
+
+    if (values.length !== expectedValues) {
+      throw new Error(`speed.bin 尺寸与元数据不匹配，期望 ${expectedValues} 个值，实际 ${values.length} 个值。`);
+    }
+
+    const volumeData = {
+      values,
+      width,
+      height,
+      layers,
+      layerSize: width * height,
+      xCoords,
+      yCoords,
+      heightLevels,
+      extent: Array.isArray(metadata?.extent_m) ? metadata.extent_m.map((value) => Number(value)) : null,
+      vmin: Number(metadata?.vmin ?? 0),
+      vmax: Number(metadata?.vmax ?? 15),
+    };
+
+    clientCache.volume[cacheKey] = volumeData;
+    return volumeData;
+  } catch (error) {
+    console.error(`获取工况 ${caseId} 的真实速度体数据失败:`, error);
+    throw new Error(error?.message || '加载真实速度体数据失败');
+  }
+};
+
+/**
  * 清除指定工况的所有客户端缓存（元数据、风廓线、尾流）。
  * @param {string} caseId 工况 ID
  */
@@ -195,6 +270,9 @@ export const clearClientCaseCache = (caseId) => {
           delete clientCache.wake[key];
       }
   });
+
+  const volumeKey = getVolumeKey(caseId);
+  delete clientCache.volume[volumeKey];
 
   console.log(`已清除工况 ${caseId} 的客户端缓存`);
 };

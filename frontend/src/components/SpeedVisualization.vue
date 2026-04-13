@@ -67,10 +67,9 @@
                 v-model="currentHeight"
                 :min="minHeight"
                 :max="maxHeight"
-                :step="heightStep"
+                :step="heightSliderStep"
                 show-input
                 :disabled="!mainMetadata || !mainMetadata.heightLevels || mainMetadata.heightLevels.length === 0"
-                @change="handleHeightChangeDebounced"
               />
             </div>
           </el-col>
@@ -117,31 +116,25 @@
         <div class="speed-field-section">
           <div class="visualization-wrapper">
             <div class="speed-field-container" ref="speedFieldContainer">
-              <div v-if="!currentSliceImageUrl && !chartLoading.speedFieldImage" class="no-image-placeholder">
+              <div v-if="!isSpeedFieldReady && !chartLoading.speedField" class="no-image-placeholder">
                 <el-icon><Picture /></el-icon>
-                <span>{{ mainMetadata ? '请选择高度查看风场' : '加载元数据中...' }}</span>
+                <span>{{ mainMetadata ? '正在准备真实速度场数据...' : '加载元数据中...' }}</span>
               </div>
-              <img
-                v-if="currentSliceImageUrl"
-                :src="currentSliceImageUrl"
-                alt="Wind Speed Field"
-                class="speed-field-image"
-                ref="speedFieldImage"
-                @load="onImageLoad"
-                @error="onImageError"
-              />
-              <!-- 图片加载指示器 -->
-              <div v-if="chartLoading.speedFieldImage" class="image-loading-overlay">
+              <canvas
+                ref="speedFieldCanvas"
+                class="speed-field-canvas"
+                :class="{ visible: isSpeedFieldReady }"
+              ></canvas>
+              <div v-if="isSpeedFieldReady" class="speed-field-legend">
+                <div class="legend-bar"></div>
+                <div class="legend-labels">
+                  <span v-for="tick in speedFieldLegendTicks" :key="tick">{{ tick }}</span>
+                </div>
+              </div>
+              <div v-if="chartLoading.speedField" class="image-loading-overlay">
                 <el-icon class="is-loading"><Loading /></el-icon>
-                <span>加载图像...</span>
+                <span>加载真实速度场...</span>
               </div>
-              <!-- 风机覆盖层 Canvas (已移除) -->
-              <!-- <canvas ref="turbineOverlayCanvas" class="turbine-overlay-canvas"></canvas> -->
-            </div>
-            <!-- 整体加载指示器 (可选) -->
-            <div v-if="chartLoading.speedField && !chartLoading.speedFieldImage" class="chart-loading">
-              <el-icon class="is-loading"><Loading /></el-icon>
-              <span>处理中...</span>
             </div>
           </div>
         </div>
@@ -211,7 +204,7 @@ import * as echarts from 'echarts';
 import { debounce } from 'lodash-es';
 import { ElMessage, ElSlider, ElSelect, ElOption, ElCard, ElIcon, ElButtonGroup, ElTooltip, ElRow, ElCol, ElDescriptions, ElDescriptionsItem, ElInputNumber, ElButton, ElAlert } from 'element-plus';
 // Import the updated service function
-import { getMetadata, getSliceData, getProfileData, getWakeData, findClosestIndex, clearClientCaseCache, getPointWindSpeed } from '@/services/visualizationService';
+import { getMetadata, getVolumeData, getProfileData, getWakeData, findClosestIndex, clearClientCaseCache, getPointWindSpeed } from '@/services/visualizationService';
 import { useCaseStore } from '@/store/caseStore';
 import { useRouter } from 'vue-router';
 
@@ -245,6 +238,45 @@ const colorScheme = {
   chartColors: ['#409EFF', '#67C23A', '#E6A23C', '#F56C6C', '#909399']
 };
 
+const VIRIDIS_STOPS = [
+  [0.0, [68, 1, 84]],
+  [0.13, [71, 44, 122]],
+  [0.25, [59, 81, 139]],
+  [0.38, [44, 113, 142]],
+  [0.5, [33, 144, 141]],
+  [0.63, [39, 173, 129]],
+  [0.75, [92, 200, 99]],
+  [0.88, [170, 220, 50]],
+  [1.0, [253, 231, 37]],
+];
+
+const buildViridisLookupTable = (size = 256) => {
+  const lut = new Uint8ClampedArray(size * 4);
+  for (let i = 0; i < size; i++) {
+    const t = size === 1 ? 0 : i / (size - 1);
+    let left = VIRIDIS_STOPS[0];
+    let right = VIRIDIS_STOPS[VIRIDIS_STOPS.length - 1];
+    for (let j = 1; j < VIRIDIS_STOPS.length; j++) {
+      if (t <= VIRIDIS_STOPS[j][0]) {
+        left = VIRIDIS_STOPS[j - 1];
+        right = VIRIDIS_STOPS[j];
+        break;
+      }
+    }
+    const localRange = Math.max(1e-6, right[0] - left[0]);
+    const mix = Math.max(0, Math.min(1, (t - left[0]) / localRange));
+    const offset = i * 4;
+    lut[offset] = Math.round(left[1][0] + (right[1][0] - left[1][0]) * mix);
+    lut[offset + 1] = Math.round(left[1][1] + (right[1][1] - left[1][1]) * mix);
+    lut[offset + 2] = Math.round(left[1][2] + (right[1][2] - left[1][2]) * mix);
+    lut[offset + 3] = 255;
+  }
+  return lut;
+};
+
+const speedFieldColorLut = buildViridisLookupTable();
+const MAX_SPEED_FIELD_PIXELS = 950000;
+
 // --- Props ---
 const props = defineProps({ caseId: { type: String, required: true } });
 const caseStore = useCaseStore();
@@ -252,25 +284,20 @@ const router = useRouter();
 
 // --- State Variables ---
 const loading = ref(false);
-const chartLoading = ref({ speedField: false, speedFieldImage: false, profile: false, wake: false, pointQuery: false });
+const chartLoading = ref({ speedField: false, profile: false, wake: false, pointQuery: false });
 const mainMetadata = ref(null);
 const currentHeight = ref(10);
 const selectedTurbine = ref(null);
-const currentSliceImageUrl = ref(null);
-const currentImageDimensions = ref(null);
-// REMOVED: const currentTurbinePixelCoords = ref([]);
 const profileData = ref(null);
 const wakeData = ref(null);
 const turbineDetails = ref(null);
-const imageLoaded = ref(false);
 const queryPoint = ref({ x: 0, y: 0, z: 100 });
 const pointQueryResult = ref(null);
+const isSpeedFieldReady = ref(false);
 
 // --- DOM Refs ---
 const speedFieldContainer = ref(null);
-const speedFieldImage = ref(null);
-// REMOVED: const turbineOverlayCanvas = ref(null);
-// REMOVED: let turbineOverlayCtx = null;
+const speedFieldCanvas = ref(null);
 
 // --- Chart Instances ---
 const profileChart = ref(null);
@@ -280,6 +307,12 @@ let wakeInstance = null;
 let resizeObserver = null;
 const precomputeLogRef = ref(null);
 const isStartingPrecompute = ref(false);
+let speedFieldVolume = null;
+let speedFieldCanvasCtx = null;
+let speedFieldImageData = null;
+let speedFieldRenderFrameId = null;
+let speedFieldXMap = null;
+let speedFieldYMap = null;
 
 // --- Computed Properties ---
 const minHeight = computed(() => mainMetadata.value?.heightLevels?.[0] ?? 10);
@@ -287,21 +320,26 @@ const maxHeight = computed(() => {
     const levels = mainMetadata.value?.heightLevels;
     return levels && levels.length > 0 ? levels[levels.length - 1] : 200;
 });
-const heightStep = computed(() => {
-  if (mainMetadata.value?.heightLevels && mainMetadata.value.heightLevels.length > 1) {
-    const sortedHeights = [...mainMetadata.value.heightLevels].sort((a, b) => a - b);
-    let minDiff = Infinity;
-    for (let i = 1; i < sortedHeights.length; i++) {
-        const diff = sortedHeights[i] - sortedHeights[i-1];
-        if (diff > 0 && diff < minDiff) { minDiff = diff; }
-    }
-    return minDiff === Infinity ? 1 : minDiff;
-  }
-  return 1;
+const heightSliderStep = computed(() => {
+  const range = maxHeight.value - minHeight.value;
+  if (!Number.isFinite(range) || range <= 0) return 1;
+  return range > 200 ? 1 : 0.5;
 });
 
 const isVisualizationReady = computed(() => {
-  return Boolean(mainMetadata.value && currentSliceImageUrl.value);
+  return Boolean(mainMetadata.value && isSpeedFieldReady.value);
+});
+
+const speedFieldLegendTicks = computed(() => {
+  const vmin = Number(mainMetadata.value?.vmin ?? speedFieldVolume?.vmin ?? 0);
+  const vmax = Number(mainMetadata.value?.vmax ?? speedFieldVolume?.vmax ?? 0);
+  if (!Number.isFinite(vmin) || !Number.isFinite(vmax) || Math.abs(vmax - vmin) < 1e-6) {
+    return ['0.0'];
+  }
+  return Array.from({ length: 5 }, (_, index) => {
+    const value = vmax - ((vmax - vmin) * index) / 4;
+    return value.toFixed(1);
+  });
 });
 
 const showPrecomputeLog = computed(() => {
@@ -339,7 +377,7 @@ const blockingAlert = computed(() => {
   }
 
   if (!mainMetadata.value) {
-    if (loading.value || chartLoading.value.speedField || chartLoading.value.speedFieldImage) {
+    if (loading.value || chartLoading.value.speedField) {
       return { type: 'info', title: '加载中', message: '正在加载可视化数据...', actionText: '', loading: false, action: () => {} };
     }
 
@@ -393,6 +431,288 @@ const clearPrecomputeLog = () => {
   caseStore.visualizationLastError = '';
 };
 
+const cancelSpeedFieldRender = () => {
+  if (speedFieldRenderFrameId) {
+    cancelAnimationFrame(speedFieldRenderFrameId);
+    speedFieldRenderFrameId = null;
+  }
+};
+
+const clearSpeedFieldCanvas = () => {
+  cancelSpeedFieldRender();
+  speedFieldVolume = null;
+  isSpeedFieldReady.value = false;
+  speedFieldImageData = null;
+  speedFieldXMap = null;
+  speedFieldYMap = null;
+  if (speedFieldCanvasCtx && speedFieldCanvas.value) {
+    speedFieldCanvasCtx.clearRect(0, 0, speedFieldCanvas.value.width, speedFieldCanvas.value.height);
+  }
+  speedFieldCanvasCtx = null;
+};
+
+const buildAxisSamplingMap = (targetSize, coords, flip = false) => {
+  const lower = new Uint32Array(targetSize);
+  const upper = new Uint32Array(targetSize);
+  const weight = new Float32Array(targetSize);
+  const lastIndex = Math.max(0, (coords?.length ?? 1) - 1);
+  const denominator = Math.max(1, targetSize - 1);
+  const minCoord = coords?.[0];
+  const maxCoord = coords?.[lastIndex];
+
+  if (!coords?.length || !Number.isFinite(minCoord) || !Number.isFinite(maxCoord)) {
+    for (let i = 0; i < targetSize; i++) {
+      lower[i] = 0;
+      upper[i] = 0;
+      weight[i] = 0;
+    }
+    return { lower, upper, weight };
+  }
+
+  for (let i = 0; i < targetSize; i++) {
+    const normalized = targetSize <= 1 ? 0 : i / denominator;
+    const targetCoord = flip
+      ? maxCoord - (maxCoord - minCoord) * normalized
+      : minCoord + (maxCoord - minCoord) * normalized;
+    const bracket = getAxisBracket(coords, targetCoord);
+    if (!bracket) {
+      lower[i] = 0;
+      upper[i] = 0;
+      weight[i] = 0;
+      continue;
+    }
+    lower[i] = bracket.lowerIndex;
+    upper[i] = bracket.upperIndex;
+    weight[i] = bracket.mix;
+  }
+
+  return { lower, upper, weight };
+};
+
+const getBracketFromLevels = (levels, target) => {
+  if (!levels || levels.length === 0) return null;
+  if (levels.length === 1) return { lowerIndex: 0, upperIndex: 0, mix: 0 };
+
+  const clamped = Math.min(levels[levels.length - 1], Math.max(levels[0], target));
+  for (let i = 0; i < levels.length - 1; i++) {
+    const lower = levels[i];
+    const upper = levels[i + 1];
+    if (clamped >= lower && clamped <= upper) {
+      const span = Math.max(1e-6, upper - lower);
+      return {
+        lowerIndex: i,
+        upperIndex: i + 1,
+        mix: Math.max(0, Math.min(1, (clamped - lower) / span)),
+      };
+    }
+  }
+
+  return { lowerIndex: levels.length - 1, upperIndex: levels.length - 1, mix: 0 };
+};
+
+const getAxisBracket = (coords, target) => {
+  if (!coords || coords.length === 0) return null;
+  if (coords.length === 1) {
+    return Math.abs(target - coords[0]) <= 1e-6
+      ? { lowerIndex: 0, upperIndex: 0, mix: 0 }
+      : null;
+  }
+
+  const min = coords[0];
+  const max = coords[coords.length - 1];
+  if (target < min || target > max) return null;
+
+  let lowerIndex = 0;
+  let upperIndex = coords.length - 1;
+  while (upperIndex - lowerIndex > 1) {
+    const middleIndex = Math.floor((lowerIndex + upperIndex) / 2);
+    if (coords[middleIndex] <= target) {
+      lowerIndex = middleIndex;
+    } else {
+      upperIndex = middleIndex;
+    }
+  }
+
+  const lowerValue = coords[lowerIndex];
+  const upperValue = coords[upperIndex];
+  const span = Math.max(1e-6, upperValue - lowerValue);
+  return {
+    lowerIndex,
+    upperIndex,
+    mix: Math.max(0, Math.min(1, (target - lowerValue) / span)),
+  };
+};
+
+const sampleSpeedFieldAtPoint = (x, y, z) => {
+  if (!speedFieldVolume) return null;
+
+  const xBracket = getAxisBracket(speedFieldVolume.xCoords, x);
+  const yBracket = getAxisBracket(speedFieldVolume.yCoords, y);
+  const zBracket = getBracketFromLevels(speedFieldVolume.heightLevels, z);
+  if (!xBracket || !yBracket || !zBracket) return null;
+
+  const { values, width, layerSize } = speedFieldVolume;
+  const lowerBase = zBracket.lowerIndex * layerSize;
+  const upperBase = zBracket.upperIndex * layerSize;
+
+  const readPlane = (base, yIndex, xIndex) => values[base + yIndex * width + xIndex];
+  const bilerp = (base) => {
+    const v00 = readPlane(base, yBracket.lowerIndex, xBracket.lowerIndex);
+    const v10 = readPlane(base, yBracket.lowerIndex, xBracket.upperIndex);
+    const v01 = readPlane(base, yBracket.upperIndex, xBracket.lowerIndex);
+    const v11 = readPlane(base, yBracket.upperIndex, xBracket.upperIndex);
+    const top = v00 + (v10 - v00) * xBracket.mix;
+    const bottom = v01 + (v11 - v01) * xBracket.mix;
+    return top + (bottom - top) * yBracket.mix;
+  };
+
+  const lowerValue = bilerp(lowerBase);
+  const upperValue = bilerp(upperBase);
+  const value = lowerValue + (upperValue - lowerValue) * zBracket.mix;
+
+  return Number.isFinite(value) ? value : null;
+};
+
+const ensureSpeedFieldCanvasSize = () => {
+  const canvas = speedFieldCanvas.value;
+  const container = speedFieldContainer.value;
+  if (!canvas || !container || !speedFieldVolume) return false;
+
+  const containerRect = container.getBoundingClientRect();
+  const containerWidth = Math.max(1, Math.floor(containerRect.width));
+  const containerHeight = Math.max(1, Math.floor(containerRect.height));
+  if (!containerWidth || !containerHeight) return false;
+
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const extent = speedFieldVolume.extent;
+  const dataAspect = extent && extent.length === 4
+    ? Math.abs((extent[3] - extent[2]) / Math.max(1e-6, extent[1] - extent[0]))
+    : speedFieldVolume.height / Math.max(1, speedFieldVolume.width);
+
+  let cssWidth = containerWidth;
+  let cssHeight = Math.max(1, Math.floor(cssWidth * dataAspect));
+  if (cssHeight > containerHeight) {
+    cssHeight = containerHeight;
+    cssWidth = Math.max(1, Math.floor(cssHeight / Math.max(1e-6, dataAspect)));
+  }
+
+  let pixelWidth = Math.max(1, Math.floor(cssWidth * dpr));
+  let pixelHeight = Math.max(1, Math.floor(cssHeight * dpr));
+  const totalPixels = pixelWidth * pixelHeight;
+  if (totalPixels > MAX_SPEED_FIELD_PIXELS) {
+    const scale = Math.sqrt(MAX_SPEED_FIELD_PIXELS / totalPixels);
+    pixelWidth = Math.max(1, Math.floor(pixelWidth * scale));
+    pixelHeight = Math.max(1, Math.floor(pixelHeight * scale));
+  }
+
+  const sizeChanged = canvas.width !== pixelWidth || canvas.height !== pixelHeight;
+  const resourcesMissing = !speedFieldCanvasCtx || !speedFieldImageData || !speedFieldXMap || !speedFieldYMap;
+  canvas.style.width = `${cssWidth}px`;
+  canvas.style.height = `${cssHeight}px`;
+
+  if (sizeChanged || resourcesMissing) {
+    canvas.width = pixelWidth;
+    canvas.height = pixelHeight;
+    speedFieldCanvasCtx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    speedFieldImageData = speedFieldCanvasCtx ? speedFieldCanvasCtx.createImageData(pixelWidth, pixelHeight) : null;
+    speedFieldXMap = buildAxisSamplingMap(pixelWidth, speedFieldVolume.xCoords, false);
+    speedFieldYMap = buildAxisSamplingMap(pixelHeight, speedFieldVolume.yCoords, true);
+  }
+
+  return Boolean(speedFieldCanvasCtx && speedFieldImageData && speedFieldXMap && speedFieldYMap);
+};
+
+const renderSpeedField = () => {
+  cancelSpeedFieldRender();
+  if (!speedFieldVolume || !ensureSpeedFieldCanvasSize()) return;
+
+  const { values, width, layerSize, heightLevels, vmin, vmax } = speedFieldVolume;
+  const levels = heightLevels || [];
+  const levelBracket = getBracketFromLevels(levels, currentHeight.value);
+  if (!levelBracket) return;
+
+  const lowerBase = levelBracket.lowerIndex * layerSize;
+  const upperBase = levelBracket.upperIndex * layerSize;
+  const zMix = levelBracket.mix;
+  const valueRange = Math.max(1e-6, vmax - vmin);
+  const output = speedFieldImageData.data;
+  let outIndex = 0;
+
+  for (let py = 0; py < speedFieldImageData.height; py++) {
+    const y0 = speedFieldYMap.lower[py];
+    const y1 = speedFieldYMap.upper[py];
+    const yMix = speedFieldYMap.weight[py];
+    const lowerRow0 = lowerBase + y0 * width;
+    const lowerRow1 = lowerBase + y1 * width;
+    const upperRow0 = upperBase + y0 * width;
+    const upperRow1 = upperBase + y1 * width;
+
+    for (let px = 0; px < speedFieldImageData.width; px++) {
+      const x0 = speedFieldXMap.lower[px];
+      const x1 = speedFieldXMap.upper[px];
+      const xMix = speedFieldXMap.weight[px];
+
+      const lowerTop = values[lowerRow0 + x0] + (values[lowerRow0 + x1] - values[lowerRow0 + x0]) * xMix;
+      const lowerBottom = values[lowerRow1 + x0] + (values[lowerRow1 + x1] - values[lowerRow1 + x0]) * xMix;
+      const lowerValue = lowerTop + (lowerBottom - lowerTop) * yMix;
+
+      const upperTop = values[upperRow0 + x0] + (values[upperRow0 + x1] - values[upperRow0 + x0]) * xMix;
+      const upperBottom = values[upperRow1 + x0] + (values[upperRow1 + x1] - values[upperRow1 + x0]) * xMix;
+      const upperValue = upperTop + (upperBottom - upperTop) * yMix;
+
+      const interpolated = lowerValue + (upperValue - lowerValue) * zMix;
+      if (!Number.isFinite(interpolated)) {
+        output[outIndex++] = 245;
+        output[outIndex++] = 247;
+        output[outIndex++] = 250;
+        output[outIndex++] = 255;
+        continue;
+      }
+
+      const normalized = Math.max(0, Math.min(1, (interpolated - vmin) / valueRange));
+      const lutIndex = Math.min(255, Math.max(0, Math.floor(normalized * 255)));
+      const lutOffset = lutIndex * 4;
+      output[outIndex++] = speedFieldColorLut[lutOffset];
+      output[outIndex++] = speedFieldColorLut[lutOffset + 1];
+      output[outIndex++] = speedFieldColorLut[lutOffset + 2];
+      output[outIndex++] = 255;
+    }
+  }
+
+  speedFieldCanvasCtx.putImageData(speedFieldImageData, 0, 0);
+  isSpeedFieldReady.value = true;
+  chartLoading.value.speedField = false;
+};
+
+const scheduleSpeedFieldRender = () => {
+  if (!speedFieldVolume) return;
+  if (speedFieldRenderFrameId) return;
+  speedFieldRenderFrameId = requestAnimationFrame(() => {
+    speedFieldRenderFrameId = null;
+    renderSpeedField();
+  });
+};
+
+const loadVolumeFieldData = async () => {
+  if (!props.caseId || !mainMetadata.value) return;
+  chartLoading.value.speedField = true;
+  isSpeedFieldReady.value = false;
+
+  try {
+    speedFieldVolume = await getVolumeData(props.caseId, mainMetadata.value);
+    if (!Number.isFinite(currentHeight.value) || currentHeight.value < minHeight.value || currentHeight.value > maxHeight.value) {
+      currentHeight.value = minHeight.value;
+    }
+    await nextTick();
+    renderSpeedField();
+  } catch (error) {
+    console.error('加载真实速度体数据失败:', error);
+    chartLoading.value.speedField = false;
+    isSpeedFieldReady.value = false;
+    throw error;
+  }
+};
+
 async function startPrecompute() {
   if (!props.caseId) return;
   if (isStartingPrecompute.value) return;
@@ -429,13 +749,12 @@ const ensureCaseLoaded = async (id) => {
 // 1. Reset State
 const resetVisualizationState = () => {
   console.log("重置可视化状态...");
-  loading.value = false; chartLoading.value = { speedField: false, speedFieldImage: false, profile: false, wake: false, pointQuery: false };
+  loading.value = false; chartLoading.value = { speedField: false, profile: false, wake: false, pointQuery: false };
   mainMetadata.value = null; currentHeight.value = 10; selectedTurbine.value = null;
-  currentSliceImageUrl.value = null; currentImageDimensions.value = null; // REMOVED: currentTurbinePixelCoords.value = [];
-  profileData.value = null; wakeData.value = null; turbineDetails.value = null; imageLoaded.value = false;
+  profileData.value = null; wakeData.value = null; turbineDetails.value = null;
+  clearSpeedFieldCanvas();
   if (profileInstance) { try { profileInstance.dispose(); } catch(e) { console.warn("销毁 profileInstance 失败", e); } profileInstance = null; }
   if (wakeInstance) { try { wakeInstance.dispose(); } catch(e) { console.warn("销毁 wakeInstance 失败", e); } wakeInstance = null; }
-  // REMOVED: Canvas clearing logic
 };
 
 // 2. Fetch All Data
@@ -449,11 +768,9 @@ const fetchAllData = async () => {
   loading.value = true;
   // Partial reset
   selectedTurbine.value = null; profileData.value = null; wakeData.value = null;
-  imageLoaded.value = false; currentSliceImageUrl.value = null; currentImageDimensions.value = null;
-  // REMOVED: currentTurbinePixelCoords.value = [];
   turbineDetails.value = null;
+  clearSpeedFieldCanvas();
   if (profileInstance) profileInstance.clear(); if (wakeInstance) wakeInstance.clear();
-  // REMOVED: Canvas clearing logic
 
   try {
     await fetchMetadata();
@@ -463,13 +780,12 @@ const fetchAllData = async () => {
         selectedTurbine.value = initialTurbineId;
     }
     if (mainMetadata.value?.heightLevels?.length > 0) {
-      if (!currentHeight.value || !mainMetadata.value.heightLevels.includes(currentHeight.value)) {
+      if (!Number.isFinite(currentHeight.value) || currentHeight.value < minHeight.value || currentHeight.value > maxHeight.value) {
          currentHeight.value = mainMetadata.value.heightLevels[0];
       }
-      // Fetch slice image info (URL, Dimensions - pixel coords ignored)
-      await fetchSliceImageInfo(currentHeight.value);
+      await loadVolumeFieldData();
     } else {
-      chartLoading.value.speedField = false; chartLoading.value.speedFieldImage = false;
+      chartLoading.value.speedField = false;
     }
     if (selectedTurbine.value) {
       await Promise.allSettled([fetchProfileData(selectedTurbine.value), fetchWakeData(selectedTurbine.value)]);
@@ -495,38 +811,6 @@ const fetchMetadata = async () => {
     caseStore.visualizationLastError = error?.response?.data?.message || error?.message || caseStore.visualizationLastError;
     mainMetadata.value = null; throw error;
   }
-};
-
-// 4. Fetch Slice Image Info (URL, Dimensions - No pixel coord logic)
-const fetchSliceImageInfo = async (height) => {
-  if (!props.caseId) return;
-  console.log(`获取高度 ${height}m 的速度场图像信息...`);
-  chartLoading.value.speedField = true; chartLoading.value.speedFieldImage = true;
-  currentSliceImageUrl.value = null; imageLoaded.value = false;
-  currentImageDimensions.value = null; // REMOVED: currentTurbinePixelCoords.value = [];
-
-  try {
-    const data = await getSliceData(props.caseId, height);
-    currentSliceImageUrl.value = data.imageUrl;
-    currentHeight.value = data.actualHeight;
-    currentImageDimensions.value = data.imageDimensions;
-    // We get turbinesPixels from the API, but we no longer store or use it here
-    // REMOVED: currentTurbinePixelCoords.value = data.turbinesPixels;
-
-    console.log(`高度 ${data.actualHeight}m 的图像 URL: ${data.imageUrl}`);
-    console.log(`接收到的图像原始尺寸:`, currentImageDimensions.value);
-    // REMOVED: console.log(`接收到的风机像素坐标...`);
-    // REMOVED: if (!currentTurbinePixelCoords.value) { console.warn("风机像素坐标数据缺失。"); }
-
-    if (!currentImageDimensions.value) { ElMessage.warning('图像尺寸信息缺失'); }
-
-  } catch (error) {
-    console.error(`获取高度 ${height}m 的切片数据时出错:`, error);
-    ElMessage.error(`加载高度 ${height}m 的风场图像信息失败。`);
-    currentSliceImageUrl.value = null; imageLoaded.value = false; chartLoading.value.speedFieldImage = false;
-    currentImageDimensions.value = null; // REMOVED: currentTurbinePixelCoords.value = [];
-  }
-  // Removed chartLoading.speedField = false from here, it's handled in onImageLoad/Error
 };
 
 
@@ -577,15 +861,6 @@ const fetchWakeData = async (turbineId) => {
   } finally { chartLoading.value.wake = false; }
 };
 
-// 7. Handle Height Change Debounced
-const handleHeightChangeDebounced = debounce(async (newHeight) => {
-  console.log(`高度滑块变化 (防抖后): ${newHeight}`);
-  try {
-    await fetchSliceImageInfo(newHeight);
-    if (selectedTurbine.value) { updateTurbineDetails(); }
-  } catch (error) { console.error('处理高度变化时出错:', error); }
-}, 300);
-
 // 8. Get Turbine Name (No changes needed)
 const getTurbineName = (turbineId) => {
   const turbine = mainMetadata.value?.turbines?.find(t => t.id === turbineId);
@@ -597,13 +872,29 @@ const updateTurbineDetails = () => {
   if (!selectedTurbine.value || !mainMetadata.value?.turbines) { turbineDetails.value = null; return; }
   const turbine = mainMetadata.value.turbines.find(t => t.id === selectedTurbine.value);
   if (!turbine) { turbineDetails.value = null; return; }
-  let currentHeightSpeed = 'N/A', hubHeightSpeed = 'N/A';
-  if (profileData.value && profileData.value.heights && profileData.value.speeds && profileData.value.heights.length === profileData.value.speeds.length) {
+  let currentHeightSpeed = 'N/A';
+  let hubHeightSpeed = 'N/A';
+
+  const interpolatedCurrentSpeed = sampleSpeedFieldAtPoint(turbine.x, turbine.y, currentHeight.value);
+  if (interpolatedCurrentSpeed != null) {
+    currentHeightSpeed = interpolatedCurrentSpeed.toFixed(2);
+  } else if (profileData.value?.heights?.length && profileData.value.heights.length === profileData.value.speeds?.length) {
     const currentHeightIndex = findClosestIndex(profileData.value.heights, currentHeight.value);
-    if (currentHeightIndex !== -1 && profileData.value.speeds[currentHeightIndex] != null) { currentHeightSpeed = profileData.value.speeds[currentHeightIndex].toFixed(2); }
-    const hubHeightIndex = findClosestIndex(profileData.value.heights, turbine.hubHeight);
-    if (hubHeightIndex !== -1 && profileData.value.speeds[hubHeightIndex] != null) { hubHeightSpeed = profileData.value.speeds[hubHeightIndex].toFixed(2); }
+    if (currentHeightIndex !== -1 && profileData.value.speeds[currentHeightIndex] != null) {
+      currentHeightSpeed = profileData.value.speeds[currentHeightIndex].toFixed(2);
+    }
   }
+
+  const interpolatedHubSpeed = sampleSpeedFieldAtPoint(turbine.x, turbine.y, turbine.hubHeight);
+  if (interpolatedHubSpeed != null) {
+    hubHeightSpeed = interpolatedHubSpeed.toFixed(2);
+  } else if (profileData.value?.heights?.length && profileData.value.heights.length === profileData.value.speeds?.length) {
+    const hubHeightIndex = findClosestIndex(profileData.value.heights, turbine.hubHeight);
+    if (hubHeightIndex !== -1 && profileData.value.speeds[hubHeightIndex] != null) {
+      hubHeightSpeed = profileData.value.speeds[hubHeightIndex].toFixed(2);
+    }
+  }
+
   turbineDetails.value = {
     id: turbine.id, coordinates: `(${turbine.x.toFixed(2)}, ${turbine.y.toFixed(2)})`,
     hubHeight: turbine.hubHeight.toFixed(1), rotorDiameter: turbine.rotorDiameter.toFixed(1),
@@ -669,30 +960,13 @@ const handlePointQuery = async () => {
 // 12. Draw Turbine Overlay (REMOVED)
 // const drawTurbineOverlay = () => { ... };
 
-// 13. Image Load Success Handler
-const onImageLoad = () => {
-  console.log('速度场图像已加载。');
-  chartLoading.value.speedFieldImage = false; chartLoading.value.speedField = false; imageLoaded.value = true;
-  // REMOVED: nextTick(() => { setTimeout(() => { setupCanvasOverlay(); }, 100); });
-  // Maybe trigger chart resize if layout depends on image size? Usually handled by global resize.
-  // nextTick(() => { safeResizeCharts(); }); // Optionally resize charts if their container might have changed
-};
-
-// 14. Image Load Error Handler
-const onImageError = () => {
-  console.error('无法从 URL 加载速度场图像:', currentSliceImageUrl.value); ElMessage.error('无法加载风场图像');
-  chartLoading.value.speedFieldImage = false; chartLoading.value.speedField = false;
-  currentSliceImageUrl.value = null; imageLoaded.value = false;
-  // REMOVED: Canvas clearing logic
-};
-
-// 15. Handle Canvas Mouse Move (REMOVED)
+// 13. Handle Canvas Mouse Move (REMOVED)
 // const handleCanvasMouseMove = (event) => { ... };
 
-// 16. Handle Canvas Click (REMOVED)
+// 14. Handle Canvas Click (REMOVED)
 // const handleCanvasClick = (event) => { ... };
 
-// 17. Init ECharts Instances (No changes needed)
+// 15. Init ECharts Instances (No changes needed)
 const initChartInstances = () => {
   nextTick(() => {
     console.log("尝试初始化图表实例...");
@@ -710,7 +984,7 @@ const initChartInstances = () => {
   });
 };
 
-// 18. Render Profile Chart (No changes needed relative to overlay removal)
+// 16. Render Profile Chart (No changes needed relative to overlay removal)
 const renderProfileChart = () => {
   if (!profileChart.value || !profileData.value) { console.log("renderProfileChart: 缺少容器或 profileData。"); return; }
   if (!profileData.value.heights || !profileData.value.speeds || profileData.value.heights.length !== profileData.value.speeds.length) {
@@ -766,7 +1040,7 @@ const renderProfileChart = () => {
   } catch (err) { console.error("渲染风廓线图表时出错:", err); }
 };
 
-// 19. Render Wake Chart (No changes needed relative to overlay removal)
+// 17. Render Wake Chart (No changes needed relative to overlay removal)
 const renderWakeChart = () => {
   if (!wakeChart.value || !wakeData.value) { return; }
    if (!wakeData.value.distances || !wakeData.value.speeds || wakeData.value.distances.length !== wakeData.value.speeds.length) {
@@ -798,19 +1072,19 @@ const renderWakeChart = () => {
   } catch (err) { console.error("渲染尾流图表时出错:", err); }
 };
 
-// 20. Force Charts Render
+// 18. Force Charts Render
 const forceChartsRender = () => { nextTick(() => { safeResizeCharts(); }); };
 
-// 21. Handle Resize
+// 19. Handle Resize
 const handleResize = debounce(() => {
-    // REMOVED: Canvas resize logic
+    scheduleSpeedFieldRender();
     safeResizeCharts();
 }, 200);
 
-// 22. Safe Resize Charts
+// 20. Safe Resize Charts
 const safeResizeCharts = () => { try { if (profileInstance && !profileInstance.isDisposed()) profileInstance.resize(); if (wakeInstance && !wakeInstance.isDisposed()) wakeInstance.resize(); } catch (err) { console.warn("调整图表大小时出错:", err); } };
 
-// 23. Setup Resize Observer
+// 21. Setup Resize Observer
 const setupResizeObserver = () => {
   const chartElements = [profileChart.value, wakeChart.value].filter(Boolean);
   if (chartElements.length > 0 && typeof ResizeObserver !== 'undefined') {
@@ -829,7 +1103,7 @@ const setupResizeObserver = () => {
 };
 
 
-// 24. Export Charts (No change needed)
+// 22. Export Charts
 const exportCharts = () => {
   const chartsToExport = [
     { instance: profileInstance, name: 'WindProfile' },
@@ -858,37 +1132,20 @@ const exportCharts = () => {
     }
   });
 
-  // Optionally export the main visualization image if needed
-  if (currentSliceImageUrl.value && imageLoaded.value) {
-     const link = document.createElement('a');
-     link.href = currentSliceImageUrl.value; // Use the original URL or create a data URL from the <img> if needed
-     link.download = `${filenameBase}_SpeedField.png`; // Adjust extension if needed
-     // Note: Downloading cross-origin images might be restricted by CORS policy if not handled properly server-side or via proxy
-     // A safer approach might be to fetch the image blob and create an object URL, but direct link is simpler if CORS allows
-     try {
-       // Attempt direct download
-       link.click();
-     } catch (e) {
-       console.warn("直接下载风场图片可能失败，尝试 fetch:", e);
-       // Fallback: Fetch image blob and create object URL (requires async)
-       fetch(currentSliceImageUrl.value)
-         .then(response => response.blob())
-         .then(blob => {
-           const objectUrl = URL.createObjectURL(blob);
-           const fetchLink = document.createElement('a');
-           fetchLink.href = objectUrl;
-           fetchLink.download = `${filenameBase}_SpeedField.png`;
-           document.body.appendChild(fetchLink);
-           fetchLink.click();
-           document.body.removeChild(fetchLink);
-           URL.revokeObjectURL(objectUrl); // Clean up
-         })
-         .catch(fetchError => {
-           console.error('导出风场图片失败 (Fetch):', fetchError);
-           ElMessage.error('导出风场图片失败');
-         });
-     }
-   }
+  if (speedFieldCanvas.value && isSpeedFieldReady.value) {
+    try {
+      const dataUrl = speedFieldCanvas.value.toDataURL('image/png');
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = `${filenameBase}_SpeedField.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (e) {
+      console.error('导出风场图片失败:', e);
+      ElMessage.error('导出风场图片失败');
+    }
+  }
 };
 
 // --- Watchers ---
@@ -911,6 +1168,9 @@ watch(currentHeight, (newVal, oldVal) => {
     if (newVal !== oldVal && selectedTurbine.value) {
         updateTurbineDetails();
         if (profileInstance && !profileInstance.isDisposed() && profileData.value) { renderProfileChart(); }
+    }
+    if (newVal !== oldVal) {
+      scheduleSpeedFieldRender();
     }
 });
 
@@ -960,7 +1220,7 @@ onUnmounted(() => {
   console.log("SpeedVisualization 即将卸载");
   window.removeEventListener('resize', handleResize);
   if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null; }
-  // REMOVED: Canvas event listener removal logic
+  clearSpeedFieldCanvas();
   if (profileInstance && !profileInstance.isDisposed()) { try { profileInstance.dispose(); } catch(e){} profileInstance = null; }
   if (wakeInstance && !wakeInstance.isDisposed()) { try { wakeInstance.dispose(); } catch(e){} wakeInstance = null; }
   console.log("SpeedVisualization 已卸载并清理资源。");
@@ -1121,14 +1381,59 @@ onUnmounted(() => {
   border-radius: 4px; /* 轻微圆角 */
 }
 
-.speed-field-image {
+.speed-field-canvas {
   display: block;
   max-width: 100%;
   max-height: 100%;
-  height: auto; /* 保持原始比例 */
-  width: auto;  /* 保持原始比例 */
-  object-fit: contain; /* 图片缩放以适应容器，保持比例 */
-  background-color: #e9ecef; /* 图片加载时显示背景色 */
+  border-radius: 6px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(247, 249, 252, 0.95));
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.speed-field-canvas.visible {
+  opacity: 1;
+}
+
+.speed-field-legend {
+  position: absolute;
+  right: 18px;
+  top: 18px;
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  padding: 12px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(6px);
+}
+
+.legend-bar {
+  width: 14px;
+  height: 160px;
+  border-radius: 999px;
+  background: linear-gradient(
+    180deg,
+    rgb(253, 231, 37) 0%,
+    rgb(92, 200, 99) 25%,
+    rgb(33, 144, 141) 50%,
+    rgb(59, 81, 139) 75%,
+    rgb(68, 1, 84) 100%
+  );
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+}
+
+.legend-labels {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 44px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
 }
 
 .no-image-placeholder, .turbine-details-placeholder {

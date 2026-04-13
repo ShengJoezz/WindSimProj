@@ -505,7 +505,7 @@ flowchart TD
 ### 页面职责
 
 - 读取速度场分析缓存
-- 选择高度层查看切片图片
+- 读取 `speed.bin` 并在前端重建真实水平切面
 - 选择风机查看风廓线和尾流
 - 查询单点风速
 - 导出图表/CSV
@@ -514,14 +514,14 @@ flowchart TD
 
 | 按钮 | 行为 |
 | --- | --- |
-| 刷新 | 重新加载元数据、切片、图表 |
-| 导出图表 | 导出当前图表和切片图片 |
+| 刷新 | 重新加载元数据、速度体数据、图表 |
+| 导出图表 | 导出当前图表和当前高度的真实切面图 |
 
 ### 主交互控件
 
 | 控件 | 行为 | 后端接口 |
 | --- | --- | --- |
-| 高度滑块 | 选择最近高度切片 | `GET /visualization-slice?height=` |
+| 高度滑块 | 在已加载的 `speed.bin` 上做本地高度插值并重绘 Canvas | 首次进入读取 `GET /visualization-metadata` 与 `/uploads/<caseId>/speed.bin`，拖动时不再请求切片接口 |
 | 风机下拉 | 切换风机对象 | `GET /visualization-profile/:turbineId`、`GET /visualization-wake/:turbineId` |
 | 单点查询 `查询` | 查询某点风速 | `GET /query-wind-speed` |
 | 下载廓线 CSV | 导出当前风廓线 | 前端本地导出 |
@@ -533,6 +533,7 @@ flowchart TD
 
 - 主计算必须先完成
 - `visualization_cache/metadata.json` 必须存在，或者需要先运行预计算
+- 主页面当前不再依赖预生成 PNG 才能切换高度，PNG 切片接口更多保留给兼容/测试组件使用
 
 ## 5. 上传入口总表
 
@@ -623,7 +624,7 @@ Socket.IO 房间机制：
 | --- | --- |
 | `POST /api/cases/:caseId/precompute-visualization` | 手动触发预计算 |
 | `GET /api/cases/:caseId/visualization-metadata` | 读取主元数据 |
-| `GET /api/cases/:caseId/visualization-slice` | 获取指定高度切片图片信息 |
+| `GET /api/cases/:caseId/visualization-slice` | 获取指定高度切片图片信息，供兼容/测试页面使用，主速度场分析页已不再依赖它 |
 | `GET /api/cases/:caseId/visualization-profile/:turbineId` | 获取风廓线 |
 | `GET /api/cases/:caseId/visualization-wake/:turbineId` | 获取尾流 |
 | `GET /api/cases/:caseId/query-wind-speed` | 查询单点风速 |
@@ -1082,7 +1083,20 @@ backend/windmast_data/
 
 也就是说，这里查询到的是后处理速度体数据 `speed.bin` 上的插值值，不是再次调用求解器，也不是读取某个单独切片文件。
 
-### 14.3 新旧查询结果一致性
+### 14.3 速度场分析页的真实切面链路
+
+`/cases/:caseId/speed-visualization` 这一页现在的主链路应理解为：
+
+`GET /api/cases/:caseId/visualization-metadata -> GET /uploads/<caseId>/speed.bin -> 前端缓存 Float32Array 体数据 -> 拖动高度滑块 -> 在浏览器内按 x/y/z 做线性插值 -> Canvas 重绘当前水平切面`
+
+这个链路和旧的“按高度请求最近 PNG 切片”有本质区别：
+
+- 首次加载时多读一次完整 `speed.bin`
+- 后续高度变化不再请求 `visualization-slice`
+- 当前高度风速和轮毂高度风速也可以直接复用同一份体数据做本地插值
+- 平滑来自真实体数据插值，不是 PNG 之间的淡入淡出，也不是浏览器对图片做缩放模糊
+
+### 14.4 新旧查询结果一致性
 
 已用 `testmi` 工况对 4 组点位做新旧对照：
 
