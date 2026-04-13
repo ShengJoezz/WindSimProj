@@ -28,6 +28,8 @@ const gdal = require('gdal-async');
 // --- In-memory running calculation registry (per backend instance) ---
 // caseId -> { child, startedAt, cancelReason, killTimer, timeoutTimer }
 const runningCalculations = new Map();
+const windSpeedQueryCache = new Map();
+const MAX_WIND_SPEED_CACHE_CASES = 3;
 
 const getCalculationTimeoutMs = () => {
     const raw = process.env.CALCULATION_TIMEOUT_MS;
@@ -50,6 +52,241 @@ const killProcessGroup = (child, signal) => {
             return false;
         }
     }
+};
+
+const buildFileSnapshot = async (filePath) => {
+    try {
+        const stats = await fsPromises.stat(filePath);
+        return { mtimeMs: stats.mtimeMs, size: stats.size };
+    } catch (e) {
+        if (e.code === 'ENOENT') return null;
+        throw e;
+    }
+};
+
+const sameFileSnapshot = (a, b) => {
+    if (!a && !b) return true;
+    if (!a || !b) return false;
+    return a.mtimeMs === b.mtimeMs && a.size === b.size;
+};
+
+const evictWindSpeedCacheIfNeeded = () => {
+    while (windSpeedQueryCache.size > MAX_WIND_SPEED_CACHE_CASES) {
+        const oldestKey = windSpeedQueryCache.keys().next().value;
+        if (typeof oldestKey === 'undefined') break;
+        windSpeedQueryCache.delete(oldestKey);
+    }
+};
+
+const touchWindSpeedCacheEntry = (caseId, entry) => {
+    entry.lastAccessedAt = Date.now();
+    windSpeedQueryCache.delete(caseId);
+    windSpeedQueryCache.set(caseId, entry);
+    evictWindSpeedCacheIfNeeded();
+    return entry;
+};
+
+const getFriendlyQuerySpeedErrorMessage = (rawError) => {
+    const errText = String(rawError || '').trim();
+    const lower = errText.toLowerCase();
+    if (!errText) return '单点风速查询失败：后端未返回错误信息。';
+
+    if (errText.includes('Missing required Python package')) {
+        return '单点风速查询依赖 Python 包 numpy/scipy；请确认后端环境已安装依赖并重启服务。';
+    }
+
+    if (errText.includes('Data files (output.json/speed.bin) not found')) {
+        return '未找到速度场数据文件（output.json/speed.bin）。请先完成计算，并确认结果文件未被清理。';
+    }
+
+    if (errText.includes('Binary data size mismatch')) {
+        return '速度场数据文件损坏或与元数据不匹配（output.json/speed.bin）。请重新计算或重新生成结果文件。';
+    }
+
+    if (errText.includes("Invalid 'size' in metadata")) {
+        return '速度场元数据 output.json 中的网格尺寸无效，无法执行单点查询。';
+    }
+
+    if (errText.includes("Invalid 'dh' in metadata")) {
+        return '速度场元数据 output.json 中的层高参数无效，无法执行单点查询。';
+    }
+
+    if (lower.includes('python3') && (lower.includes('not found') || lower.includes('no such file'))) {
+        return '后端未找到 python3，无法执行单点风速查询。';
+    }
+
+    return '单点风速查询失败：后端数据插值异常，请查看后端日志。';
+};
+
+const getWindSpeedGridValue = (grid, ix, iy, iz) => {
+    const index = iz * grid.Ny * grid.Nx + iy * grid.Nx + ix;
+    return grid.values[index];
+};
+
+const getAxisInterpolationInfo = (coordinate, min, max, step, count) => {
+    if (!Number.isFinite(coordinate)) return null;
+
+    if (count <= 1 || !Number.isFinite(step) || step <= 0) {
+        const onlyValue = min;
+        return Math.abs(coordinate - onlyValue) <= 1e-6
+            ? { lower: 0, upper: 0, weight: 0 }
+            : null;
+    }
+
+    const epsilon = Math.max(Math.abs(step), 1) * 1e-6;
+    if (coordinate < min - epsilon || coordinate > max + epsilon) return null;
+
+    const clamped = Math.min(max, Math.max(min, coordinate));
+    const position = (clamped - min) / step;
+    let lower = Math.floor(position);
+
+    if (lower < 0) lower = 0;
+    if (lower >= count - 1) {
+        return { lower: count - 1, upper: count - 1, weight: 0 };
+    }
+
+    return {
+        lower,
+        upper: lower + 1,
+        weight: Math.max(0, Math.min(1, position - lower)),
+    };
+};
+
+const interpolateWindSpeedAtPoint = (grid, x, y, z) => {
+    const xInfo = getAxisInterpolationInfo(x, grid.xMin, grid.xMax, grid.xStep, grid.Nx);
+    const yInfo = getAxisInterpolationInfo(y, grid.yMin, grid.yMax, grid.yStep, grid.Ny);
+    const zInfo = getAxisInterpolationInfo(z, grid.zMin, grid.zMax, grid.zStep, grid.Nz);
+
+    if (!xInfo || !yInfo || !zInfo) return null;
+
+    const c000 = getWindSpeedGridValue(grid, xInfo.lower, yInfo.lower, zInfo.lower);
+    const c100 = getWindSpeedGridValue(grid, xInfo.upper, yInfo.lower, zInfo.lower);
+    const c010 = getWindSpeedGridValue(grid, xInfo.lower, yInfo.upper, zInfo.lower);
+    const c110 = getWindSpeedGridValue(grid, xInfo.upper, yInfo.upper, zInfo.lower);
+    const c001 = getWindSpeedGridValue(grid, xInfo.lower, yInfo.lower, zInfo.upper);
+    const c101 = getWindSpeedGridValue(grid, xInfo.upper, yInfo.lower, zInfo.upper);
+    const c011 = getWindSpeedGridValue(grid, xInfo.lower, yInfo.upper, zInfo.upper);
+    const c111 = getWindSpeedGridValue(grid, xInfo.upper, yInfo.upper, zInfo.upper);
+
+    const c00 = c000 + (c100 - c000) * xInfo.weight;
+    const c10 = c010 + (c110 - c010) * xInfo.weight;
+    const c01 = c001 + (c101 - c001) * xInfo.weight;
+    const c11 = c011 + (c111 - c011) * xInfo.weight;
+    const c0 = c00 + (c10 - c00) * yInfo.weight;
+    const c1 = c01 + (c11 - c01) * yInfo.weight;
+    const interpolated = c0 + (c1 - c0) * zInfo.weight;
+
+    return Number.isFinite(interpolated) ? interpolated : null;
+};
+
+const loadWindSpeedGrid = async (caseId) => {
+    const casePath = path.join(__dirname, '../uploads', caseId);
+    const metaPath = path.join(casePath, 'output.json');
+    const binPath = path.join(casePath, 'speed.bin');
+    const infoPath = path.join(casePath, 'info.json');
+
+    const [metaSnapshot, binSnapshot, infoSnapshot] = await Promise.all([
+        buildFileSnapshot(metaPath),
+        buildFileSnapshot(binPath),
+        buildFileSnapshot(infoPath),
+    ]);
+
+    if (!metaSnapshot || !binSnapshot) {
+        windSpeedQueryCache.delete(caseId);
+        throw new Error('Data files (output.json/speed.bin) not found.');
+    }
+
+    const cached = windSpeedQueryCache.get(caseId);
+    if (
+        cached &&
+        sameFileSnapshot(cached.metaSnapshot, metaSnapshot) &&
+        sameFileSnapshot(cached.binSnapshot, binSnapshot) &&
+        sameFileSnapshot(cached.infoSnapshot, infoSnapshot)
+    ) {
+        return touchWindSpeedCacheEntry(caseId, cached);
+    }
+
+    const [metaRaw, binRaw, infoRaw] = await Promise.all([
+        fsPromises.readFile(metaPath, 'utf-8'),
+        fsPromises.readFile(binPath),
+        infoSnapshot ? fsPromises.readFile(infoPath, 'utf-8') : Promise.resolve(null),
+    ]);
+
+    let meta;
+    try {
+        meta = JSON.parse(metaRaw);
+    } catch (e) {
+        throw new Error(`Invalid metadata JSON: ${e.message}`);
+    }
+
+    let info = null;
+    if (infoRaw) {
+        try {
+            info = JSON.parse(infoRaw);
+        } catch (e) {
+            console.warn(`解析 info.json 失败，将使用默认域尺寸 (${caseId}):`, e?.message || e);
+        }
+    }
+
+    const size = Array.isArray(meta?.size) ? meta.size.map((value) => Number(value)) : null;
+    if (!size || size.length !== 3 || size.some((value) => !Number.isFinite(value) || value <= 0)) {
+        throw new Error("Invalid 'size' in metadata.");
+    }
+
+    const [Nx, Ny, Nz] = size.map((value) => Math.trunc(value));
+    const dh = Number(meta?.dh ?? 10);
+    if (!Number.isFinite(dh) || dh <= 0) {
+        throw new Error("Invalid 'dh' in metadata.");
+    }
+
+    const expectedElements = Nx * Ny * Nz;
+    const expectedBytes = expectedElements * Float32Array.BYTES_PER_ELEMENT;
+    if (binRaw.byteLength !== expectedBytes) {
+        throw new Error(`Binary data size mismatch. Expected ${expectedElements}, got ${Math.floor(binRaw.byteLength / Float32Array.BYTES_PER_ELEMENT)}.`);
+    }
+
+    let values;
+    if (binRaw.byteOffset % Float32Array.BYTES_PER_ELEMENT === 0) {
+        values = new Float32Array(binRaw.buffer, binRaw.byteOffset, expectedElements);
+    } else {
+        values = new Float32Array(
+            binRaw.buffer.slice(binRaw.byteOffset, binRaw.byteOffset + binRaw.byteLength)
+        );
+    }
+
+    const ltRaw = Number(info?.domain?.lt);
+    const lt = Number.isFinite(ltRaw) && ltRaw > 0 ? ltRaw : 10000;
+    const xMin = -lt / 2;
+    const xMax = lt / 2;
+    const yMin = -lt / 2;
+    const yMax = lt / 2;
+    const zMin = dh;
+    const zMax = Nz * dh;
+
+    const entry = {
+        caseId,
+        Nx,
+        Ny,
+        Nz,
+        dh,
+        lt,
+        xMin,
+        xMax,
+        yMin,
+        yMax,
+        zMin,
+        zMax,
+        xStep: Nx > 1 ? lt / (Nx - 1) : 0,
+        yStep: Ny > 1 ? lt / (Ny - 1) : 0,
+        zStep: dh,
+        values,
+        metaSnapshot,
+        binSnapshot,
+        infoSnapshot,
+        loadedAt: Date.now(),
+    };
+
+    return touchWindSpeedCacheEntry(caseId, entry);
 };
 
 // --- 辅助函数 ---
@@ -1500,131 +1737,40 @@ router.get('/:caseId/query-wind-speed', async (req, res) => {
         z: Joi.number().required()
     });
 
-    const { error } = pointSchema.validate({ x, y, z });
+    const { error, value } = pointSchema.validate({ x, y, z }, { convert: true });
     if (error) {
         return res.status(400).json({ success: false, message: '无效的坐标输入', errors: error.details.map(d => d.message) });
     }
 
-    const scriptPath = path.join(__dirname, '../utils/run_query.sh');
-    if (!fs.existsSync(scriptPath)) {
-        return res.status(500).json({ success: false, message: '查询脚本不存在' });
-    }
+    const includeDebug = process.env.DEBUG_QUERY_SPEED === '1';
+    const sendError = (message, debug) => {
+        const payload = { success: false, message };
+        if (includeDebug) payload.debug = debug;
+        return res.status(500).json(payload);
+    };
 
-	    // 2. 执行包装器脚本
-	    try {
-	        const pythonProcess = spawn('bash', [
-	            scriptPath,
-	            '--caseId',
+    try {
+        const grid = await loadWindSpeedGrid(caseId);
+        const speed = interpolateWindSpeedAtPoint(grid, value.x, value.y, value.z);
+
+        if (speed === null) {
+            return res.json({
+                success: true,
+                speed: null,
+                message: 'Point is outside the computation domain.',
+            });
+        }
+
+        return res.json({ success: true, speed });
+    } catch (queryError) {
+        const rawError = queryError?.message || String(queryError);
+        console.error(`单点风速查询失败 (case: ${caseId}, point: ${value.x},${value.y},${value.z})`, queryError);
+        return sendError(getFriendlyQuerySpeedErrorMessage(rawError), {
+            rawError,
             caseId,
-            '--x',
-            x,
-            '--y',
-            y,
-            '--z',
-            z
-        ]);
-
-        let stdoutData = '';
-        let stderrData = '';
-
-        pythonProcess.stdout.on('data', (data) => {
-            stdoutData += data.toString();
+            point: value,
+            cacheSize: windSpeedQueryCache.size,
         });
-
-	        pythonProcess.stderr.on('data', (data) => {
-	            stderrData += data.toString();
-	        });
-
-	        pythonProcess.on('close', (code) => {
-	            const truncate = (text, max = 2000) => {
-	                const value = String(text || '').trim();
-	                if (!value) return '';
-	                if (value.length <= max) return value;
-	                return `${value.slice(0, max)}\n... (truncated)`;
-	            };
-
-	            const tryParseJson = (text) => {
-	                const value = String(text || '').trim();
-	                if (!value) return null;
-	                try {
-	                    return JSON.parse(value);
-	                } catch {
-	                    return null;
-	                }
-	            };
-
-	            const getFriendlyQuerySpeedErrorMessage = (rawError) => {
-	                const errText = String(rawError || '').trim();
-	                const lower = errText.toLowerCase();
-	                if (!errText) return '单点风速查询失败：后端未返回错误信息。';
-
-	                if (errText.includes('Missing required Python package')) {
-	                    return '单点风速查询依赖 Python 包 numpy/scipy；请确认后端环境已安装依赖并重启服务。';
-	                }
-
-	                if (errText.includes('Data files (output.json/speed.bin) not found')) {
-	                    return '未找到速度场数据文件（output.json/speed.bin）。请先完成计算，并确认结果文件未被清理。';
-	                }
-
-	                if (errText.includes('Binary data size mismatch')) {
-	                    return '速度场数据文件损坏或与元数据不匹配（output.json/speed.bin）。请重新计算或重新生成结果文件。';
-	                }
-
-	                if (lower.includes('python3') && (lower.includes('not found') || lower.includes('no such file'))) {
-	                    return '后端未找到 python3，无法执行单点风速查询。';
-	                }
-
-	                return '单点风速查询失败：后端脚本运行异常，请查看后端日志。';
-	            };
-
-	            const stdoutTrimmed = String(stdoutData || '').trim();
-	            const stderrTrimmed = String(stderrData || '').trim();
-	            const parsedStdout = tryParseJson(stdoutTrimmed);
-	            const includeDebug = process.env.DEBUG_QUERY_SPEED === '1';
-
-	            const sendError = (message, debug) => {
-	                const payload = { success: false, message };
-	                if (includeDebug) {
-	                    payload.debug = debug;
-	                }
-	                return res.status(500).json(payload);
-	            };
-
-	            if (code !== 0) {
-	                const rawError = parsedStdout?.error || stderrTrimmed || stdoutTrimmed || `exit code ${code}`;
-	                console.error(`查询脚本执行失败 (case: ${caseId}, point: ${x},${y},${z}, code: ${code})`, {
-	                    stderr: truncate(stderrTrimmed, 800),
-	                    stdout: truncate(stdoutTrimmed, 800),
-	                });
-	                return sendError(getFriendlyQuerySpeedErrorMessage(rawError), {
-	                    code,
-	                    stderr: truncate(stderrTrimmed),
-	                    stdout: truncate(stdoutTrimmed),
-	                });
-	            }
-
-	            if (!parsedStdout) {
-	                console.error(`解析查询脚本输出失败 (case: ${caseId}), stdout: ${truncate(stdoutTrimmed, 800)}`);
-	                return sendError('无法解析查询结果，请查看后端日志。', {
-	                    code,
-	                    stdout: truncate(stdoutTrimmed),
-	                });
-	            }
-
-	            if (parsedStdout.success) {
-	                return res.json({ success: true, speed: parsedStdout.speed, message: parsedStdout.message });
-	            }
-
-	            const rawError = parsedStdout.error || parsedStdout.message;
-	            return sendError(getFriendlyQuerySpeedErrorMessage(rawError), {
-	                code,
-	                stdout: truncate(stdoutTrimmed),
-	            });
-	        });
-
-	    } catch (spawnError) {
-	        console.error(`启动查询脚本失败 (case: ${caseId}):`, spawnError);
-        res.status(500).json({ success: false, message: '无法启动查询脚本' });
     }
 });
 

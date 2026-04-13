@@ -100,7 +100,6 @@ import vtkPolyData from '@kitware/vtk.js/Common/DataModel/PolyData';
 import vtkDataArray from '@kitware/vtk.js/Common/Core/DataArray';
 import vtkPoints from '@kitware/vtk.js/Common/Core/Points';
 import { ColorMode, ScalarMode } from '@kitware/vtk.js/Rendering/Core/Mapper/Constants';
-import vtkConeSource from '@kitware/vtk.js/Filters/Sources/ConeSource';
 import vtkArrowSource from '@kitware/vtk.js/Filters/Sources/ArrowSource';
 import vtkLookupTable from '@kitware/vtk.js/Common/Core/LookupTable';
 import vtkColorTransferFunction from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction';
@@ -215,6 +214,26 @@ let allVelocities = [];
 let globalWindDirection = [0, 0, 1]; 
 let isRebuildingParticles = false;
 
+let particlePolyData = null;
+let particlePointsData = null;
+let particleVelocityArray = null;
+let particleSpeedArray = null;
+let particleMapper = null;
+let particleSource = null;
+let particleLookupTable = null;
+let particlePointBuffer = null;
+let particleVelocityBuffer = null;
+let particleSpeedBuffer = null;
+let particleSourceSignature = '';
+
+let trailPolyData = null;
+let trailPointsData = null;
+let trailColorsArray = null;
+let trailMapper = null;
+let trailPointBuffer = null;
+let trailColorBuffer = null;
+let trailLineBuffer = null;
+
 let terrainBounds = null;
 let activeLoadId = 0;
 let activeAbortController = null;
@@ -312,22 +331,275 @@ function safeRender() {
   }
 }
 
+function deleteVtkObject(instance) {
+  if (instance && typeof instance.delete === 'function') {
+    try {
+      instance.delete();
+    } catch (e) {
+      console.warn('释放 VTK 对象失败:', e);
+    }
+  }
+}
+
 function stopParticleAnimation() {
   if (animationFrameId) cancelAnimationFrame(animationFrameId);
   animationFrameId = null;
 }
 
+function resetParticleRenderingResources() {
+  if (renderer) {
+    try {
+      if (particlesActor) renderer.removeActor(particlesActor);
+      if (trailsActor) renderer.removeActor(trailsActor);
+    } catch (e) {
+      console.warn('移除粒子渲染对象失败:', e);
+    }
+  }
+
+  deleteVtkObject(particlesActor);
+  deleteVtkObject(trailsActor);
+  deleteVtkObject(particleMapper);
+  deleteVtkObject(trailMapper);
+  deleteVtkObject(particleSource);
+  deleteVtkObject(particleLookupTable);
+  deleteVtkObject(particlePolyData);
+  deleteVtkObject(particlePointsData);
+  deleteVtkObject(particleVelocityArray);
+  deleteVtkObject(particleSpeedArray);
+  deleteVtkObject(trailPolyData);
+  deleteVtkObject(trailPointsData);
+  deleteVtkObject(trailColorsArray);
+
+  particlesActor = null;
+  trailsActor = null;
+  particleMapper = null;
+  trailMapper = null;
+  particleSource = null;
+  particleLookupTable = null;
+  particlePolyData = null;
+  particlePointsData = null;
+  particleVelocityArray = null;
+  particleSpeedArray = null;
+  particlePointBuffer = null;
+  particleVelocityBuffer = null;
+  particleSpeedBuffer = null;
+  particleSourceSignature = '';
+  trailPolyData = null;
+  trailPointsData = null;
+  trailColorsArray = null;
+  trailPointBuffer = null;
+  trailColorBuffer = null;
+  trailLineBuffer = null;
+}
+
 function clearParticlesFromScene() {
   stopParticleAnimation();
   particles = [];
-  if (!renderer) return;
-  try {
-    if (particlesActor) { renderer.removeActor(particlesActor); particlesActor = null; }
-    if (trailsActor) { renderer.removeActor(trailsActor); trailsActor = null; }
-  } catch (e) {
-    console.warn("清理粒子/轨迹失败:", e);
-  }
+  resetParticleRenderingResources();
   safeRender();
+}
+
+function getNormalizedParticleSpeed(magnitude) {
+  if (!Number.isFinite(magnitude) || magnitude <= 0) return 0;
+  const range = maxVelocityMagnitude - minVelocityMagnitude;
+  if (!Number.isFinite(range) || range <= 1e-6) return 1;
+  return Math.max(0, Math.min(1, (magnitude - minVelocityMagnitude) / range));
+}
+
+function getParticleSourceSignature() {
+  const scale = Number.isFinite(modelScale) ? modelScale.toFixed(6) : '1.000000';
+  return `${particleStyle.value}:${particleSize.value}:${scale}`;
+}
+
+function createParticleGlyphSource() {
+  if (particleStyle.value === 'arrow') {
+    return vtkArrowSource.newInstance({
+      tipResolution: 12,
+      tipRadius: particleSize.value * modelScale * 0.4,
+      tipLength: particleSize.value * modelScale * 1.0,
+      shaftResolution: 12,
+      shaftRadius: particleSize.value * modelScale * 0.15,
+    });
+  }
+  return vtkSphereSource.newInstance({
+    thetaResolution: 16,
+    phiResolution: 16,
+    radius: particleSize.value * modelScale * 0.4,
+  });
+}
+
+function updateParticleLookupTable(forceRebuild = false) {
+  const scheme = colorSchemes[selectedColorScheme.value];
+  if (!scheme) return null;
+
+  if (!particleLookupTable) {
+    particleLookupTable = vtkLookupTable.newInstance();
+    forceRebuild = true;
+  }
+
+  if (forceRebuild) {
+    particleLookupTable.setHueRange(scheme.hueRange[0], scheme.hueRange[1]);
+    particleLookupTable.setValueRange(
+      selectedBg.value === 'light' ? 0.6 : 0.7,
+      selectedBg.value === 'light' ? 0.85 : 1.0
+    );
+    particleLookupTable.setSaturationRange(scheme.satRange[0], scheme.satRange[1]);
+    particleLookupTable.setAlphaRange(0.9, 1.0);
+    if (typeof particleLookupTable.build === 'function') particleLookupTable.build();
+  }
+
+  if (particleMapper) {
+    particleMapper.setLookupTable(particleLookupTable);
+    particleMapper.setScalarRange(0, 1);
+  }
+
+  return particleLookupTable;
+}
+
+function updateParticleActorAppearance() {
+  if (!particlesActor) return;
+  const prop = particlesActor.getProperty();
+  prop.setOpacity(particleOpacity.value);
+  prop.setAmbient(0.7);
+  prop.setDiffuse(0.9);
+  prop.setSpecular(0.9);
+  prop.setSpecularPower(5);
+}
+
+function ensureParticleResources() {
+  if (!renderer || particles.length === 0) return false;
+
+  const pointValueCount = particles.length * 3;
+  const scalarValueCount = particles.length;
+  const needsDataBuffers =
+    !particlePointBuffer ||
+    particlePointBuffer.length !== pointValueCount ||
+    !particleVelocityBuffer ||
+    particleVelocityBuffer.length !== pointValueCount ||
+    !particleSpeedBuffer ||
+    particleSpeedBuffer.length !== scalarValueCount;
+
+  if (needsDataBuffers) {
+    particlePointBuffer = new Float32Array(pointValueCount);
+    particleVelocityBuffer = new Float32Array(pointValueCount);
+    particleSpeedBuffer = new Float32Array(scalarValueCount);
+
+    if (!particlePolyData) particlePolyData = vtkPolyData.newInstance();
+    if (!particlePointsData) particlePointsData = vtkPoints.newInstance();
+    if (!particleVelocityArray) {
+      particleVelocityArray = vtkDataArray.newInstance({
+        name: 'velocity',
+        values: particleVelocityBuffer,
+        numberOfComponents: 3,
+      });
+    } else {
+      particleVelocityArray.setData(particleVelocityBuffer, 3);
+    }
+    if (!particleSpeedArray) {
+      particleSpeedArray = vtkDataArray.newInstance({
+        name: 'speed',
+        values: particleSpeedBuffer,
+        numberOfComponents: 1,
+      });
+    } else {
+      particleSpeedArray.setData(particleSpeedBuffer, 1);
+    }
+
+    particlePointsData.setData(particlePointBuffer, 3);
+    particlePolyData.setPoints(particlePointsData);
+    const pointData = particlePolyData.getPointData();
+    pointData.removeAllArrays();
+    pointData.addArray(particleVelocityArray);
+    pointData.addArray(particleSpeedArray);
+    pointData.setActiveScalars('speed');
+  }
+
+  if (!particleMapper) {
+    particleMapper = vtkGlyph3DMapper.newInstance({
+      scaleMode: vtkGlyph3DMapper.ScaleModes.SCALE_BY_MAGNITUDE,
+      scaleArray: 'speed',
+      colorMode: ColorMode.MAP_SCALARS,
+      scalarMode: ScalarMode.USE_POINT_FIELD_DATA,
+      scalarVisibility: useColorSpeed.value,
+      orient: true,
+      orientationMode: vtkGlyph3DMapper.OrientationModes.DIRECTION,
+      orientationArray: 'velocity',
+    });
+    particleMapper.setInputData(particlePolyData, 0);
+  }
+
+  const sourceSignature = getParticleSourceSignature();
+  if (!particleSource || particleSourceSignature !== sourceSignature) {
+    deleteVtkObject(particleSource);
+    particleSource = createParticleGlyphSource();
+    particleSourceSignature = sourceSignature;
+    particleMapper.setInputConnection(particleSource.getOutputPort(), 1);
+  }
+
+  particleMapper.setInputData(particlePolyData, 0);
+  particleMapper.setScalarVisibility(useColorSpeed.value);
+  updateParticleLookupTable(!particleLookupTable);
+
+  if (!particlesActor) {
+    particlesActor = vtkActor.newInstance();
+    particlesActor.setMapper(particleMapper);
+    renderer.addActor(particlesActor);
+  }
+
+  updateParticleActorAppearance();
+  return true;
+}
+
+function ensureTrailResources() {
+  if (!renderer || particles.length === 0) return false;
+
+  const maxTrailPoints = particles.length * Math.max(2, trailLength.value);
+  const pointValueCapacity = maxTrailPoints * 3;
+  const lineValueCapacity = particles.length * Math.max(0, trailLength.value - 1) * 3;
+  const needsTrailBuffers =
+    !trailPointBuffer ||
+    trailPointBuffer.length !== pointValueCapacity ||
+    !trailColorBuffer ||
+    trailColorBuffer.length !== pointValueCapacity ||
+    !trailLineBuffer ||
+    trailLineBuffer.length !== lineValueCapacity;
+
+  if (needsTrailBuffers) {
+    trailPointBuffer = new Float32Array(pointValueCapacity);
+    trailColorBuffer = new Float32Array(pointValueCapacity);
+    trailLineBuffer = new Uint32Array(lineValueCapacity);
+
+    if (!trailPolyData) trailPolyData = vtkPolyData.newInstance();
+    if (!trailPointsData) trailPointsData = vtkPoints.newInstance();
+    if (!trailColorsArray) {
+      trailColorsArray = vtkDataArray.newInstance({
+        numberOfComponents: 3,
+        values: trailColorBuffer.subarray(0, 0),
+        name: 'Colors',
+      });
+    }
+
+    trailPointsData.setData(trailPointBuffer.subarray(0, 0), 3);
+    trailColorsArray.setData(trailColorBuffer.subarray(0, 0), 3);
+    trailPolyData.setPoints(trailPointsData);
+    trailPolyData.getLines().setData(trailLineBuffer.subarray(0, 0));
+    trailPolyData.getPointData().setScalars(trailColorsArray);
+  }
+
+  if (!trailMapper) {
+    trailMapper = vtkMapper.newInstance({ scalarVisibility: true });
+    trailMapper.setInputData(trailPolyData);
+  }
+
+  if (!trailsActor) {
+    trailsActor = vtkActor.newInstance();
+    trailsActor.setMapper(trailMapper);
+    renderer.addActor(trailsActor);
+  }
+
+  trailsActor.getProperty().setOpacity(trailOpacity.value);
+  trailsActor.getProperty().setLineWidth(2);
+  return true;
 }
 
 function updateParticlesVisibility() {
@@ -461,20 +733,7 @@ function updateColorScheme() {
   try {
     currentColorScheme = colorSchemes[selectedColorScheme.value];
     if (particles.length > 0 && particlesActor) {
-      const mapper = particlesActor.getMapper();
-      const lut = vtkLookupTable.newInstance();
-      if (currentColorScheme.hueRange) {
-        lut.setHueRange(currentColorScheme.hueRange[0], currentColorScheme.hueRange[1]);
-        const isDarkBg = selectedBg.value !== 'light';
-        const valMin = isDarkBg ? 0.7 : 0.6;
-        const valMax = isDarkBg ? 1.0 : 0.85;
-        lut.setValueRange(valMin, valMax);
-        lut.setSaturationRange(currentColorScheme.satRange[0], currentColorScheme.satRange[1]);
-      }
-      lut.setAlphaRange(0.7, 0.9);
-      if (typeof lut.build === 'function') lut.build();
-      mapper.setLookupTable(lut);
-      mapper.setScalarRange(0, 1);
+      updateParticleLookupTable(true);
       updateParticleColors();
     }
     safeRender();
@@ -731,18 +990,15 @@ async function loadTerrainData(onDownloadProgress, signal) {
 function clearScene() {
   if (renderer) {
     if (streamlinesActor) { renderer.removeActor(streamlinesActor); streamlinesActor = null; }
-    if (particlesActor) { renderer.removeActor(particlesActor); particlesActor = null; }
-    if (trailsActor) { renderer.removeActor(trailsActor); trailsActor = null; }
     if (terrainActor) { renderer.removeActor(terrainActor); terrainActor = null; }
     if (scalarBarActor) { renderer.removeActor(scalarBarActor); scalarBarActor = null; }
   } else {
     streamlinesActor = null;
-    particlesActor = null;
-    trailsActor = null;
     terrainActor = null;
     scalarBarActor = null;
   }
   stopParticleAnimation();
+  resetParticleRenderingResources();
   streamlines = []; 
   flowVectors = []; 
   particles = []; 
@@ -889,107 +1145,69 @@ function analyzeGlobalWindDirection() {
 }
 
 function createParticleTrails() {
-  if (particles.length === 0) return;
-  const trailPoints = [], trailLines = [], trailColors = [];
+  if (!ensureTrailResources()) return;
+
+  let pointValueCount = 0;
+  let lineValueCount = 0;
   let pointOffset = 0;
+
   for (const p of particles) {
-    if (p.trail && p.trail.length >= 2) {
-      const len = Math.min(p.trail.length, trailLength.value);
-      const start = p.trail.length - len;
-      for (let i=start; i<p.trail.length; i++) {
-        trailPoints.push(...p.trail[i]);
-        const alpha = (i-start) / (len-1);
-        const speed = p.speed || 0;
-        const normSpeed = Math.min(1, speed / maxVelocityMagnitude);
-        trailColors.push(normSpeed, normSpeed, alpha);
+    if (!p.trail || p.trail.length < 2) continue;
+
+    const len = Math.min(p.trail.length, trailLength.value);
+    const start = p.trail.length - len;
+    for (let i = start; i < p.trail.length; i++) {
+      const [x, y, z] = p.trail[i];
+      trailPointBuffer[pointValueCount] = x;
+      trailColorBuffer[pointValueCount++] = p.normalizedSpeed || 0;
+      trailPointBuffer[pointValueCount] = y;
+      trailColorBuffer[pointValueCount++] = p.normalizedSpeed || 0;
+      trailPointBuffer[pointValueCount] = z;
+      trailColorBuffer[pointValueCount++] = (i - start) / Math.max(1, len - 1);
+    }
+
+    if (len >= 2) {
+      for (let i = 0; i < len - 1; i++) {
+        trailLineBuffer[lineValueCount++] = 2;
+        trailLineBuffer[lineValueCount++] = pointOffset + i;
+        trailLineBuffer[lineValueCount++] = pointOffset + i + 1;
       }
-      if (len >= 2) {
-        for (let i=0; i<len-1; i++) trailLines.push(2, pointOffset+i, pointOffset+i+1);
-        pointOffset += len;
-      }
+      pointOffset += len;
     }
   }
-  if (trailPoints.length > 0) {
-    const polyData = vtkPolyData.newInstance();
-    const points = vtkPoints.newInstance();
-    points.setData(new Float32Array(trailPoints));
-    polyData.setPoints(points);
-    if(trailLines.length > 0) polyData.getLines().setData(new Uint32Array(trailLines));
-    if(trailColors.length > 0) {
-      const colors = vtkDataArray.newInstance({numberOfComponents: 3, values: new Float32Array(trailColors), name: 'Colors'});
-      polyData.getPointData().setScalars(colors);
-    }
-    if (trailsActor) renderer.removeActor(trailsActor);
-    const mapper = vtkMapper.newInstance({scalarVisibility: true});
-    mapper.setInputData(polyData);
-    trailsActor = vtkActor.newInstance();
-    trailsActor.setMapper(mapper);
+
+  trailPointsData.setData(trailPointBuffer.subarray(0, pointValueCount), 3);
+  trailPolyData.getLines().setData(trailLineBuffer.subarray(0, lineValueCount));
+  trailColorsArray.setData(trailColorBuffer.subarray(0, pointValueCount), 3);
+  trailPolyData.modified();
+
+  if (trailsActor) {
     trailsActor.getProperty().setOpacity(trailOpacity.value);
-    trailsActor.getProperty().setLineWidth(2); // 增加轨迹线宽
-    renderer.addActor(trailsActor);
+    trailsActor.setVisibility(pointValueCount > 0 && showParticles.value);
   }
 }
 
 function updateParticleData() {
   if (!showParticles.value) return;
   if (particles.length === 0) return;
-  const points = [], velocities = [], speeds = [];
-  for (const p of particles) {
-    points.push(...p.position);
-    velocities.push(...p.velocity);
-    speeds.push(p.normalizedSpeed || 0.5);
+  if (!ensureParticleResources()) return;
+
+  for (let i = 0; i < particles.length; i++) {
+    const p = particles[i];
+    const baseIndex = i * 3;
+    particlePointBuffer[baseIndex] = p.position[0];
+    particlePointBuffer[baseIndex + 1] = p.position[1];
+    particlePointBuffer[baseIndex + 2] = p.position[2];
+    particleVelocityBuffer[baseIndex] = p.velocity[0];
+    particleVelocityBuffer[baseIndex + 1] = p.velocity[1];
+    particleVelocityBuffer[baseIndex + 2] = p.velocity[2];
+    particleSpeedBuffer[i] = p.normalizedSpeed || 0;
   }
-  if (points.length > 0) {
-    const polyData = vtkPolyData.newInstance();
-    const vtkPts = vtkPoints.newInstance();
-    vtkPts.setData(new Float32Array(points), 3);
-    polyData.setPoints(vtkPts);
-    polyData.getPointData().addArray(vtkDataArray.newInstance({ name: 'velocity', values: new Float32Array(velocities), numberOfComponents: 3 }));
-    polyData.getPointData().addArray(vtkDataArray.newInstance({ name: 'speed', values: new Float32Array(speeds) }));
-    polyData.getPointData().setActiveScalars('speed');
-    
-    let source;
-    if (particleStyle.value === 'arrow') {
-        source = vtkArrowSource.newInstance({ tipResolution: 12, tipRadius: particleSize.value*modelScale*0.4, tipLength: particleSize.value*modelScale*1.0, shaftResolution: 12, shaftRadius: particleSize.value*modelScale*0.15 });
-    } else {
-        source = vtkSphereSource.newInstance({ thetaResolution: 16, phiResolution: 16, radius: particleSize.value*modelScale*0.4 });
-    }
-    
-    const lut = vtkLookupTable.newInstance();
-    const scheme = colorSchemes[selectedColorScheme.value];
-    lut.setHueRange(scheme.hueRange[0], scheme.hueRange[1]);
-    lut.setValueRange(selectedBg.value==='light'?0.6:0.7, selectedBg.value==='light'?0.85:1.0);
-    lut.setSaturationRange(scheme.satRange[0], scheme.satRange[1]);
-    lut.setAlphaRange(0.9, 1.0);
-    lut.build();
-    
-    if (particlesActor) renderer.removeActor(particlesActor);
-    
-    const mapper = vtkGlyph3DMapper.newInstance({
-        scaleMode: vtkGlyph3DMapper.ScaleModes.SCALE_BY_MAGNITUDE,
-        scaleArray: 'speed',
-        colorMode: ColorMode.MAP_SCALARS,
-        scalarMode: ScalarMode.USE_POINT_FIELD_DATA,
-        scalarVisibility: useColorSpeed.value,
-        orient: true,
-        orientationMode: vtkGlyph3DMapper.OrientationModes.DIRECTION,
-        orientationArray: 'velocity'
-    });
-    mapper.setInputData(polyData, 0);
-    mapper.setInputConnection(source.getOutputPort(), 1);
-    mapper.setLookupTable(lut);
-    mapper.setScalarRange(0, 1);
-    
-    particlesActor = vtkActor.newInstance();
-    particlesActor.setMapper(mapper);
-    const prop = particlesActor.getProperty();
-    prop.setOpacity(particleOpacity.value);
-    prop.setAmbient(0.7);
-    prop.setDiffuse(0.9);
-    prop.setSpecular(0.9);
-    prop.setSpecularPower(5);
-    renderer.addActor(particlesActor);
-  }
+
+  particlePointsData.setData(particlePointBuffer, 3);
+  particleVelocityArray.setData(particleVelocityBuffer, 3);
+  particleSpeedArray.setData(particleSpeedBuffer, 1);
+  particlePolyData.modified();
   createParticleTrails();
 }
 
@@ -1020,7 +1238,7 @@ function createParticles() {
       particles.push({
         position:[...position], lineIndex:i, pointIndex:startIndex, progress, trail:[position],
         velocity: normalizeVector(vecData.vector), speed: vecData.magnitude,
-        normalizedSpeed: Math.max(0, Math.min(1, (vecData.magnitude-minVelocityMagnitude)/(maxVelocityMagnitude-minVelocityMagnitude||1))),
+        normalizedSpeed: getNormalizedParticleSpeed(vecData.magnitude),
         age:0, maxAge: 100+Math.random()*200
       });
     }
@@ -1061,8 +1279,9 @@ function updateParticlePositions() {
         const p1=line[floorIdx], p2=line[ceilIdx];
         p.position = [p1[0]+(p2[0]-p1[0])*localProg, p1[1]+(p2[1]-p1[1])*localProg, p1[2]+(p2[2]-p1[2])*localProg];
         const vecData = flowVectors[p.lineIndex][floorIdx] || {vector:globalWindDirection, magnitude:1.0, valid:true};
-        p.velocity = vecData.vector;
+        p.velocity = normalizeVector(vecData.vector);
         p.speed = vecData.magnitude;
+        p.normalizedSpeed = getNormalizedParticleSpeed(vecData.magnitude);
         p.pointIndex = floorIdx;
       }
     }
@@ -1075,6 +1294,10 @@ function resetParticle(p) {
     p.progress = 0; p.pointIndex = 0; p.age = 0;
     p.position = [...line[0]];
     p.trail = [p.position];
+    const vecData = flowVectors[p.lineIndex]?.[0] || {vector:globalWindDirection, magnitude:1.0, valid:true};
+    p.velocity = normalizeVector(vecData.vector);
+    p.speed = vecData.magnitude;
+    p.normalizedSpeed = getNormalizedParticleSpeed(vecData.magnitude);
   }
 }
 
@@ -1086,7 +1309,9 @@ function updateTrails() {
 }
 
 function updateParticleColors() {
-  if (particles.length > 0) updateParticleData();
+  if (particles.length > 0) {
+    updateParticleLookupTable(true);
+  }
 }
 
 function updateVisibility() {
@@ -1152,7 +1377,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   cancelActiveLoad();
-  if (animationFrameId) cancelAnimationFrame(animationFrameId);
+  clearScene();
   if (fullScreenRenderer) fullScreenRenderer.delete();
   window.removeEventListener('resize', handleWindowResize);
 });

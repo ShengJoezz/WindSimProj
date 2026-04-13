@@ -1048,3 +1048,80 @@ backend/windmast_data/
 
 - 把每个后端接口的请求体/响应体样例补齐
 - 把每个页面的“按钮 -> store action -> axios -> route -> 文件变更”画成时序图
+
+## 14. 本轮沿链路补充发现
+
+### 14.1 地形工具重新接回工况链路
+
+这一轮已经确认并修复了一个真实断链点：
+
+`TerrainMap.vue -> 地形工具页 -> DEM 生成/裁切 -> 写回 backend/uploads/<caseId>/terrain.tif -> 重置工况结果状态`
+
+新增的关键接口是：
+
+- `POST /api/dem/apply-to-case`
+
+它的职责不是“仅复制一个 tif 文件”，而是同时清理旧结果缓存，避免出现“地形已换，但仍展示旧速度场/旧可视化缓存”的假一致状态。
+
+### 14.2 单点风速查询的真实计算链
+
+单点查询现在的真实链路应理解为：
+
+`GET /api/cases/:caseId/query-wind-speed -> 读取/缓存 output.json + speed.bin + info.json -> 按规则网格三线性插值 -> 返回 speed`
+
+它所依赖的核心参数是：
+
+- `output.json.size = [Nx, Ny, Nz]`
+- `output.json.dh`
+- `info.json.domain.lt`
+
+坐标轴定义与原 Python 版本保持一致：
+
+- `x/y` 范围：`[-lt/2, lt/2]`
+- `z` 范围：`[dh, Nz * dh]`
+
+也就是说，这里查询到的是后处理速度体数据 `speed.bin` 上的插值值，不是再次调用求解器，也不是读取某个单独切片文件。
+
+### 14.3 新旧查询结果一致性
+
+已用 `testmi` 工况对 4 组点位做新旧对照：
+
+- 域内点 `(0, 0, 100)`：接口结果与 `query_speed.py` 完全一致
+- 域内点 `(1000, -500, 140)`：绝对误差约 `2.66e-15`
+- 域边缘点 `(-2499, 2499, 20)`：完全一致
+- 域外点 `(3000, 0, 100)`：两者都返回 `speed = null`
+
+所以这一改动是“去掉重复起进程的开销”，不是改变物理计算口径。
+
+### 14.4 单点查询性能量级
+
+在同一工况、同一点位上做了 20 次重复测试：
+
+- 新接口平均耗时约 `1.777 ms`
+- 原 Python 脚本逐次启动平均耗时约 `290.086 ms`
+- 平均加速比约 `163.26x`
+
+这个优化对“鼠标取点”“连续探针查询”“前端交互式读数”这类场景会非常明显。
+
+### 14.5 结果页粒子动画的真实瓶颈
+
+`VelocityFieldDisplay.vue` 之前最大的性能问题不是粒子数量本身，而是每一帧都在重建：
+
+- `vtkPolyData`
+- `vtkPoints`
+- `vtkDataArray`
+- `vtkGlyph3DMapper`
+- `vtkActor`
+- 粒子 glyph source
+- lookup table
+
+这会导致浏览器主线程持续做大量对象创建和 renderer 重新挂接。现在已改成：
+
+- 粒子/轨迹 actor、mapper、polydata 复用
+- 只更新底层 typed array
+- 样式资源按配置变化重建，而不是按帧重建
+
+同时顺手修复了一个显示偏差问题：
+
+- 粒子移动后 `normalizedSpeed` 以前不会更新，导致颜色/尺寸会逐渐偏离当前位置风速
+- 现在每次粒子位置更新时会同步刷新 `velocity/speed/normalizedSpeed`
