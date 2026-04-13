@@ -29,7 +29,7 @@
   <div class="el-upload__tip">
     支持 .txt 或 .csv 格式，每行包含: 名称,经度,纬度,高度,直径,模型ID (可选，默认为1)
     <br>经纬度支持十进制度数(116.3912)或度分秒格式(103°14'42" 或 103°14′42″)，中国区域经度为东经（正值），纬度为北纬（正值）
-    <br><strong>模型ID示例:</strong> 1, 2, 3... (对应1-U-P-Ct.txt, 2-U-P-Ct.txt等性能曲线文件)
+    <br><strong>模型ID示例:</strong> 1, 2, 3...10 (对应1-U-P-Ct.txt, 2-U-P-Ct.txt等性能曲线文件；当前求解器仅支持1-10)
   </div>
 </template>
     </el-upload>
@@ -178,6 +178,13 @@ const validateTurbineData = (data) => {
     // Validate rotorDiameter
     if (!rotorDiameter || isNaN(parseFloat(rotorDiameter))) {
       errors.push(`第 ${index + 1} 行直径无效 (${rotorDiameter})`);
+    }
+
+    if (model !== undefined && String(model).trim() !== '') {
+      const modelId = Number(model);
+      if (!Number.isInteger(modelId) || modelId < 1 || modelId > 10) {
+        errors.push(`第 ${index + 1} 行模型ID无效 (${model})，当前求解器仅支持 1-10`);
+      }
     }
   });
 

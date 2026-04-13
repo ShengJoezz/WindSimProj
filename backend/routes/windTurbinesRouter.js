@@ -29,38 +29,42 @@ const windTurbineSchema = Joi.object({
   model: Joi.string().allow('', null).optional()
 });
 
-const normalizeModelId = (model, fallbackType) => {
-  const asString = model === null || model === undefined ? '' : String(model).trim();
-  if (asString) {
-    const asNumber = Number(asString);
-    if (Number.isFinite(asNumber)) {
-      const intModel = Math.trunc(asNumber);
-      if (intModel >= 1 && intModel <= 10) return String(intModel);
-    }
+const parseSupportedModelId = (rawValue, fieldName) => {
+  if (rawValue === null || rawValue === undefined || rawValue === '') {
+    return { provided: false, value: null };
   }
 
-  const asType = Number(fallbackType);
-  if (Number.isFinite(asType)) {
-    const intType = Math.trunc(asType);
-    if (intType >= 1 && intType <= 10) return String(intType);
+  const numericValue = Number(rawValue);
+  if (!Number.isInteger(numericValue) || numericValue < 1 || numericValue > 10) {
+    return {
+      provided: true,
+      error: `${fieldName} 必须为 1-10 的整数。当前求解器仅支持 10 组性能曲线文件。`,
+    };
   }
-  return '1';
+
+  return { provided: true, value: numericValue };
 };
 
-const normalizeTypeId = (type, modelId) => {
-  const fromType = Number(type);
-  if (Number.isFinite(fromType)) {
-    const intType = Math.trunc(fromType);
-    if (intType >= 1 && intType <= 10) return intType;
+const resolveModelAndTypeIds = (model, type) => {
+  const parsedModel = parseSupportedModelId(model, '风机模型ID');
+  if (parsedModel.error) return { error: parsedModel.error };
+
+  const parsedType = parseSupportedModelId(type, '风机类型ID');
+  if (parsedType.error) return { error: parsedType.error };
+
+  if (
+    parsedModel.provided &&
+    parsedType.provided &&
+    parsedModel.value !== parsedType.value
+  ) {
+    return { error: `风机模型ID (${parsedModel.value}) 与 type (${parsedType.value}) 不一致，请保持一致。` };
   }
 
-  const fromModel = Number(modelId);
-  if (Number.isFinite(fromModel)) {
-    const intType = Math.trunc(fromModel);
-    if (intType >= 1 && intType <= 10) return intType;
-  }
-
-  return 1;
+  const resolvedId = parsedModel.value ?? parsedType.value ?? 1;
+  return {
+    modelId: String(resolvedId),
+    typeId: parsedType.value ?? resolvedId,
+  };
 };
 
 // 获取风机数据路径的辅助函数
@@ -121,12 +125,14 @@ router.post('/', (req, res) => {
       return res.status(400).json({ success: false, message: `Wind turbine with the same name ('${value.name}') already exists.` });
   }
 
-  const modelId = normalizeModelId(value.model, value.type);
-  const typeId = normalizeTypeId(value.type, modelId);
+  const resolvedIds = resolveModelAndTypeIds(value.model, value.type);
+  if (resolvedIds.error) {
+    return res.status(400).json({ success: false, message: resolvedIds.error });
+  }
   const normalized = {
     ...value,
-    model: modelId,
-    type: typeId,
+    model: resolvedIds.modelId,
+    type: resolvedIds.typeId,
   };
 
   // 添加新风机
@@ -215,8 +221,11 @@ router.post('/bulk', async (req, res) => {
           return;
         }
 
-        const modelId = normalizeModelId(turbine?.model, turbine?.type);
-        const typeId = normalizeTypeId(turbine?.type, modelId);
+        const resolvedIds = resolveModelAndTypeIds(turbine?.model, turbine?.type);
+        if (resolvedIds.error) {
+          errors.push(`第 ${index + 1} 行${resolvedIds.error}`);
+          return;
+        }
 
         // Add unique ID if not present (avoid collisions in existing file)
         const requestedId = turbine?.id ? String(turbine.id).trim() : '';
@@ -237,8 +246,8 @@ router.post('/bulk', async (req, res) => {
           latitude: lat,
           hubHeight: hub,
           rotorDiameter: rotor,
-          model: modelId,
-          type: typeId,
+          model: resolvedIds.modelId,
+          type: resolvedIds.typeId,
         };
 
         incomingIds.add(validTurbine.id);

@@ -81,35 +81,33 @@ if [ "$turbine_count" -eq 0 ]; then
     echo "[Info] 未配置风机，跳过性能曲线校验。"
     emit_progress 100 "validate_curves"
 else
-    # 从info.json中读取所有唯一的风机型号ID
-    # 使用 jq 工具解析json, -r 表示输出原始字符串, .turbines[].model 获取每个涡轮机的模型字段, sort -u 去重并排序
-    ids=$(jq -r '.turbines[].model' ../info.json | sort -u)
+    max_required_model_id=$(jq -r '
+      [.turbines[] | (.model // .type // empty) | tonumber]
+      | max // empty
+    ' ../info.json 2>/dev/null)
 
-    # 检查jq是否成功执行，以及是否成功获取到ID
-    if [ $? -ne 0 ] || [ -z "$ids" ]; then
+    if [ -z "$max_required_model_id" ]; then
         echo "[ERROR] 无法从 info.json 读取风机型号，请检查文件格式或确保已定义风机。" >&2
         echo "{\"action\":\"progress\", \"progress\": \"ERROR\", \"taskId\":\"validate_curves\"}"
-        exit 1 # 退出脚本，返回错误码1
+        exit 1
     fi
 
-missing=0
-for id in $ids; do
-  # 检查文件是否存在且不为空 (-s)
-  if [ ! -s "${CURVE_DST_DIR}/${id}-U-P-Ct.txt" ]; then
-    # 如果文件不存在或为空，打印错误信息到标准错误输出
-    echo "[ERROR] 关键错误：缺少风机型号 ${id} 的性能曲线文件。预期的文件是: ${id}-U-P-Ct.txt" >&2
-    missing=1 # 标记为缺失
-  fi
-done
+    missing=0
+    for id in $(seq 1 "$max_required_model_id"); do
+      if [ ! -s "${CURVE_DST_DIR}/${id}-U-P-Ct.txt" ]; then
+        echo "[ERROR] 关键错误：求解器会按 1..${max_required_model_id} 顺序读取性能曲线文件，缺少: ${id}-U-P-Ct.txt" >&2
+        missing=1
+      fi
+    done
 
-if [ $missing -eq 1 ]; then
-  echo "[ERROR] 一个或多个性能曲线文件缺失，仿真中止。" >&2
-  # 发送错误状态到前端
-  echo "{\"action\":\"progress\", \"progress\": \"ERROR\", \"taskId\":\"validate_curves\"}"
-  exit 2 # 退出脚本，返回一个不同的错误码
-fi
-echo "[Info] 所有必需的性能曲线文件均已找到。检查通过。"
-emit_progress 100 "validate_curves"
+    if [ $missing -eq 1 ]; then
+      echo "[ERROR] 一个或多个性能曲线文件缺失，仿真中止。" >&2
+      echo "{\"action\":\"progress\", \"progress\": \"ERROR\", \"taskId\":\"validate_curves\"}"
+      exit 2
+    fi
+
+    echo "[Info] 1..${max_required_model_id} 的性能曲线文件均已找到。检查通过。"
+    emit_progress 100 "validate_curves"
 fi
 # ========================================================
 

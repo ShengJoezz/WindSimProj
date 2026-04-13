@@ -547,7 +547,7 @@ flowchart TD
 
 - 主切面数据源是 `speed.bin`，前端首次读取后缓存为体数据，并在浏览器内对 `x/y/z` 做线性插值，因此高度条可以连续展示任意水平面。
 - 已验证在 `testmi` 工况中从 `20.0 m` 调到 `20.1 m` 时，页面读数会变化，但不会新增 `visualization-slice` 请求，说明平滑来自真实体数据插值，而不是 PNG 切图或二次缩放。
-- 当前色标已经统一切到更接近常见仿真后处理观感的工程彩虹带，和 `WindTurbineManagement.vue` 的 Plotly colorscale 共用同一份颜色定义，避免不同页面出现同一物理量却不同配色语义的情况。
+- 当前色标已经切到 `JET`，并与 `WindTurbineManagement.vue` 的 Plotly colorscale 共用同一份颜色定义；速度场页图例支持在切面画布内拖动，便于避开感兴趣区域。
 
 ## 5. 上传入口总表
 
@@ -561,6 +561,13 @@ flowchart TD
 | `TerrainClippingTester.vue` DEM 上传 | `.tif/.tiff` | `POST /api/dem/clip` | 临时 `temp/`，输出到 `clipped/` | 裁切 DEM 下载 |
 | `TerrainClippingTester.vue` 风机导入 | `.txt/.xls/.xlsx` | 仅前端解析 | 不落盘 | 仅辅助裁切范围估算 |
 | `WindMastUpload.vue` | `.csv` | `POST /api/windmast/upload` | `windmast_data/input/` | 测风塔分析输入 |
+
+补充约束：
+
+- 风机模型ID当前只能为 `1-10` 的整数。
+- 求解器会按 `1..N` 顺序读取 `Input/<模型ID>-U-P-Ct.txt`，因此当最大模型ID为 `N` 时，`1` 到 `N` 的曲线文件必须连续存在，不能只上传被风机直接使用的那几个编号。
+- `.rou` 文件的数据块头真实语义为 `z0 h n`，即“粗糙度长度 / 冠层高度 / 点数”；前 4 行头部会被求解器跳过，文件末尾允许单列结束标记。
+- `backend/base/run.sh` 在启动求解前也会按 `1..N` 再做一次运行时校验，避免旧工况或绕过前端时把缺失曲线带进求解器。
 
 ## 6. 后端接口分组梳理
 

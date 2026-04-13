@@ -99,7 +99,7 @@
         >
           <template #suffix>
             <el-tooltip
-              content="输入风机模型的数字ID，对应后续步骤中设置的性能曲线文件。例如：模型ID为1时，将使用1-U-P-Ct.txt性能曲线文件。如果留空，将自动设为模型1。"
+              content="输入风机模型的数字ID（当前求解器支持1-10），对应后续步骤中的性能曲线文件。例如：模型ID为1时，将使用1-U-P-Ct.txt性能曲线文件。如果留空，将自动设为模型1。"
               placement="top"
               :show-arrow="false"
             >

@@ -248,7 +248,7 @@ import Plotly from 'plotly.js-dist-min';
 import { useCaseStore } from '@/store/caseStore';
 import { useRouter } from 'vue-router';
 import { getApiErrorMessage } from '@/utils/notify.js';
-import { SIMULATION_RAINBOW_STOPS, buildPlotlyColorscale } from '@/utils/colormaps';
+import { SIMULATION_JET_STOPS, buildPlotlyColorscale } from '@/utils/colormaps';
 
 // 接收父组件传入的 caseId
 const props = defineProps({
@@ -292,7 +292,7 @@ let charts = {
   fnComparison: null
 };
 const plotWheelCleanupHandlers = [];
-const simulationRainbowScale = buildPlotlyColorscale(SIMULATION_RAINBOW_STOPS);
+const simulationJetScale = buildPlotlyColorscale(SIMULATION_JET_STOPS);
 
 const caseStore = useCaseStore();
 const router = useRouter();
@@ -913,7 +913,7 @@ function renderPerformanceOverviewChart() {
     marker: {
       size: combinedData.value.map(item => Math.max(item.adjCt * 50, 12)), // 确保点的最小大小
       color: combinedData.value.map(item => item.height),
-      colorscale: simulationRainbowScale,
+      colorscale: simulationJetScale,
       showscale: true,
       colorbar: { title: '真实轮毂高度 (m)', thickness: 20 }
     },
@@ -964,7 +964,7 @@ function renderSpatialDistributionCharts() {
       marker: {
         size: 8,
         color: combinedData.value.map(item => item.adjPower),
-        colorscale: simulationRainbowScale,
+        colorscale: simulationJetScale,
         showscale: true,
         colorbar: { title: '功率 (kW)', thickness: 20 }
       },
@@ -1011,7 +1011,7 @@ function renderSpatialDistributionCharts() {
       marker: {
         size: 12,
         color: combinedData.value.map(item => item.adjPower),
-        colorscale: simulationRainbowScale,
+        colorscale: simulationJetScale,
         showscale: true,
         colorbar: { title: '功率 (kW)', thickness: 20 }
       },

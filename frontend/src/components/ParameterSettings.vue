@@ -103,11 +103,11 @@
                         <li><strong>数据块：</strong> 每个数据块代表一条等值线，由块头和坐标点组成</li>
                       </ul>
                       
-                      <p><strong>块头格式：</strong> <code>[任意值] [粗糙度长度(m)] [点的数量]</code></p>
+                      <p><strong>块头格式：</strong> <code>[粗糙度长度 z0(m)] [植被/冠层高度 h(m)] [点的数量]</code></p>
                       <div class="format-example">
                         <span class="example-label">示例：</span>
                         <code>0.1         0.3         7</code>
-                        <span class="example-note">（粗糙度0.3米，后面有7个坐标点）</span>
+                        <span class="example-note">（z0=0.1米，冠层高度=0.3米，后面有7个坐标点）</span>
                       </div>
                       
                       <p><strong>坐标点格式：</strong> <code>[X坐标] [Y坐标]</code>（UTM坐标系）</p>
@@ -120,8 +120,10 @@
                         <p><strong>重要提示：</strong></p>
                         <ul>
                           <li>坐标必须使用 <strong>UTM坐标系</strong></li>
+                          <li>求解器会固定跳过前 4 行头部信息，数据块从第 5 行开始读取</li>
                           <li>数据用空格或制表符分隔</li>
                           <li>可包含多个数据块（多条等值线）</li>
+                          <li>文件末尾允许存在单列结束标记，求解器会在此处停止读取</li>
                           <li>文件为纯文本格式，编码建议使用UTF-8</li>
                         </ul>
                       </div>
@@ -187,6 +189,7 @@
 	                        Y[{{ roughnessPreview.minY.toFixed(3) }}, {{ roughnessPreview.maxY.toFixed(3) }}]
 	                      </p>
 	                      <p>粗糙度长度 z0 范围：[{{ roughnessPreview.minZ0.toFixed(3) }}, {{ roughnessPreview.maxZ0.toFixed(3) }}] m</p>
+	                      <p>植被/冠层高度 h 范围：[{{ roughnessPreview.minCanopyHeight.toFixed(3) }}, {{ roughnessPreview.maxCanopyHeight.toFixed(3) }}] m</p>
 	                      <ul v-if="roughnessPreview.warnings.length" class="roughness-preview-warnings">
 	                        <li v-for="(w, idx) in roughnessPreview.warnings" :key="idx">{{ w }}</li>
 	                      </ul>
@@ -212,7 +215,9 @@
         </el-form-item>
         <el-form-item label="后处理" class="parent-form-item">
           <el-form-item label="结果层数" prop="postProcessing.resultLayers" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.postProcessing.resultLayers" :min="1" class="input-number" :disabled="caseStore.infoExists" /> </el-form-item>
-          <el-form-item label="层数间距 (m)" prop="postProcessing.layerSpacing" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.postProcessing.layerSpacing" :min="0" class="input-number" :disabled="caseStore.infoExists" /> </el-form-item>
+          <el-form-item label="层数间距 (m)" prop="postProcessing.layerSpacing" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.postProcessing.layerSpacing" :min="0.1" class="input-number" :disabled="caseStore.infoExists" /> </el-form-item>
+          <el-form-item label="切片采样宽度" prop="postProcessing.layerDataWidth" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.postProcessing.layerDataWidth" :min="16" class="input-number" :disabled="caseStore.infoExists" /> </el-form-item>
+          <el-form-item label="切片采样高度" prop="postProcessing.layerDataHeight" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.postProcessing.layerDataHeight" :min="16" class="input-number" :disabled="caseStore.infoExists" /> </el-form-item>
         </el-form-item>
 
         <!-- 风机性能曲线 - 最终修复版 -->
@@ -223,12 +228,13 @@
               <el-alert title="性能曲线数据格式要求" type="info" :closable="false" show-icon>
                  <template #default>
                   <div class="guidance-content">
-                    <p><strong>文件命名格式：</strong> 1-U-P-Ct.txt, 2-U-P-Ct.txt, ...</p>
+                    <p><strong>文件命名格式：</strong> 1-U-P-Ct.txt, 2-U-P-Ct.txt, ... , 10-U-P-Ct.txt</p>
                     <p><strong>文件内容格式：</strong> 制表符或空格分隔的三列数据</p>
                     <ul>
                       <li>第1列：风速 (m/s)</li>
                       <li>第2列：功率 (kW)</li>
                       <li>第3列：推力系数 (Ct)</li>
+                      <li>当前求解器仅支持模型ID <strong>1-10</strong>，且会按 <strong>1..N</strong> 顺序读取性能曲线文件</li>
                     </ul>
                   </div>
                 </template>
@@ -491,20 +497,26 @@ const parseRouTextSummary = (text) => {
   let totalPoints = 0;
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   let minZ0 = Infinity, maxZ0 = -Infinity;
+  let minCanopyHeight = Infinity, maxCanopyHeight = -Infinity;
 
   while (idx < lines.length) {
     const header = lines[idx].split(/\s+/).filter(Boolean);
+    if (header.length === 1) break;
     if (header.length < 3) throw new Error(`第 ${idx + 1} 行: 数据块头应至少包含 3 列`);
 
-    const z0 = Number(header[1]);
+    const z0 = Number(header[0]);
+    const canopyHeight = Number(header[1]);
     const nRaw = Number(header[2]);
-    if (!Number.isFinite(z0)) throw new Error(`第 ${idx + 1} 行: 粗糙度长度 (第2列) 不是有效数字`);
+    if (!Number.isFinite(z0)) throw new Error(`第 ${idx + 1} 行: 粗糙度长度 z0 (第1列) 不是有效数字`);
+    if (!Number.isFinite(canopyHeight)) throw new Error(`第 ${idx + 1} 行: 冠层高度 h (第2列) 不是有效数字`);
     if (!Number.isFinite(nRaw) || !Number.isInteger(nRaw) || nRaw <= 0) {
       throw new Error(`第 ${idx + 1} 行: 点数量 (第3列) 必须是正整数`);
     }
 
     minZ0 = Math.min(minZ0, z0);
     maxZ0 = Math.max(maxZ0, z0);
+    minCanopyHeight = Math.min(minCanopyHeight, canopyHeight);
+    maxCanopyHeight = Math.max(maxCanopyHeight, canopyHeight);
 
     idx += 1;
     for (let j = 0; j < nRaw; j++) {
@@ -540,7 +552,19 @@ const parseRouTextSummary = (text) => {
     warnings.push('Y 坐标超出常见 UTM Northing 范围（0 ~ 10,000,000）。请确认坐标系/单位。');
   }
 
-  return { blocks, totalPoints, minX, maxX, minY, maxY, minZ0, maxZ0, warnings };
+  return {
+    blocks,
+    totalPoints,
+    minX,
+    maxX,
+    minY,
+    maxY,
+    minZ0,
+    maxZ0,
+    minCanopyHeight,
+    maxCanopyHeight,
+    warnings,
+  };
 };
 
 const resetLocalState = () => {
@@ -863,9 +887,13 @@ const getCurveValidationErrors = () => {
     )
   );
 
-  const invalidModelIds = requiredModelIds.filter((id) => !/^\d+$/.test(id));
+  const invalidModelIds = requiredModelIds.filter((id) => {
+    if (!/^\d+$/.test(id)) return true;
+    const numericId = Number(id);
+    return !Number.isInteger(numericId) || numericId < 1 || numericId > 10;
+  });
   if (invalidModelIds.length > 0) {
-    errors.push(`风机模型ID必须为纯数字（用于匹配性能曲线文件名）：${invalidModelIds.join(', ')}`);
+    errors.push(`风机模型ID必须为 1-10 的整数（用于匹配性能曲线文件名）：${invalidModelIds.join(', ')}`);
     return errors;
   }
 
@@ -900,6 +928,22 @@ const getCurveValidationErrors = () => {
   const missingCurves = requiredModelIds.filter((id) => !availableIds.has(id));
   if (missingCurves.length > 0) {
     errors.push(`缺少以下模型ID对应的性能曲线文件：${missingCurves.map((id) => `${id}-U-P-Ct.txt`).join(', ')}`);
+  }
+
+  const requiredModelNumbers = requiredModelIds.map((id) => Number(id)).sort((a, b) => a - b);
+  const maxRequiredModelId = requiredModelNumbers.length ? requiredModelNumbers[requiredModelNumbers.length - 1] : 0;
+  if (maxRequiredModelId > 0) {
+    const missingSequentialCurves = [];
+    for (let modelId = 1; modelId <= maxRequiredModelId; modelId++) {
+      if (!availableIds.has(String(modelId))) {
+        missingSequentialCurves.push(`${modelId}-U-P-Ct.txt`);
+      }
+    }
+    if (missingSequentialCurves.length > 0) {
+      errors.push(
+        `当前求解器会按 1..${maxRequiredModelId} 顺序读取性能曲线文件，缺少：${missingSequentialCurves.join(', ')}`
+      );
+    }
   }
 
   return errors;

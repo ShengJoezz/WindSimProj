@@ -513,8 +513,8 @@ const uploadCurves = multer({
         const original = path.basename(file.originalname);
         const ext = path.extname(original).toLowerCase();
         if (!allowedExt.includes(ext)) return cb(new Error(`仅支持 ${allowedExt.join(', ')} 文件`), false);
-        if (!/^\d+-U-P-Ct\.txt$/i.test(original)) {
-            return cb(new Error('性能曲线文件名必须为 "<模型ID>-U-P-Ct.txt"（例如 1-U-P-Ct.txt）'), false);
+        if (!/^(10|[1-9])-U-P-Ct\.txt$/i.test(original)) {
+            return cb(new Error('性能曲线文件名必须为 "<模型ID>-U-P-Ct.txt"，且模型ID仅支持 1-10（例如 1-U-P-Ct.txt）'), false);
         }
         cb(null, true);
     },
@@ -2017,11 +2017,80 @@ router.post('/:caseId/info', async (req, res) => {
 
     const { parameters, windTurbines, geographicBounds } = value;
 
+    const parseSupportedModelId = (rawValue, fieldName) => {
+        if (rawValue === null || rawValue === undefined || rawValue === '') {
+            return { provided: false, value: null };
+        }
+
+        const numericValue = Number(rawValue);
+        if (!Number.isInteger(numericValue) || numericValue < 1 || numericValue > 10) {
+            return {
+                provided: true,
+                error: `${fieldName} 必须为 1-10 的整数。当前求解器仅支持 10 组性能曲线文件。`,
+            };
+        }
+
+        return { provided: true, value: numericValue };
+    };
+
+    const resolvedTurbineModelInfo = [];
+    for (let turbineIndex = 0; turbineIndex < windTurbines.length; turbineIndex++) {
+        const turbine = windTurbines[turbineIndex];
+        const parsedModel = parseSupportedModelId(turbine.model, '风机模型ID');
+        if (parsedModel.error) {
+            return res.status(400).json({ success: false, message: `风机 ${turbine.name || turbine.id || turbineIndex + 1}: ${parsedModel.error}` });
+        }
+
+        const parsedType = parseSupportedModelId(turbine.type, '风机类型ID');
+        if (parsedType.error) {
+            return res.status(400).json({ success: false, message: `风机 ${turbine.name || turbine.id || turbineIndex + 1}: ${parsedType.error}` });
+        }
+
+        if (
+            parsedModel.provided &&
+            parsedType.provided &&
+            parsedModel.value !== parsedType.value
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: `风机 ${turbine.name || turbine.id || turbineIndex + 1}: model (${parsedModel.value}) 与 type (${parsedType.value}) 不一致，请保持一致。`,
+            });
+        }
+
+        const resolvedId = parsedModel.value ?? parsedType.value ?? 1;
+        resolvedTurbineModelInfo.push({
+            modelId: String(resolvedId),
+            typeId: parsedType.value ?? resolvedId,
+        });
+    }
+
     try {
         // --- Read existing info.json to preserve status / fallback centers ---
         let existingInfo = {};
         const casePath = path.join(__dirname, '../uploads', caseId);
         const infoJsonPath = path.join(casePath, 'info.json');
+        const maxRequiredModelId = resolvedTurbineModelInfo.reduce((maxId, item) => {
+            const numericModelId = Number(item.modelId);
+            return Number.isFinite(numericModelId) ? Math.max(maxId, numericModelId) : maxId;
+        }, 0);
+
+        if (maxRequiredModelId > 0) {
+            const curvesDir = path.join(casePath, 'customCurves');
+            const missingCurveFiles = [];
+            for (let modelId = 1; modelId <= maxRequiredModelId; modelId++) {
+                const curvePath = path.join(curvesDir, `${modelId}-U-P-Ct.txt`);
+                if (!fs.existsSync(curvePath)) {
+                    missingCurveFiles.push(`${modelId}-U-P-Ct.txt`);
+                }
+            }
+            if (missingCurveFiles.length > 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: `当前求解器会按 1..${maxRequiredModelId} 顺序读取性能曲线文件，缺少：${missingCurveFiles.join(', ')}`,
+                });
+            }
+        }
+
         if (fs.existsSync(infoJsonPath)) {
             try {
                 existingInfo = JSON.parse(await fsPromises.readFile(infoJsonPath, 'utf-8'));
@@ -2177,20 +2246,11 @@ router.post('/:caseId/info', async (req, res) => {
                 width: parameters.postProcessing?.layerDataWidth ?? 1000,
                 height: parameters.postProcessing?.layerDataHeight ?? 1000,
             },
-            turbines: hasTurbines ? windTurbines.map(turbine => {
+            turbines: hasTurbines ? windTurbines.map((turbine, index) => {
                 // 注意：这里仍然使用风机群中心计算投影坐标
                 // 坐标转换将在预处理阶段进行
                 const { x, y } = calculateXY(turbine.longitude, turbine.latitude, windFarmCenterLon, windFarmCenterLat);
-                const rawModel = (turbine.model ?? turbine.type ?? 1);
-                const modelNum = Number(rawModel);
-                const modelId = (Number.isFinite(modelNum) && modelNum >= 1 && modelNum <= 10)
-                  ? String(Math.trunc(modelNum))
-                  : '1';
-                const rawType = (turbine.type ?? modelId);
-                const typeNum = Number(rawType);
-                const typeId = (Number.isFinite(typeNum) && typeNum >= 1 && typeNum <= 10)
-                  ? Math.trunc(typeNum)
-                  : Number(modelId);
+                const { modelId, typeId } = resolvedTurbineModelInfo[index] || { modelId: '1', typeId: 1 };
                 return {
                     id: turbine.id,
                     lon: turbine.longitude,

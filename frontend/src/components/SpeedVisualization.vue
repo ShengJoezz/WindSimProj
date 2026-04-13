@@ -125,10 +125,20 @@
                 class="speed-field-canvas"
                 :class="{ visible: isSpeedFieldReady }"
               ></canvas>
-              <div v-if="isSpeedFieldReady" class="speed-field-legend">
-                <div class="legend-bar" :style="speedFieldLegendBarStyle"></div>
-                <div class="legend-labels">
-                  <span v-for="tick in speedFieldLegendTicks" :key="tick">{{ tick }}</span>
+              <div
+                v-if="isSpeedFieldReady"
+                ref="speedFieldLegend"
+                class="speed-field-legend"
+                :style="speedFieldLegendStyle"
+              >
+                <button type="button" class="legend-handle" @pointerdown="startLegendDrag">
+                  JET 图例 · 拖动
+                </button>
+                <div class="legend-scale">
+                  <div class="legend-bar" :style="speedFieldLegendBarStyle"></div>
+                  <div class="legend-labels">
+                    <span v-for="tick in speedFieldLegendTicks" :key="tick">{{ tick }}</span>
+                  </div>
                 </div>
               </div>
               <div v-if="chartLoading.speedField" class="image-loading-overlay">
@@ -205,7 +215,7 @@ import { debounce } from 'lodash-es';
 import { ElMessage, ElSlider, ElSelect, ElOption, ElCard, ElIcon, ElButtonGroup, ElTooltip, ElRow, ElCol, ElDescriptions, ElDescriptionsItem, ElInputNumber, ElButton, ElAlert } from 'element-plus';
 // Import the updated service function
 import { getMetadata, getVolumeData, getProfileData, getWakeData, findClosestIndex, clearClientCaseCache, getPointWindSpeed } from '@/services/visualizationService';
-import { SIMULATION_RAINBOW_STOPS, buildColorLookupTable, buildCssGradient } from '@/utils/colormaps';
+import { SIMULATION_JET_STOPS, buildColorLookupTable, buildCssGradient } from '@/utils/colormaps';
 import { useCaseStore } from '@/store/caseStore';
 import { useRouter } from 'vue-router';
 
@@ -239,7 +249,7 @@ const colorScheme = {
   chartColors: ['#409EFF', '#67C23A', '#E6A23C', '#F56C6C', '#909399']
 };
 
-const speedFieldColorLut = buildColorLookupTable(SIMULATION_RAINBOW_STOPS);
+const speedFieldColorLut = buildColorLookupTable(SIMULATION_JET_STOPS);
 const MAX_SPEED_FIELD_PIXELS = 950000;
 
 // --- Props ---
@@ -263,6 +273,7 @@ const isSpeedFieldReady = ref(false);
 // --- DOM Refs ---
 const speedFieldContainer = ref(null);
 const speedFieldCanvas = ref(null);
+const speedFieldLegend = ref(null);
 
 // --- Chart Instances ---
 const profileChart = ref(null);
@@ -278,6 +289,10 @@ let speedFieldImageData = null;
 let speedFieldRenderFrameId = null;
 let speedFieldXMap = null;
 let speedFieldYMap = null;
+const speedFieldLegendPosition = ref({ left: 18, top: 18 });
+const hasCustomLegendPosition = ref(false);
+let activeLegendPointerId = null;
+let legendDragOrigin = null;
 
 // --- Computed Properties ---
 const minHeight = computed(() => mainMetadata.value?.heightLevels?.[0] ?? 10);
@@ -308,7 +323,12 @@ const speedFieldLegendTicks = computed(() => {
 });
 
 const speedFieldLegendBarStyle = computed(() => ({
-  background: buildCssGradient(SIMULATION_RAINBOW_STOPS),
+  background: buildCssGradient(SIMULATION_JET_STOPS),
+}));
+
+const speedFieldLegendStyle = computed(() => ({
+  left: `${speedFieldLegendPosition.value.left}px`,
+  top: `${speedFieldLegendPosition.value.top}px`,
 }));
 
 const showPrecomputeLog = computed(() => {
@@ -407,13 +427,91 @@ const cancelSpeedFieldRender = () => {
   }
 };
 
+const clampLegendPosition = (left, top) => {
+  const container = speedFieldContainer.value;
+  const legend = speedFieldLegend.value;
+  if (!container || !legend) {
+    return {
+      left: Math.max(12, Math.round(left)),
+      top: Math.max(12, Math.round(top)),
+    };
+  }
+
+  const padding = 12;
+  const maxLeft = Math.max(padding, container.clientWidth - legend.offsetWidth - padding);
+  const maxTop = Math.max(padding, container.clientHeight - legend.offsetHeight - padding);
+  return {
+    left: Math.min(Math.max(padding, Math.round(left)), maxLeft),
+    top: Math.min(Math.max(padding, Math.round(top)), maxTop),
+  };
+};
+
+const ensureLegendPosition = (reset = false) => {
+  nextTick(() => {
+    if (!isSpeedFieldReady.value) return;
+    const container = speedFieldContainer.value;
+    const legend = speedFieldLegend.value;
+    if (!container || !legend) return;
+
+    const padding = 18;
+    const defaultLeft = Math.max(padding, container.clientWidth - legend.offsetWidth - padding);
+    const defaultTop = padding;
+
+    if (reset || !hasCustomLegendPosition.value) {
+      speedFieldLegendPosition.value = clampLegendPosition(defaultLeft, defaultTop);
+      return;
+    }
+
+    speedFieldLegendPosition.value = clampLegendPosition(
+      speedFieldLegendPosition.value.left,
+      speedFieldLegendPosition.value.top
+    );
+  });
+};
+
+const stopLegendDrag = (event) => {
+  if (event && activeLegendPointerId !== null && event.pointerId !== activeLegendPointerId) return;
+  activeLegendPointerId = null;
+  legendDragOrigin = null;
+  window.removeEventListener('pointermove', handleLegendPointerMove);
+  window.removeEventListener('pointerup', stopLegendDrag);
+  window.removeEventListener('pointercancel', stopLegendDrag);
+};
+
+const handleLegendPointerMove = (event) => {
+  if (activeLegendPointerId === null || event.pointerId !== activeLegendPointerId || !legendDragOrigin) return;
+  event.preventDefault();
+  const nextLeft = legendDragOrigin.left + (event.clientX - legendDragOrigin.clientX);
+  const nextTop = legendDragOrigin.top + (event.clientY - legendDragOrigin.clientY);
+  speedFieldLegendPosition.value = clampLegendPosition(nextLeft, nextTop);
+};
+
+const startLegendDrag = (event) => {
+  if (!speedFieldLegend.value || !speedFieldContainer.value) return;
+  event.preventDefault();
+  hasCustomLegendPosition.value = true;
+  activeLegendPointerId = event.pointerId;
+  legendDragOrigin = {
+    clientX: event.clientX,
+    clientY: event.clientY,
+    left: speedFieldLegendPosition.value.left,
+    top: speedFieldLegendPosition.value.top,
+  };
+  window.addEventListener('pointermove', handleLegendPointerMove, { passive: false });
+  window.addEventListener('pointerup', stopLegendDrag);
+  window.addEventListener('pointercancel', stopLegendDrag);
+};
+
 const clearSpeedFieldCanvas = () => {
   cancelSpeedFieldRender();
+  stopLegendDrag();
   speedFieldVolume = null;
   isSpeedFieldReady.value = false;
   speedFieldImageData = null;
   speedFieldXMap = null;
   speedFieldYMap = null;
+  hasCustomLegendPosition.value = false;
+  speedFieldLegendPosition.value = { left: 18, top: 18 };
   if (speedFieldCanvasCtx && speedFieldCanvas.value) {
     speedFieldCanvasCtx.clearRect(0, 0, speedFieldCanvas.value.width, speedFieldCanvas.value.height);
   }
@@ -582,7 +680,11 @@ const ensureSpeedFieldCanvasSize = () => {
   if (sizeChanged || resourcesMissing) {
     canvas.width = pixelWidth;
     canvas.height = pixelHeight;
-    speedFieldCanvasCtx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    speedFieldCanvasCtx = canvas.getContext('2d', {
+      alpha: false,
+      desynchronized: true,
+      willReadFrequently: true,
+    });
     speedFieldImageData = speedFieldCanvasCtx ? speedFieldCanvasCtx.createImageData(pixelWidth, pixelHeight) : null;
     speedFieldXMap = buildAxisSamplingMap(pixelWidth, speedFieldVolume.xCoords, false);
     speedFieldYMap = buildAxisSamplingMap(pixelHeight, speedFieldVolume.yCoords, true);
@@ -651,6 +753,7 @@ const renderSpeedField = () => {
   speedFieldCanvasCtx.putImageData(speedFieldImageData, 0, 0);
   isSpeedFieldReady.value = true;
   chartLoading.value.speedField = false;
+  ensureLegendPosition();
 };
 
 const scheduleSpeedFieldRender = () => {
@@ -1047,6 +1150,7 @@ const forceChartsRender = () => { nextTick(() => { safeResizeCharts(); }); };
 // 19. Handle Resize
 const handleResize = debounce(() => {
     scheduleSpeedFieldRender();
+    ensureLegendPosition();
     safeResizeCharts();
 }, 200);
 
@@ -1143,6 +1247,12 @@ watch(currentHeight, (newVal, oldVal) => {
     }
 });
 
+watch(isSpeedFieldReady, (ready) => {
+  if (ready) {
+    ensureLegendPosition();
+  }
+});
+
 watch(() => props.caseId, (newVal, oldVal) => {
     if (newVal && newVal !== oldVal) {
         console.log(`观察者: 工况 ID 从 ${oldVal} 变为 ${newVal}, 重新获取所有数据...`);
@@ -1187,6 +1297,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   console.log("SpeedVisualization 即将卸载");
+  stopLegendDrag();
   window.removeEventListener('resize', handleResize);
   if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null; }
   clearSpeedFieldCanvas();
@@ -1368,16 +1479,38 @@ onUnmounted(() => {
 
 .speed-field-legend {
   position: absolute;
-  right: 18px;
-  top: 18px;
   display: flex;
-  align-items: stretch;
+  flex-direction: column;
   gap: 10px;
   padding: 12px 10px;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
   backdrop-filter: blur(6px);
+  z-index: 3;
+}
+
+.legend-handle {
+  border: none;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(15, 23, 42, 0.08);
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: grab;
+  touch-action: none;
+}
+
+.legend-handle:active {
+  cursor: grabbing;
+}
+
+.legend-scale {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
 }
 
 .legend-bar {

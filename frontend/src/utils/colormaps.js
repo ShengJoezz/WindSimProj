@@ -1,12 +1,18 @@
-export const SIMULATION_RAINBOW_STOPS = [
-  [0.0, [0, 0, 180]],
-  [0.18, [0, 104, 255]],
-  [0.36, [0, 214, 255]],
-  [0.55, [0, 196, 82]],
-  [0.74, [245, 226, 32]],
-  [0.88, [255, 128, 0]],
-  [1.0, [180, 0, 0]],
+// Engineering-style JET map for post-processing views.
+export const SIMULATION_JET_STOPS = [
+  [0.0, [0, 0, 131]],
+  [0.125, [0, 60, 170]],
+  [0.25, [5, 120, 220]],
+  [0.375, [40, 200, 255]],
+  [0.5, [125, 255, 170]],
+  [0.625, [220, 255, 55]],
+  [0.75, [255, 190, 0]],
+  [0.875, [250, 60, 0]],
+  [1.0, [128, 0, 0]],
 ];
+
+// Backward-compatible alias for existing imports.
+export const SIMULATION_RAINBOW_STOPS = SIMULATION_JET_STOPS;
 
 export const buildColorLookupTable = (stops, size = 256) => {
   const lut = new Uint8ClampedArray(size * 4);
