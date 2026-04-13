@@ -10,7 +10,7 @@
 -->
 
 <template>
-  <div class="wind-performance">
+  <div ref="windPerformanceRoot" class="wind-performance">
     <header class="header">
       <h1>风机性能数据分析</h1>
     </header>
@@ -142,7 +142,7 @@
             <canvas ref="ctComparisonChart"></canvas>
           </div>
           <div class="chart-container">
-            <h2>前后施加力对比</h2>
+            <h2>前后源项系数 fn 对比</h2>
             <canvas ref="fnComparisonChart"></canvas>
           </div>
         </div>
@@ -155,23 +155,29 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>风机编号</th>
+                <th>风机名称</th>
+                <th>求解器编号</th>
                 <th>MPI节点</th>
                 <th>Dxy (m)</th>
-                <th>X (m)</th>
-                <th>Y (m)</th>
-                <th>Z (m)</th>
-                <th>真实高度 (m)</th>
+                <th>工况X (m)</th>
+                <th>工况Y (m)</th>
+                <th>求解器X (m)</th>
+                <th>求解器Y (m)</th>
+                <th>地表Z (m)</th>
+                <th>真实轮毂高度 (m)</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="item in realHighData" :key="item.id">
+                <td>{{ item.displayName }}</td>
                 <td>{{ item.id }}</td>
                 <td>{{ item.node }}</td>
                 <td>{{ item.dxy.toFixed(2) }}</td>
-                <td>{{ item.x.toFixed(1) }}</td>
-                <td>{{ item.y.toFixed(1) }}</td>
-                <td>{{ item.z.toFixed(2) }}</td>
+                <td>{{ formatOptionalNumber(item.caseX, 1) }}</td>
+                <td>{{ formatOptionalNumber(item.caseY, 1) }}</td>
+                <td>{{ item.solverX.toFixed(1) }}</td>
+                <td>{{ item.solverY.toFixed(1) }}</td>
+                <td>{{ item.terrainZ.toFixed(2) }}</td>
                 <td>{{ item.height.toFixed(1) }}</td>
               </tr>
             </tbody>
@@ -182,16 +188,16 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>风机编号</th>
+                <th>风机名称</th>
                 <th>风速 (m/s)</th>
                 <th>功率 (kW)</th>
                 <th>推力系数</th>
-                <th>施加力 (N/m²)</th>
+                <th>源项系数 fn</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="(item, index) in combinedData" :key="`init-${item.id}`">
-                <td>{{ item.id }}</td>
+                <td>{{ item.displayName }}</td>
                 <td>{{ item.initSpeed.toFixed(1) }}</td>
                 <td>{{ item.initPower.toFixed(1) }}</td>
                 <td>{{ item.initCt.toFixed(3) }}</td>
@@ -201,20 +207,20 @@
           </table>
         </div>
         <div class="chart-container">
-          <h2>性能数据</h2>
+          <h2>调整后性能数据</h2>
           <table class="data-table">
             <thead>
               <tr>
-                <th>风机编号</th>
+                <th>风机名称</th>
                 <th>风速 (m/s)</th>
                 <th>功率 (kW)</th>
                 <th>推力系数</th>
-                <th>施加力 (N/m²)</th>
+                <th>源项系数 fn</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="(item, index) in combinedData" :key="`adj-${item.id}`">
-                <td>{{ item.id }}</td>
+                <td>{{ item.displayName }}</td>
                 <td>{{ item.adjSpeed.toFixed(1) }}</td>
                 <td>{{ item.adjPower.toFixed(1) }}</td>
                 <td>{{ item.adjCt.toFixed(3) }}</td>
@@ -242,6 +248,7 @@ import Plotly from 'plotly.js-dist-min';
 import { useCaseStore } from '@/store/caseStore';
 import { useRouter } from 'vue-router';
 import { getApiErrorMessage } from '@/utils/notify.js';
+import { SIMULATION_RAINBOW_STOPS, buildPlotlyColorscale } from '@/utils/colormaps';
 
 // 接收父组件传入的 caseId
 const props = defineProps({
@@ -255,11 +262,13 @@ const props = defineProps({
 const activeTab = ref('overview');
 const loading = ref(true);
 const pageError = ref('');
+const windPerformanceRoot = ref(null);
 
 // 定义三个数据的响应式变量
 const realHighData = ref([]);
 const initPerfData = ref([]);
 const adjPerfData = ref([]);
+const caseInfo = ref(null);
 
 // 图表引用
 const speedComparisonOverviewChart = ref(null);
@@ -282,6 +291,8 @@ let charts = {
   ctComparison: null,
   fnComparison: null
 };
+const plotWheelCleanupHandlers = [];
+const simulationRainbowScale = buildPlotlyColorscale(SIMULATION_RAINBOW_STOPS);
 
 const caseStore = useCaseStore();
 const router = useRouter();
@@ -291,18 +302,109 @@ const getSolverScale = () => {
   return Number.isFinite(rawScale) && rawScale > 0 ? rawScale : 1;
 };
 
-const normalizeRealHighUnits = (rows) => {
+const normalizeSolverLength = (value) => {
   const scale = getSolverScale();
-  if (scale === 1) return rows;
+  if (!Number.isFinite(value)) return null;
+  return scale === 1 ? value : value / scale;
+};
 
-  return rows.map((row) => ({
-    ...row,
-    dxy: row.dxy / scale,
-    x: row.x / scale,
-    y: row.y / scale,
-    z: row.z / scale,
-    height: row.height / scale,
-  }));
+const formatOptionalNumber = (value, digits = 1) => {
+  if (!Number.isFinite(value)) return '-';
+  return Number(value).toFixed(digits);
+};
+
+const fetchCaseInfo = async () => {
+  if (!props.caseId) {
+    caseInfo.value = null;
+    return;
+  }
+
+  try {
+    const response = await axios.get(`/uploads/${props.caseId}/info.json`, {
+      responseType: 'text',
+      transformResponse: [(value) => value],
+    });
+    const raw = typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
+    caseInfo.value = JSON.parse(raw);
+  } catch (error) {
+    console.warn('无法直接读取 info.json，将回退到有限的风机信息。', error?.message || error);
+    caseInfo.value = null;
+  }
+};
+
+const getCaseTurbineMeta = (index) => {
+  const infoTurbine = caseInfo.value?.turbines?.[index];
+  if (infoTurbine) {
+    return {
+      infoId: infoTurbine.id || null,
+      displayName: infoTurbine.name || `WT-${index + 1}`,
+      caseX: Number(infoTurbine.x),
+      caseY: Number(infoTurbine.y),
+      hubHeight: Number(infoTurbine.hub),
+      rotorDiameter: Number(infoTurbine.d),
+      model: infoTurbine.model ?? null,
+    };
+  }
+
+  const storeTurbine = caseStore.windTurbines?.[index];
+  if (storeTurbine) {
+    return {
+      infoId: storeTurbine.id || null,
+      displayName: storeTurbine.name || `WT-${index + 1}`,
+      caseX: null,
+      caseY: null,
+      hubHeight: Number(storeTurbine.hubHeight),
+      rotorDiameter: Number(storeTurbine.rotorDiameter),
+      model: storeTurbine.model ?? null,
+    };
+  }
+
+  return {
+    infoId: null,
+    displayName: `WT-${index + 1}`,
+    caseX: null,
+    caseY: null,
+    hubHeight: null,
+    rotorDiameter: null,
+    model: null,
+  };
+};
+
+const getScrollableParent = () => {
+  return windPerformanceRoot.value?.closest('.sub-main-content') || null;
+};
+
+const clearPlotWheelPassthrough = () => {
+  while (plotWheelCleanupHandlers.length) {
+    const cleanup = plotWheelCleanupHandlers.pop();
+    try { cleanup?.(); } catch { /* ignore */ }
+  }
+};
+
+const bindPlotWheelToPageScroll = (element) => {
+  if (!element) return;
+
+  const wheelHandler = (event) => {
+    const scrollParent = getScrollableParent();
+    if (!scrollParent || scrollParent.scrollHeight <= scrollParent.clientHeight + 1) return;
+    event.preventDefault();
+    scrollParent.scrollTop += event.deltaY;
+  };
+
+  const targets = new Set([
+    element,
+    ...element.querySelectorAll('.plotly, .plot-container, .svg-container, .main-svg, .draglayer, .nsewdrag, .gl-container, canvas'),
+  ]);
+
+  targets.forEach((target) => {
+    target.addEventListener('wheel', wheelHandler, { passive: false });
+  });
+
+  plotWheelCleanupHandlers.push(() => {
+    targets.forEach((target) => {
+      target.removeEventListener('wheel', wheelHandler);
+    });
+  });
 };
 
 const goToCalculation = () => {
@@ -344,6 +446,8 @@ const ensureCaseLoaded = async (id) => {
 };
 
 const clearChartsAndPlots = () => {
+  clearPlotWheelPassthrough();
+
   try {
     Object.keys(charts).forEach((key) => {
       const chart = charts[key];
@@ -412,42 +516,59 @@ function parseRealHigh(content) {
   const lines = content.trim().split('\n').filter(line => line.trim());
   const data = [];
 
-  lines.forEach(line => {
+  lines.forEach((line, index) => {
     const tokens = line.trim().split(/\s+/);
-    let id, node, dxy, x, y, z, height;
+    let id;
+    let node;
+    let dxy;
+    let solverX;
+    let solverY;
+    let terrainZ;
+    let height;
 
     if (tokens.length >= 7) {
-      // 尝试匹配格式: "WT-1 on Node-0 0.5 10.0 100.0 0.2 100.2"
       const idNodeMatch = line.match(/^([\w-]+)\s+on\s+([\w-]+)/);
 
       if (idNodeMatch) {
-        // 格式匹配成功，提取ID和Node
         id = idNodeMatch[1];
         node = idNodeMatch[2];
 
-        // 提取后面的数值
         const values = line.replace(idNodeMatch[0], '').trim().split(/\s+/);
         if (values.length >= 5) {
           dxy = parseFloat(values[0]);
-          x = parseFloat(values[1]);
-          y = parseFloat(values[2]);
-          z = parseFloat(values[3]);
+          solverX = parseFloat(values[1]);
+          solverY = parseFloat(values[2]);
+          terrainZ = parseFloat(values[3]);
           height = parseFloat(values[4]);
         }
       } else {
-        // 如果不匹配上面的格式，尝试直接按顺序解析
         id = tokens[0];
         node = tokens[1];
         dxy = parseFloat(tokens[2]);
-        x = parseFloat(tokens[3]);
-        y = parseFloat(tokens[4]);
-        z = parseFloat(tokens[5]);
+        solverX = parseFloat(tokens[3]);
+        solverY = parseFloat(tokens[4]);
+        terrainZ = parseFloat(tokens[5]);
         height = parseFloat(tokens[6]);
       }
 
-      // 确保所有数值都是有效的
-      if (!isNaN(dxy) && !isNaN(x) && !isNaN(y) && !isNaN(z) && !isNaN(height)) {
-        data.push({ id, node, dxy, x, y, z, height });
+      if (![dxy, solverX, solverY, terrainZ, height].some(Number.isNaN)) {
+        const meta = getCaseTurbineMeta(index);
+        data.push({
+          id,
+          infoId: meta.infoId,
+          displayName: meta.displayName,
+          node,
+          dxy: normalizeSolverLength(dxy),
+          caseX: Number.isFinite(meta.caseX) ? meta.caseX : null,
+          caseY: Number.isFinite(meta.caseY) ? meta.caseY : null,
+          solverX: normalizeSolverLength(solverX),
+          solverY: normalizeSolverLength(solverY),
+          terrainZ: normalizeSolverLength(terrainZ),
+          height: normalizeSolverLength(height),
+          hubHeight: Number.isFinite(meta.hubHeight) ? meta.hubHeight : null,
+          rotorDiameter: Number.isFinite(meta.rotorDiameter) ? meta.rotorDiameter : null,
+          model: meta.model,
+        });
       }
     }
   });
@@ -455,17 +576,23 @@ function parseRealHigh(content) {
   return data;
 }
 
-// 解析性能数据（INIT 与 ADJUST文件格式：四个数字）
-function parsePerformance(content) {
+function parsePerformance(content, sourceName) {
   const lines = content.trim().split('\n').filter(line => line.trim());
-  return lines.map(line => {
+  return lines.map((line, index) => {
     const tokens = line.trim().split(/\s+/);
-    return {
-      speed: parseFloat(tokens[0]),
-      power: parseFloat(tokens[1]),
-      ct: parseFloat(tokens[2]),
-      fn: parseFloat(tokens[3])
-    };
+    if (tokens.length < 4) {
+      throw new Error(`${sourceName} 第 ${index + 1} 行列数不足，预期 4 列。`);
+    }
+
+    const speed = parseFloat(tokens[0]);
+    const power = parseFloat(tokens[1]);
+    const ct = parseFloat(tokens[2]);
+    const fn = parseFloat(tokens[3]);
+    if ([speed, power, ct, fn].some((value) => !Number.isFinite(value))) {
+      throw new Error(`${sourceName} 第 ${index + 1} 行包含非法数值。`);
+    }
+
+    return { speed, power, ct, fn };
   });
 }
 
@@ -478,6 +605,8 @@ const combinedData = computed(() => {
 
       return {
         ...item,
+        displayName: item.displayName,
+        infoId: item.infoId,
         initSpeed: init.speed,
         initPower: init.power,
         initCt: init.ct,
@@ -497,21 +626,38 @@ const combinedData = computed(() => {
 });
 
 // 统计数据
-const turbineCount = computed(() => realHighData.value.length || 0);
+const turbineCount = computed(() => combinedData.value.length || 0);
 const avgSpeed = computed(() => {
-  if (adjPerfData.value.length === 0) return "-";
-  const sum = adjPerfData.value.reduce((acc, cur) => acc + cur.speed, 0);
-  return (sum / adjPerfData.value.length).toFixed(1);
+  if (combinedData.value.length === 0) return "-";
+  const sum = combinedData.value.reduce((acc, cur) => acc + cur.adjSpeed, 0);
+  return (sum / combinedData.value.length).toFixed(1);
 });
 const totalPower = computed(() => {
-  if (adjPerfData.value.length === 0) return "-";
-  return adjPerfData.value.reduce((acc, cur) => acc + cur.power, 0).toFixed(0);
+  if (combinedData.value.length === 0) return "-";
+  return combinedData.value.reduce((acc, cur) => acc + cur.adjPower, 0).toFixed(0);
 });
 const avgCt = computed(() => {
-  if (adjPerfData.value.length === 0) return "-";
-  const sum = adjPerfData.value.reduce((acc, cur) => acc + cur.ct, 0);
-  return (sum / adjPerfData.value.length).toFixed(3);
+  if (combinedData.value.length === 0) return "-";
+  const sum = combinedData.value.reduce((acc, cur) => acc + cur.adjCt, 0);
+  return (sum / combinedData.value.length).toFixed(3);
 });
+
+const getChartLabels = () => combinedData.value.map((item) => item.displayName || item.id);
+
+const buildAxisBounds = (values, fallbackMin = 0, fallbackMax = 1) => {
+  const valid = values.filter((value) => Number.isFinite(value));
+  if (!valid.length) {
+    return { suggestedMin: fallbackMin, suggestedMax: fallbackMax };
+  }
+
+  const minValue = Math.min(...valid);
+  const maxValue = Math.max(...valid);
+  const padding = Math.max((maxValue - minValue) * 0.12, 0.5);
+  return {
+    suggestedMin: minValue - padding,
+    suggestedMax: maxValue + padding,
+  };
+};
 
 // 调用API获取数据
 async function fetchData() {
@@ -527,6 +673,8 @@ async function fetchData() {
     }
 
     clearChartsAndPlots();
+    clearPlotWheelPassthrough();
+    await fetchCaseInfo();
 
     const requests = [
       { name: 'Output02-realHigh', url: `/api/cases/${props.caseId}/output-file/Output02-realHigh` },
@@ -561,9 +709,18 @@ async function fetchData() {
     }
 
     // 解析数据
-    realHighData.value = normalizeRealHighUnits(parseRealHigh(contents['Output02-realHigh']));
-    initPerfData.value = parsePerformance(contents['Output04-U-P-Ct-fn(INIT)']);
-    adjPerfData.value = parsePerformance(contents['Output06-U-P-Ct-fn(ADJUST)']);
+    realHighData.value = parseRealHigh(contents['Output02-realHigh']);
+    initPerfData.value = parsePerformance(contents['Output04-U-P-Ct-fn(INIT)'], 'Output04-U-P-Ct-fn(INIT)');
+    adjPerfData.value = parsePerformance(contents['Output06-U-P-Ct-fn(ADJUST)'], 'Output06-U-P-Ct-fn(ADJUST)');
+
+    const infoTurbineCount = Array.isArray(caseInfo.value?.turbines) ? caseInfo.value.turbines.length : 0;
+    if (infoTurbineCount && infoTurbineCount !== realHighData.value.length) {
+      pageError.value = `info.json 中风机数量 (${infoTurbineCount}) 与 Output02-realHigh 行数 (${realHighData.value.length}) 不一致，无法安全映射空间位置。`;
+      realHighData.value = [];
+      initPerfData.value = [];
+      adjPerfData.value = [];
+      return;
+    }
 
     const lengths = [
       realHighData.value.length,
@@ -626,6 +783,7 @@ const chartColors = {
 // 渲染所有图表
 function renderCharts() {
   clearChartsAndPlots();
+  clearPlotWheelPassthrough();
 
   renderSpeedComparisonOverviewChart();
   renderPowerComparisonOverviewChart();
@@ -642,7 +800,7 @@ if (!ctx) return;
   charts.speedComparisonOverview = new Chart(ctx, {
     type: 'bar',
     data: {
-      labels: combinedData.value.map(item => item.id),
+      labels: getChartLabels(),
       datasets: [
         {
           label: '入流风速 (m/s)',
@@ -669,14 +827,13 @@ if (!ctx) return;
         tooltip: { mode: 'index', intersect: false }
       },
       scales: {
-y: {
-  beginAtZero: false,
-  title: { display: true, text: '风速 (m/s)' },
-  suggestedMin: 9,  // Set slightly below your constant initial wind speed (10)
-  suggestedMax: Math.max(...combinedData.value.map(item => item.adjSpeed)) + 2 // Set based on the maximum adjusted wind speed, plus a small buffer
-},
-x: { title: { display: true, text: '风机编号' } }
-}
+        y: {
+          beginAtZero: false,
+          title: { display: true, text: '风速 (m/s)' },
+          ...buildAxisBounds(combinedData.value.flatMap((item) => [item.initSpeed, item.adjSpeed]), 0, 15),
+        },
+        x: { title: { display: true, text: '风机名称' } }
+      }
     }
   });
 }
@@ -689,7 +846,7 @@ function renderPowerComparisonOverviewChart() {
   charts.powerComparisonOverview = new Chart(ctx, {
     type: 'bar',
     data: {
-      labels: combinedData.value.map(item => item.id),
+      labels: getChartLabels(),
       datasets: [
         {
           label: '入流功率 (kW)',
@@ -736,7 +893,7 @@ function renderPowerComparisonOverviewChart() {
           beginAtZero: false,
           title: { display: true, text: '功率 (kW)' }
         },
-        x: { title: { display: true, text: '风机编号' } }
+        x: { title: { display: true, text: '风机名称' } }
       }
     }
   });
@@ -752,28 +909,24 @@ function renderPerformanceOverviewChart() {
     name: '风机性能',
     x: combinedData.value.map(item => item.adjSpeed),
     y: combinedData.value.map(item => item.adjPower),
-    text: combinedData.value.map(item => item.id),
+    text: getChartLabels(),
     marker: {
       size: combinedData.value.map(item => Math.max(item.adjCt * 50, 12)), // 确保点的最小大小
       color: combinedData.value.map(item => item.height),
-      colorscale: [
-        [0, 'rgb(66, 133, 244)'],   // 蓝色
-        [0.5, 'rgb(52, 168, 83)'],  // 绿色
-        [1, 'rgb(234, 67, 53)']     // 红色
-      ],
+      colorscale: simulationRainbowScale,
       showscale: true,
-      colorbar: { title: '高度 (m)', thickness: 20 }
+      colorbar: { title: '真实轮毂高度 (m)', thickness: 20 }
     },
     hovertemplate: '<b>%{text}</b><br>' +
       '风速: %{x:.1f} m/s<br>' +
-      '功率: %{customdata[0]:.1f} kW<br>' + // 直接使用原始功率值
-      '推力系数: %{customdata[1]:.3f}<br>' + // 新增推力系数显示
+      '功率: %{customdata[0]:.1f} kW<br>' +
+      '推力系数: %{customdata[1]:.3f}<br>' +
       '高度: %{marker.color:.1f} m<br>' +
       '<extra></extra>',
-      customdata: combinedData.value.map(item => [
-    item.adjPower,  // 原始功率值（未除以100）
-    item.adjCt      // 原始推力系数值（未乘以50）
-  ]) // 存储原始功率值用于悬停显示
+    customdata: combinedData.value.map(item => [
+      item.adjPower,
+      item.adjCt
+    ])
   }];
 
   const layout = {
@@ -788,9 +941,10 @@ function renderPerformanceOverviewChart() {
     font: { family: 'Arial, sans-serif' }
   };
 
-  const config = { responsive: true };
+  const config = { responsive: true, scrollZoom: false, displaylogo: false };
 
-  Plotly.newPlot(performanceOverviewChart.value, data, layout, config);
+  void Plotly.newPlot(performanceOverviewChart.value, data, layout, config)
+    .then(() => bindPlotWheelToPageScroll(performanceOverviewChart.value));
 }
 
 // 空间分布图（三维和二维）
@@ -803,18 +957,14 @@ function renderSpatialDistributionCharts() {
     const data3D = [{
       type: 'scatter3d',
       mode: 'markers',
-      x: combinedData.value.map(item => item.x),
-      y: combinedData.value.map(item => item.y),
+      x: combinedData.value.map(item => item.caseX ?? item.solverX),
+      y: combinedData.value.map(item => item.caseY ?? item.solverY),
       z: combinedData.value.map(item => item.height),
-      text: combinedData.value.map(item => item.id),
+      text: getChartLabels(),
       marker: {
         size: 8,
         color: combinedData.value.map(item => item.adjPower),
-        colorscale: [
-          [0, 'rgb(66, 133, 244)'],   // 蓝色
-          [0.5, 'rgb(52, 168, 83)'],  // 绿色
-          [1, 'rgb(234, 67, 53)']     // 红色
-        ],
+        colorscale: simulationRainbowScale,
         showscale: true,
         colorbar: { title: '功率 (kW)', thickness: 20 }
       },
@@ -827,7 +977,7 @@ function renderSpatialDistributionCharts() {
     }];
 
     const layout3D = {
-      title: { text: '风机三维空间分布', font: { size: 16 } },
+      title: { text: '风机三维空间分布（工况坐标系）', font: { size: 16 } },
       autosize: true,
       scene: {
         xaxis: { title: 'X坐标 (m)' },
@@ -843,7 +993,8 @@ function renderSpatialDistributionCharts() {
       font: { family: 'Arial, sans-serif' }
     };
 
-    Plotly.newPlot(spatialDistribution3DChart.value, data3D, layout3D, { responsive: true });
+    void Plotly.newPlot(spatialDistribution3DChart.value, data3D, layout3D, { responsive: true, scrollZoom: false, displaylogo: false })
+      .then(() => bindPlotWheelToPageScroll(spatialDistribution3DChart.value));
   }
 
   // 二维空间分布图
@@ -854,17 +1005,13 @@ function renderSpatialDistributionCharts() {
     const data2D = [{
       type: 'scatter',
       mode: 'markers',
-      x: combinedData.value.map(item => item.x),
-      y: combinedData.value.map(item => item.y),
-      text: combinedData.value.map(item => item.id),
+      x: combinedData.value.map(item => item.caseX ?? item.solverX),
+      y: combinedData.value.map(item => item.caseY ?? item.solverY),
+      text: getChartLabels(),
       marker: {
         size: 12,
         color: combinedData.value.map(item => item.adjPower),
-        colorscale: [
-          [0, 'rgb(66, 133, 244)'],   // 蓝色
-          [0.5, 'rgb(52, 168, 83)'],  // 绿色
-          [1, 'rgb(234, 67, 53)']     // 红色
-        ],
+        colorscale: simulationRainbowScale,
         showscale: true,
         colorbar: { title: '功率 (kW)', thickness: 20 }
       },
@@ -874,13 +1021,13 @@ function renderSpatialDistributionCharts() {
         '风速: %{customdata[0]:.1f} m/s<br>' +
         '功率: %{marker.color:.1f} kW<br>' +
         '推力系数: %{customdata[1]:.3f}<br>' +
-        '施加力: %{customdata[2]:.1f} N/m²<br>' +
+        '源项系数 fn: %{customdata[2]:.1f}<br>' +
         '<extra></extra>',
       customdata: combinedData.value.map(item => [item.adjSpeed, item.adjCt, item.adjFn])
     }];
 
     const layout2D = {
-      title: { text: '风机平面位置分布', font: { size: 16 } },
+      title: { text: '风机平面位置分布（工况坐标系）', font: { size: 16 } },
       autosize: true,
       xaxis: { title: 'X坐标 (m)' },
       yaxis: { title: 'Y坐标 (m)' },
@@ -891,7 +1038,8 @@ function renderSpatialDistributionCharts() {
       font: { family: 'Arial, sans-serif' }
     };
 
-    Plotly.newPlot(spatialDistribution2DChart.value, data2D, layout2D, { responsive: true });
+    void Plotly.newPlot(spatialDistribution2DChart.value, data2D, layout2D, { responsive: true, scrollZoom: false, displaylogo: false })
+      .then(() => bindPlotWheelToPageScroll(spatialDistribution2DChart.value));
   }
 }
 
@@ -906,28 +1054,28 @@ function renderPerformanceChangeChart() {
     {
       type: 'bar',
       name: '风速变化率 (%)',
-      x: combinedData.value.map(item => item.id),
+      x: getChartLabels(),
       y: combinedData.value.map(item => item.speedChange),
       marker: { color: 'rgba(66, 133, 244, 0.8)' }
     },
     {
       type: 'bar',
       name: '功率变化率 (%)',
-      x: combinedData.value.map(item => item.id),
+      x: getChartLabels(),
       y: combinedData.value.map(item => item.powerChange),
       marker: { color: 'rgba(234, 67, 53, 0.8)' }
     },
     {
       type: 'bar',
       name: '推力系数变化率 (%)',
-      x: combinedData.value.map(item => item.id),
+      x: getChartLabels(),
       y: combinedData.value.map(item => item.ctChange),
       marker: { color: 'rgba(52, 168, 83, 0.8)' }
     },
     {
       type: 'bar',
-      name: '施加力变化率 (%)',
-      x: combinedData.value.map(item => item.id),
+      name: '源项系数 fn 变化率 (%)',
+      x: getChartLabels(),
       y: combinedData.value.map(item => item.fnChange),
       marker: { color: 'rgba(251, 188, 5, 0.8)' }
     }
@@ -936,7 +1084,7 @@ function renderPerformanceChangeChart() {
   const layout = {
     title: { text: '各风机性能变化率', font: { size: 16 } },
     autosize: true,
-    xaxis: { title: '风机编号' },
+    xaxis: { title: '风机名称' },
     yaxis: { title: '变化率 (%)' },
     barmode: 'group',
     bargap: 0.15,
@@ -947,9 +1095,10 @@ function renderPerformanceChangeChart() {
     font: { family: 'Arial, sans-serif' }
   };
 
-  const config = { responsive: true };
+  const config = { responsive: true, scrollZoom: false, displaylogo: false };
 
-  Plotly.newPlot(performanceChangeChart.value, data, layout, config);
+  void Plotly.newPlot(performanceChangeChart.value, data, layout, config)
+    .then(() => bindPlotWheelToPageScroll(performanceChangeChart.value));
 }
 
 // 渲染对比图表
@@ -960,7 +1109,7 @@ function renderComparisonCharts() {
     charts.speedComparison = new Chart(speedCtx, {
       type: 'bar',
       data: {
-        labels: combinedData.value.map(item => item.id),
+        labels: getChartLabels(),
         datasets: [
           {
             label: '初始风速 (m/s)',
@@ -986,14 +1135,13 @@ function renderComparisonCharts() {
           legend: { position: 'top' }
         },
         scales: {
-y: {
-  beginAtZero: false,
-  title: { display: true, text: '风速 (m/s)' },
-  suggestedMin: 9,  // Set slightly below your constant initial wind speed (10)
-  suggestedMax: Math.max(...combinedData.value.map(item => item.adjSpeed)) + 2 // Set based on the maximum adjusted wind speed, plus a small buffer
-},
-x: { title: { display: true, text: '风机编号' } }
-}
+          y: {
+            beginAtZero: false,
+            title: { display: true, text: '风速 (m/s)' },
+            ...buildAxisBounds(combinedData.value.flatMap((item) => [item.initSpeed, item.adjSpeed]), 0, 15),
+          },
+          x: { title: { display: true, text: '风机名称' } }
+        }
       }
     });
   }
@@ -1004,7 +1152,7 @@ x: { title: { display: true, text: '风机编号' } }
     charts.powerComparison = new Chart(powerCtx, {
       type: 'bar',
       data: {
-        labels: combinedData.value.map(item => item.id),
+        labels: getChartLabels(),
         datasets: [
           {
             label: '初始功率 (kW)',
@@ -1046,7 +1194,7 @@ x: { title: { display: true, text: '风机编号' } }
         },
         scales: {
           y: { beginAtZero: false, title: { display: true, text: '功率 (kW)' } },
-          x: { title: { display: true, text: '风机编号' } }
+          x: { title: { display: true, text: '风机名称' } }
         }
       }
     });
@@ -1058,7 +1206,7 @@ x: { title: { display: true, text: '风机编号' } }
     charts.ctComparison = new Chart(ctCtx, {
       type: 'bar',
       data: {
-        labels: combinedData.value.map(item => item.id),
+        labels: getChartLabels(),
         datasets: [
           {
             label: '初始推力系数',
@@ -1085,29 +1233,29 @@ x: { title: { display: true, text: '风机编号' } }
         },
         scales: {
           y: { beginAtZero: false, title: { display: true, text: '推力系数' } },
-          x: { title: { display: true, text: '风机编号' } }
+          x: { title: { display: true, text: '风机名称' } }
         }
       }
     });
   }
 
-  // 施加力对比图
+  // 源项系数 fn 对比图
   const fnCtx = fnComparisonChart.value?.getContext('2d');
   if (fnCtx) {
     charts.fnComparison = new Chart(fnCtx, {
       type: 'bar',
       data: {
-        labels: combinedData.value.map(item => item.id),
+        labels: getChartLabels(),
         datasets: [
           {
-            label: '初始施加力 (N/m²)',
+            label: '初始源项系数 fn',
             data: combinedData.value.map(item => item.initFn),
             backgroundColor: chartColors.initFn,
             borderColor: 'rgba(251, 188, 5, 1)',
             borderWidth: 1
           },
           {
-            label: '调整后施加力 (N/m²)',
+            label: '调整后源项系数 fn',
             data: combinedData.value.map(item => item.adjFn),
             backgroundColor: chartColors.adjFn,
             borderColor: 'rgba(251, 188, 5, 1)',
@@ -1123,8 +1271,8 @@ x: { title: { display: true, text: '风机编号' } }
           legend: { position: 'top' }
         },
         scales: {
-          y: { beginAtZero: false, title: { display: true, text: '施加力 (N/m²)' } },
-          x: { title: { display: true, text: '风机编号' } }
+          y: { beginAtZero: false, title: { display: true, text: '源项系数 fn' } },
+          x: { title: { display: true, text: '风机名称' } }
         }
       }
     });
@@ -1141,6 +1289,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize);
+  clearPlotWheelPassthrough();
   clearChartsAndPlots();
 });
 
@@ -1155,12 +1304,14 @@ defineExpose({
 <style scoped>
 .wind-performance {
   max-width: 1280px;
+  min-height: 100%;
   margin: 0 auto;
   padding: 20px;
   font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
   background-color: #f9f9fb;
   border-radius: 12px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  overscroll-behavior: contain;
 }
 
 .header {
@@ -1229,6 +1380,11 @@ defineExpose({
   transition: all 0.2s ease;
   min-height: 400px; /* Added min-height */
   overflow: hidden; /* Added overflow: hidden */
+}
+
+.chart-container :deep(.js-plotly-plot),
+.chart-container :deep(.plot-container) {
+  touch-action: pan-y;
 }
 
 .chart-container:hover {

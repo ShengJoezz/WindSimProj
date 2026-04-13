@@ -126,7 +126,7 @@
                 :class="{ visible: isSpeedFieldReady }"
               ></canvas>
               <div v-if="isSpeedFieldReady" class="speed-field-legend">
-                <div class="legend-bar"></div>
+                <div class="legend-bar" :style="speedFieldLegendBarStyle"></div>
                 <div class="legend-labels">
                   <span v-for="tick in speedFieldLegendTicks" :key="tick">{{ tick }}</span>
                 </div>
@@ -205,6 +205,7 @@ import { debounce } from 'lodash-es';
 import { ElMessage, ElSlider, ElSelect, ElOption, ElCard, ElIcon, ElButtonGroup, ElTooltip, ElRow, ElCol, ElDescriptions, ElDescriptionsItem, ElInputNumber, ElButton, ElAlert } from 'element-plus';
 // Import the updated service function
 import { getMetadata, getVolumeData, getProfileData, getWakeData, findClosestIndex, clearClientCaseCache, getPointWindSpeed } from '@/services/visualizationService';
+import { SIMULATION_RAINBOW_STOPS, buildColorLookupTable, buildCssGradient } from '@/utils/colormaps';
 import { useCaseStore } from '@/store/caseStore';
 import { useRouter } from 'vue-router';
 
@@ -238,43 +239,7 @@ const colorScheme = {
   chartColors: ['#409EFF', '#67C23A', '#E6A23C', '#F56C6C', '#909399']
 };
 
-const VIRIDIS_STOPS = [
-  [0.0, [68, 1, 84]],
-  [0.13, [71, 44, 122]],
-  [0.25, [59, 81, 139]],
-  [0.38, [44, 113, 142]],
-  [0.5, [33, 144, 141]],
-  [0.63, [39, 173, 129]],
-  [0.75, [92, 200, 99]],
-  [0.88, [170, 220, 50]],
-  [1.0, [253, 231, 37]],
-];
-
-const buildViridisLookupTable = (size = 256) => {
-  const lut = new Uint8ClampedArray(size * 4);
-  for (let i = 0; i < size; i++) {
-    const t = size === 1 ? 0 : i / (size - 1);
-    let left = VIRIDIS_STOPS[0];
-    let right = VIRIDIS_STOPS[VIRIDIS_STOPS.length - 1];
-    for (let j = 1; j < VIRIDIS_STOPS.length; j++) {
-      if (t <= VIRIDIS_STOPS[j][0]) {
-        left = VIRIDIS_STOPS[j - 1];
-        right = VIRIDIS_STOPS[j];
-        break;
-      }
-    }
-    const localRange = Math.max(1e-6, right[0] - left[0]);
-    const mix = Math.max(0, Math.min(1, (t - left[0]) / localRange));
-    const offset = i * 4;
-    lut[offset] = Math.round(left[1][0] + (right[1][0] - left[1][0]) * mix);
-    lut[offset + 1] = Math.round(left[1][1] + (right[1][1] - left[1][1]) * mix);
-    lut[offset + 2] = Math.round(left[1][2] + (right[1][2] - left[1][2]) * mix);
-    lut[offset + 3] = 255;
-  }
-  return lut;
-};
-
-const speedFieldColorLut = buildViridisLookupTable();
+const speedFieldColorLut = buildColorLookupTable(SIMULATION_RAINBOW_STOPS);
 const MAX_SPEED_FIELD_PIXELS = 950000;
 
 // --- Props ---
@@ -341,6 +306,10 @@ const speedFieldLegendTicks = computed(() => {
     return value.toFixed(1);
   });
 });
+
+const speedFieldLegendBarStyle = computed(() => ({
+  background: buildCssGradient(SIMULATION_RAINBOW_STOPS),
+}));
 
 const showPrecomputeLog = computed(() => {
   const status = caseStore.visualizationStatus;
@@ -1415,14 +1384,6 @@ onUnmounted(() => {
   width: 14px;
   height: 160px;
   border-radius: 999px;
-  background: linear-gradient(
-    180deg,
-    rgb(253, 231, 37) 0%,
-    rgb(92, 200, 99) 25%,
-    rgb(33, 144, 141) 50%,
-    rgb(59, 81, 139) 75%,
-    rgb(68, 1, 84) 100%
-  );
   box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
 }
 

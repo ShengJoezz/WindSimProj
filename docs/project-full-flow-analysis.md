@@ -500,6 +500,14 @@ flowchart TD
 4. 对齐三组数据长度
 5. 渲染图表
 
+### 当前已核实口径
+
+- `Output02-realHigh`、`Output04-U-P-Ct-fn(INIT)`、`Output06-U-P-Ct-fn(ADJUST)` 在求解器里按同一风机循环顺序输出，所以三者可以按行号严格对齐。
+- `Output02-realHigh` 中的 `X/Y` 是求解器内部旋转后的坐标，不应直接当作地形页/布机页的工况坐标展示。用户可视化坐标应优先使用 `info.json` 中的风机 `x/y`，求解器坐标更适合作为原始输出附带展示。
+- `fn` 不是前端之前写的 `N/m²` 压强口径。结合 `roughFoam.cpp` 与 `0/SourceT` 的量纲，它更接近求解器动量源项系数，应在页面中按 `源项系数 fn` 之类的原始术语展示，避免误导成物理压力。
+- `/wind-management` 页面本身容器是可滚动的，真实卡点在于 Plotly 图层会吞掉滚轮事件。当前处理方式是关闭 Plotly 的 `scrollZoom`，并把图内滚轮事件透传给 `.sub-main-content` 滚动容器。
+- 风机概览与对比图当前应统一按风机名称展示横轴，而不是再混用求解器编号与名称。
+
 ## 4.8 速度场分析页 `SpeedVisualization.vue`
 
 ### 页面职责
@@ -534,6 +542,12 @@ flowchart TD
 - 主计算必须先完成
 - `visualization_cache/metadata.json` 必须存在，或者需要先运行预计算
 - 主页面当前不再依赖预生成 PNG 才能切换高度，PNG 切片接口更多保留给兼容/测试组件使用
+
+### 当前展示口径
+
+- 主切面数据源是 `speed.bin`，前端首次读取后缓存为体数据，并在浏览器内对 `x/y/z` 做线性插值，因此高度条可以连续展示任意水平面。
+- 已验证在 `testmi` 工况中从 `20.0 m` 调到 `20.1 m` 时，页面读数会变化，但不会新增 `visualization-slice` 请求，说明平滑来自真实体数据插值，而不是 PNG 切图或二次缩放。
+- 当前色标已经统一切到更接近常见仿真后处理观感的工程彩虹带，和 `WindTurbineManagement.vue` 的 Plotly colorscale 共用同一份颜色定义，避免不同页面出现同一物理量却不同配色语义的情况。
 
 ## 5. 上传入口总表
 
