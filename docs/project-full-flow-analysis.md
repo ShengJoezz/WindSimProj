@@ -521,7 +521,7 @@ flowchart TD
 
 | 控件 | 行为 | 后端接口 |
 | --- | --- | --- |
-| 高度滑块 | 在已加载的 `speed.bin` 上做本地高度插值并重绘 Canvas | 首次进入读取 `GET /visualization-metadata` 与 `/uploads/<caseId>/speed.bin`，拖动时不再请求切片接口 |
+| 高度滑块 | 在已加载的 `speed.bin` 上做本地高度插值并重绘 Canvas，当前默认拖动粒度为 `0.1m` | 首次进入读取 `GET /visualization-metadata` 与 `/uploads/<caseId>/speed.bin`，拖动时不再请求切片接口 |
 | 风机下拉 | 切换风机对象 | `GET /visualization-profile/:turbineId`、`GET /visualization-wake/:turbineId` |
 | 单点查询 `查询` | 查询某点风速 | `GET /query-wind-speed` |
 | 下载廓线 CSV | 导出当前风廓线 | 前端本地导出 |

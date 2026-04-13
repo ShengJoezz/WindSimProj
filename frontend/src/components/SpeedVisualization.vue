@@ -322,8 +322,8 @@ const maxHeight = computed(() => {
 });
 const heightSliderStep = computed(() => {
   const range = maxHeight.value - minHeight.value;
-  if (!Number.isFinite(range) || range <= 0) return 1;
-  return range > 200 ? 1 : 0.5;
+  if (!Number.isFinite(range) || range <= 0) return 0.1;
+  return range > 500 ? 0.5 : 0.1;
 });
 
 const isVisualizationReady = computed(() => {
