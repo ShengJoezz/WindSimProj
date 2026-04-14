@@ -29,6 +29,26 @@ volVectorField Cxy(
         IOobject::AUTO_WRITE),
     mesh);
 
+volScalarField roughCd(
+    IOobject(
+        "roughCd",
+        runTime.timeName(),
+        mesh,
+        IOobject::NO_READ,
+        IOobject::NO_WRITE),
+    mesh,
+    dimensionedScalar("zero", dimless, 0.0));
+
+volScalarField roughLAD(
+    IOobject(
+        "roughLAD",
+        runTime.timeName(),
+        mesh,
+        IOobject::NO_READ,
+        IOobject::NO_WRITE),
+    mesh,
+    dimensionedScalar("zero", dimensionSet(0, -1, 0, 0, 0, 0, 0), 0.0));
+
 volScalarField U_mag(
     IOobject(
         "U_mag",
@@ -46,6 +66,16 @@ volVectorField RoughT(
         IOobject::MUST_READ,        // 正确：你有初始文件
         IOobject::AUTO_WRITE),
     mesh);
+
+volScalarField RoughDiag(
+    IOobject(
+        "RoughDiag",
+        runTime.timeName(),
+        mesh,
+        IOobject::NO_READ,
+        IOobject::NO_WRITE),
+    mesh,
+    dimensionedScalar("zero", dimensionSet(0, 0, -1, 0, 0, 0, 0), 0.0));
 
 volVectorField SourceT(
     IOobject(

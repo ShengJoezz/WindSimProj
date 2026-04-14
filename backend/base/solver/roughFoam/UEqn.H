@@ -7,8 +7,9 @@
         fvm::div(phi, U)
       + MRF.DDt(U)
       + turbulence->divDevReff(U)
+      + fvm::Sp(RoughDiag, U)
      ==
-        fvOptions(U)+SourceT+RoughT
+        fvOptions(U)+SourceT
     );
     fvVectorMatrix& UEqn = tUEqn.ref();
 

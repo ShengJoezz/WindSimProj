@@ -60,6 +60,7 @@
           </el-form-item>
           <el-form-item label="入口剖面" prop="conditions.inflowProfile" :inline="true" class="child-form-item">
             <el-select v-model="caseStore.parameters.conditions.inflowProfile" class="input-number" :disabled="caseStore.infoExists">
+              <el-option label="旧工程兼容（固定 k/epsilon）" value="legacy_fixed" />
               <el-option label="均匀入口" value="uniform" />
               <el-option label="ABL 对数律" value="abl_log" />
             </el-select>
@@ -92,7 +93,7 @@
             <el-input-number v-model="caseStore.parameters.conditions.displacementHeight" :min="0" :step="0.5" class="input-number" :disabled="caseStore.infoExists"/>
           </el-form-item>
           <el-form-item
-            v-if="!usesAblInflow"
+            v-if="usesLinkedUniformInflow"
             label="湍流强度 TI"
             prop="conditions.turbulenceIntensity"
             :inline="true"
@@ -101,7 +102,7 @@
             <el-input-number v-model="caseStore.parameters.conditions.turbulenceIntensity" :min="0.001" :max="1" :step="0.01" class="input-number" :disabled="caseStore.infoExists"/>
           </el-form-item>
           <el-form-item
-            v-if="!usesAblInflow"
+            v-if="usesLinkedUniformInflow"
             label="湍流长度尺度 L (m)"
             prop="conditions.turbulenceLengthScale"
             :inline="true"
@@ -1158,14 +1159,22 @@ onBeforeUnmount(() => {
 });
 
 const usesAblInflow = computed(() => caseStore.parameters.conditions.inflowProfile === 'abl_log');
-const inflowModeNoticeTitle = computed(() => (
-  usesAblInflow.value ? 'ABL 对数律入口已启用' : '均匀入口已启用'
-));
-const inflowModeNoticeDescription = computed(() => (
-  usesAblInflow.value
-    ? '求解器将使用 OpenFOAM 官方 atmBoundaryLayerInletVelocity / K / Epsilon 边界条件，根据 Uref、Zref、z0 和 d 生成中性 ABL 平衡剖面。'
-    : '求解器将按 k = 1.5 (U * TI)^2、epsilon = Cmu^0.75 * k^1.5 / L 自动联动生成湍流入口，不再使用固定写死的 k / epsilon。'
-));
+const usesLegacyInflow = computed(() => caseStore.parameters.conditions.inflowProfile === 'legacy_fixed');
+const usesLinkedUniformInflow = computed(() => caseStore.parameters.conditions.inflowProfile === 'uniform');
+const inflowModeNoticeTitle = computed(() => {
+  if (usesAblInflow.value) return 'ABL 对数律入口已启用';
+  if (usesLegacyInflow.value) return '旧工程兼容入口已启用';
+  return '均匀入口已启用';
+});
+const inflowModeNoticeDescription = computed(() => {
+  if (usesAblInflow.value) {
+    return '求解器将使用 OpenFOAM 官方 atmBoundaryLayerInletVelocity / K / Epsilon 边界条件，根据 Uref、Zref、z0 和 d 生成中性 ABL 平衡剖面。';
+  }
+  if (usesLegacyInflow.value) {
+    return '为避免旧工况被新默认值悄悄改物理，求解器将继续使用历史固定入口：k = 0.5、epsilon = 0.375。仅建议用于旧工程复现或对照。';
+  }
+  return '求解器将按 k = 1.5 (U * TI)^2、epsilon = Cmu^0.75 * k^1.5 / L 自动联动生成湍流入口，不再使用固定写死的 k / epsilon。';
+});
 
 // 页面控制与提交
 const handleGenerateClick = async () => {

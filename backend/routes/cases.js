@@ -733,6 +733,18 @@ router.get("/:caseId/parameters", async (req, res) => {
 
         // Combine data, potentially overwriting parameters from info if necessary
         // Use parameters from parameters.json as the base, then overlay relevant info from info.json
+        const detectedInflowProfile = info.wind?.profile
+            ?? parameters.conditions?.inflowProfile
+            ?? parameters.conditions?.profile
+            ?? (
+                info.wind?.turbulenceIntensity != null ||
+                info.wind?.turbulenceLengthScale != null ||
+                parameters.conditions?.turbulenceIntensity != null ||
+                parameters.conditions?.turbulenceLengthScale != null
+                    ? 'uniform'
+                    : 'legacy_fixed'
+            );
+
         const combinedParameters = {
             ...parameters, // Start with parameters.json content
             caseName: info.key || caseId, // Use key from info.json or caseId as fallback
@@ -746,7 +758,7 @@ router.get("/:caseId/parameters", async (req, res) => {
             conditions: {
                  windDirection: info.wind?.angle ?? parameters.conditions?.windDirection ?? 0,
                  inletWindSpeed: info.wind?.speed ?? parameters.conditions?.inletWindSpeed ?? 10,
-                 inflowProfile: info.wind?.profile ?? parameters.conditions?.inflowProfile ?? 'uniform',
+                 inflowProfile: detectedInflowProfile,
                  referenceHeight: info.wind?.referenceHeight ?? info.wind?.Zref ?? parameters.conditions?.referenceHeight ?? 120,
                  roughnessLength: info.wind?.roughnessLength ?? info.wind?.z0 ?? parameters.conditions?.roughnessLength ?? 0.03,
                  displacementHeight: info.wind?.displacementHeight ?? info.wind?.d ?? parameters.conditions?.displacementHeight ?? 0,
@@ -865,7 +877,7 @@ router.post("/:caseId/parameters", async (req, res) => {
         conditions: Joi.object({
             windDirection: Joi.number().min(0).max(360).required(),
             inletWindSpeed: Joi.number().positive().required(),
-            inflowProfile: Joi.string().valid('uniform', 'abl_log').required(),
+            inflowProfile: Joi.string().valid('legacy_fixed', 'uniform', 'abl_log').required(),
             referenceHeight: Joi.number().positive().required(),
             roughnessLength: Joi.number().positive().required(),
             displacementHeight: Joi.number().min(0).required(),
@@ -2009,7 +2021,7 @@ router.post('/:caseId/info', async (req, res) => {
         conditions: Joi.object({
             windDirection: Joi.number().required(),
             inletWindSpeed: Joi.number().required(),
-            inflowProfile: Joi.string().valid('uniform', 'abl_log').required(),
+            inflowProfile: Joi.string().valid('legacy_fixed', 'uniform', 'abl_log').required(),
             referenceHeight: Joi.number().positive().required(),
             roughnessLength: Joi.number().positive().required(),
             displacementHeight: Joi.number().min(0).required(),

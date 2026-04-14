@@ -6,6 +6,11 @@ from pathlib import Path
 KAPPA = 0.41
 CMU = 0.09
 EPSILON_WALL_E = 9.8
+ABL_DEFAULT_K_AMBIENT = 1.0e-4
+ABL_DEFAULT_EPSILON_AMBIENT = 7.208e-08
+ABL_LENGTH_SCALE_LIMIT_FACTOR = 1.0 / 3.0
+LEGACY_FIXED_K = 0.5
+LEGACY_FIXED_EPSILON = 0.375
 
 
 def fmt_scalar(value):
@@ -232,6 +237,55 @@ boundaryField
     )
 
 
+def build_uniform_nut():
+    return (
+        foam_header("volScalarField", "nut")
+        + """
+dimensions      [0 2 -1 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    inlet
+    {
+        type            calculated;
+        value           uniform 0;
+    }
+
+    outlet
+    {
+        type            calculated;
+        value           uniform 0;
+    }
+
+    front
+    {
+        type            symmetry;
+    }
+
+    back
+    {
+        type            symmetry;
+    }
+
+    bot
+    {
+        type            nutkWallFunction;
+        value           uniform 0;
+    }
+
+    top
+    {
+        type            symmetry;
+    }
+}
+
+// ************************************************************************* //
+"""
+    )
+
+
 def build_abl_conditions(speed, z_ref, z0, displacement):
     return f"""        flowDir         (1 0 0);
         zDir            (0 0 1);
@@ -399,20 +453,139 @@ boundaryField
     )
 
 
-def write_field_files(u_text, k_text, epsilon_text):
+def build_abl_nut(z0):
+    return (
+        foam_header("volScalarField", "nut")
+        + f"""
+dimensions      [0 2 -1 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{{
+    inlet
+    {{
+        type            calculated;
+        value           uniform 0;
+    }}
+
+    outlet
+    {{
+        type            calculated;
+        value           uniform 0;
+    }}
+
+    front
+    {{
+        type            symmetry;
+    }}
+
+    back
+    {{
+        type            symmetry;
+    }}
+
+    bot
+    {{
+        type            atmNutkWallFunction;
+        kappa           {fmt_scalar(KAPPA)};
+        Cmu             {fmt_scalar(CMU)};
+        z0              uniform {fmt_scalar(z0)};
+        value           uniform 0;
+    }}
+
+    top
+    {{
+        type            calculated;
+        value           uniform 0;
+    }}
+}}
+
+// ************************************************************************* //
+"""
+    )
+
+
+def build_abl_fv_options(z_ref):
+    lmax = max(10.0, float(z_ref) * ABL_LENGTH_SCALE_LIMIT_FACTOR)
+    return (
+        foam_header("dictionary", "fvOptions", location="constant")
+        + f"""
+atmAmbientTurbSource1
+{{
+    type            atmAmbientTurbSource;
+    selectionMode   all;
+    kAmb            {fmt_scalar(ABL_DEFAULT_K_AMBIENT)};
+    epsilonAmb      {fmt_scalar(ABL_DEFAULT_EPSILON_AMBIENT)};
+}}
+
+atmLengthScaleTurbSource1
+{{
+    type            atmLengthScaleTurbSource;
+    selectionMode   all;
+    Lmax            {fmt_scalar(lmax)};
+    n               3;
+}}
+
+atmPlantCanopyTurbSource1
+{{
+    type            atmPlantCanopyTurbSource;
+    selectionMode   all;
+    Cd              roughCd;
+    LAD             roughLAD;
+}}
+
+// ************************************************************************* //
+"""
+    )
+
+
+def build_uniform_fv_options():
+    return (
+        foam_header("dictionary", "fvOptions", location="constant")
+        + """
+atmPlantCanopyTurbSource1
+{
+    type            atmPlantCanopyTurbSource;
+    selectionMode   all;
+    Cd              roughCd;
+    LAD             roughLAD;
+}
+
+// ************************************************************************* //
+"""
+    )
+
+
+def write_case_files(u_text, k_text, epsilon_text, nut_text, fv_options_text=None):
     zero_dir = Path("0")
     zero_dir.mkdir(exist_ok=True)
+    constant_dir = Path("constant")
+    constant_dir.mkdir(exist_ok=True)
     (zero_dir / "U").write_text(u_text, encoding="utf-8")
     (zero_dir / "k").write_text(k_text, encoding="utf-8")
     (zero_dir / "epsilon").write_text(epsilon_text, encoding="utf-8")
+    (zero_dir / "nut").write_text(nut_text, encoding="utf-8")
+
+    fv_options_path = constant_dir / "fvOptions"
+    if fv_options_text is None:
+        if fv_options_path.exists():
+            fv_options_path.unlink()
+    else:
+        fv_options_path.write_text(fv_options_text, encoding="utf-8")
 
 
 def main():
     info = load_info()
     wind = info.get("wind", {})
 
-    profile = str(pick_first(wind, "profile", default="uniform")).strip().lower()
+    profile_raw = pick_first(wind, "profile", default=None)
+    profile = None if profile_raw is None else str(profile_raw).strip().lower()
     speed = ensure_positive("wind.speed", pick_first(wind, "speed", default=10.0))
+    has_explicit_uniform_inputs = any(
+        wind.get(key) is not None
+        for key in ("turbulenceIntensity", "TI", "turbulenceLengthScale", "lengthScale", "L")
+    )
     turbulence_intensity = ensure_positive(
         "wind.turbulenceIntensity",
         pick_first(wind, "turbulenceIntensity", "TI", default=0.1),
@@ -440,10 +613,12 @@ def main():
         friction_velocity, k_ref, epsilon_ref, tau = compute_abl_reference(
             speed, z_ref, z0, displacement
         )
-        write_field_files(
+        write_case_files(
             build_abl_u(speed, z_ref, z0, displacement, tau),
             build_abl_k(speed, z_ref, z0, displacement, k_ref),
             build_abl_epsilon(speed, z_ref, z0, displacement, epsilon_ref),
+            build_abl_nut(z0),
+            build_abl_fv_options(z_ref),
         )
         print(
             "[INFO] Wrote ABL inlet fields:",
@@ -454,19 +629,37 @@ def main():
             f"u*={friction_velocity:.6f}",
             f"kRef={k_ref:.6f}",
             f"epsilonRef={epsilon_ref:.6f}",
+            f"Lmax={max(10.0, float(z_ref) * ABL_LENGTH_SCALE_LIMIT_FACTOR):.6f}",
         )
         return
 
-    if profile != "uniform":
+    if profile in (None, "", "legacy_fixed") and not has_explicit_uniform_inputs:
+        write_case_files(
+            build_uniform_u(speed),
+            build_uniform_k(LEGACY_FIXED_K),
+            build_uniform_epsilon(LEGACY_FIXED_EPSILON),
+            build_uniform_nut(),
+        )
+        print(
+            "[INFO] Wrote legacy-compatible inlet fields:",
+            f"U={speed}",
+            f"k={LEGACY_FIXED_K:.6f}",
+            f"epsilon={LEGACY_FIXED_EPSILON:.6f}",
+        )
+        return
+
+    if profile not in (None, "", "uniform"):
         raise ValueError(f"Unsupported wind.profile '{profile}'")
 
     k_inlet, epsilon_inlet = compute_uniform_turbulence(
         speed, turbulence_intensity, turbulence_length_scale
     )
-    write_field_files(
+    write_case_files(
         build_uniform_u(speed),
         build_uniform_k(k_inlet),
         build_uniform_epsilon(epsilon_inlet),
+        build_uniform_nut(),
+        build_uniform_fv_options(),
     )
     print(
         "[INFO] Wrote uniform inlet fields:",

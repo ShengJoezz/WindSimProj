@@ -70,6 +70,14 @@ const normalizeParameters = (raw = {}) => {
   const defaults = createDefaultParameters();
   const rawConditions = raw.conditions || {};
   const rawSimulation = raw.simulation || {};
+  const rawInflowProfile = rawConditions.inflowProfile ?? rawConditions.profile;
+  const hasExplicitTurbulenceInputs =
+    rawConditions.turbulenceIntensity !== undefined ||
+    rawConditions.TI !== undefined ||
+    rawConditions.turbulenceLengthScale !== undefined ||
+    rawConditions.lengthScale !== undefined;
+  const normalizedInflowProfile = rawInflowProfile
+    ?? (hasExplicitTurbulenceInputs ? defaults.conditions.inflowProfile : 'legacy_fixed');
 
   return {
     ...defaults,
@@ -78,7 +86,7 @@ const normalizeParameters = (raw = {}) => {
     conditions: {
       ...defaults.conditions,
       ...rawConditions,
-      inflowProfile: rawConditions.inflowProfile ?? rawConditions.profile ?? defaults.conditions.inflowProfile,
+      inflowProfile: normalizedInflowProfile,
       referenceHeight: rawConditions.referenceHeight ?? rawConditions.Zref ?? rawConditions.zRef ?? defaults.conditions.referenceHeight,
       roughnessLength: rawConditions.roughnessLength ?? rawConditions.z0 ?? defaults.conditions.roughnessLength,
       displacementHeight: rawConditions.displacementHeight ?? rawConditions.d ?? defaults.conditions.displacementHeight,

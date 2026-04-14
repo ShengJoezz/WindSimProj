@@ -962,6 +962,31 @@ int main(int argc, char *argv[])
     }
 #pragma endregion
 
+#pragma region Build_Canopy_Turbulence_Fields
+    {
+        const scalar safeCd = Foam::max(scalar(1e-6), scalar(Cd));
+
+        roughCd = dimensionedScalar("zero", dimless, 0.0);
+        roughLAD = dimensionedScalar("zero", dimensionSet(0, -1, 0, 0, 0, 0, 0), 0.0);
+
+        forAll(mesh.cells(), cellI)
+        {
+            if (Cxy[cellI].x() > 0.0)
+            {
+                // Match the custom momentum sink magnitude:
+                // Cd*LAD*|U| ~= 0.5*rho*Cxy*|U|
+                roughCd[cellI] = safeCd;
+                roughLAD[cellI] = 0.5 * p_air * Cxy[cellI].x() / safeCd;
+            }
+        }
+
+        if (Pstream::master())
+        {
+            Info << "Constructed roughCd/roughLAD fields for canopy turbulence closure." << endl;
+        }
+    }
+#pragma endregion
+
     argList::addNote("Steady-state solver for incompressible, turbulent flows.");
     turbulence->validate();
 
@@ -977,9 +1002,11 @@ int main(int argc, char *argv[])
             {
                 scalar Um = Foam::sqrt(U[cellI].x()*U[cellI].x() + U[cellI].y()*U[cellI].y() + U[cellI].z()*U[cellI].z());
                 U_mag[cellI] = Um;
-                RoughT[cellI].x() = -0.5 * 1.22 * U[cellI].x() * Um * Cxy[cellI].x();
-                RoughT[cellI].y() = -0.5 * 1.22 * U[cellI].y() * Um * Cxy[cellI].y();
-                RoughT[cellI].z() = -0.5 * 1.22 * U[cellI].z() * Um * Cxy[cellI].z();
+                const scalar roughDiagCoeff = Foam::max(0.0, 0.5 * 1.22 * Um * Cxy[cellI].x());
+                RoughDiag[cellI] = roughDiagCoeff;
+                RoughT[cellI].x() = -roughDiagCoeff * U[cellI].x();
+                RoughT[cellI].y() = -roughDiagCoeff * U[cellI].y();
+                RoughT[cellI].z() = -roughDiagCoeff * U[cellI].z();
             }
 
             // windU adjust / turbine forces
