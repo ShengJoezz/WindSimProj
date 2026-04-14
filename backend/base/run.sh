@@ -135,7 +135,7 @@ echo "=== 开始模板化配置文件 ==="
 
 # --- 读取公共参数 ---
 delta_t=$(jq '.simulation.pseudoTimeStep // .simulation.deltaT' ../info.json -r)
-end_time=$(jq '.simulation.step_count' ../info.json -r)
+end_time=$(jq '(.simulation.step_count) * (.simulation.pseudoTimeStep // .simulation.deltaT // 1)' ../info.json -r)
 
 # --- 导出 controlDict 环境变量 ---
 export deltaT="${delta_t}"
