@@ -17,6 +17,86 @@ import { io } from 'socket.io-client';
 import { useWindMastStore } from './windMastStore';
 import { notifyError, notifySuccess } from '../utils/notify.js';
 
+const createDefaultParameters = () => ({
+  calculationDomain: { width: 6500, height: 800 },
+  conditions: {
+    windDirection: 0,
+    inletWindSpeed: 10,
+    inflowProfile: 'uniform',
+    referenceHeight: 120,
+    roughnessLength: 0.03,
+    displacementHeight: 0,
+    turbulenceIntensity: 0.1,
+    turbulenceLengthScale: 10,
+  },
+  grid: {
+    encryptionHeight: 210,
+    encryptionLayers: 21,
+    gridGrowthRate: 1.2,
+    maxExtensionLength: 360,
+    encryptionRadialLength: 50,
+    downstreamRadialLength: 100,
+    encryptionRadius: 200,
+    encryptionTransitionRadius: 400,
+    terrainRadius: 4000,
+    terrainTransitionRadius: 5000,
+    downstreamLength: 2000,
+    downstreamWidth: 600,
+    scale: 0.001,
+  },
+  simulation: {
+    cores: 1,
+    steps: 100,
+    pseudoTimeStep: 1,
+  },
+  postProcessing: {
+    resultLayers: 10,
+    layerSpacing: 20,
+    layerDataWidth: 1000,
+    layerDataHeight: 1000,
+  },
+  terrain: {
+    r1: 4000,
+    r2: 5000,
+  },
+  roughness: {
+    Cd: 0.2,
+    lad_max: 0.5,
+    vege_times: 1.0,
+  },
+});
+
+const normalizeParameters = (raw = {}) => {
+  const defaults = createDefaultParameters();
+  const rawConditions = raw.conditions || {};
+  const rawSimulation = raw.simulation || {};
+
+  return {
+    ...defaults,
+    ...raw,
+    calculationDomain: { ...defaults.calculationDomain, ...(raw.calculationDomain || {}) },
+    conditions: {
+      ...defaults.conditions,
+      ...rawConditions,
+      inflowProfile: rawConditions.inflowProfile ?? rawConditions.profile ?? defaults.conditions.inflowProfile,
+      referenceHeight: rawConditions.referenceHeight ?? rawConditions.Zref ?? rawConditions.zRef ?? defaults.conditions.referenceHeight,
+      roughnessLength: rawConditions.roughnessLength ?? rawConditions.z0 ?? defaults.conditions.roughnessLength,
+      displacementHeight: rawConditions.displacementHeight ?? rawConditions.d ?? defaults.conditions.displacementHeight,
+      turbulenceIntensity: rawConditions.turbulenceIntensity ?? defaults.conditions.turbulenceIntensity,
+      turbulenceLengthScale: rawConditions.turbulenceLengthScale ?? rawConditions.lengthScale ?? defaults.conditions.turbulenceLengthScale,
+    },
+    grid: { ...defaults.grid, ...(raw.grid || {}) },
+    simulation: {
+      ...defaults.simulation,
+      ...rawSimulation,
+      pseudoTimeStep: rawSimulation.pseudoTimeStep ?? rawSimulation.deltaT ?? defaults.simulation.pseudoTimeStep,
+    },
+    postProcessing: { ...defaults.postProcessing, ...(raw.postProcessing || {}) },
+    terrain: { ...defaults.terrain, ...(raw.terrain || {}) },
+    roughness: { ...defaults.roughness, ...(raw.roughness || {}) },
+  };
+};
+
 export const useCaseStore = defineStore('caseStore', () => {
   // --- State ---
   const caseId = ref(null);
@@ -27,41 +107,7 @@ export const useCaseStore = defineStore('caseStore', () => {
   const minLongitude = ref(null);
   const maxLongitude = ref(null);
 
-  const parameters = ref({
-    calculationDomain: { width: 6500, height: 800 },
-    conditions: { windDirection: 0, inletWindSpeed: 10 },
-    grid: {
-      encryptionHeight: 210,
-      encryptionLayers: 21,
-      gridGrowthRate: 1.2,
-      maxExtensionLength: 360,
-      encryptionRadialLength: 50,
-      downstreamRadialLength: 100,
-      encryptionRadius: 200,
-      encryptionTransitionRadius: 400,
-      terrainRadius: 4000,
-      terrainTransitionRadius: 5000,
-      downstreamLength: 2000,
-      downstreamWidth: 600,
-      scale: 0.001,
-    },
-    simulation: { cores: 1, steps: 100, deltaT: 1 },
-    postProcessing: {
-      resultLayers: 10,
-      layerSpacing: 20,
-      layerDataWidth: 1000,
-      layerDataHeight: 1000,
-    },
-    terrain: {
-      r1: 4000,
-      r2: 5000,
-    },
-    roughness: {
-      Cd: 0.2,        // 拖曳系数
-      lad_max: 0.5,   // 最大叶面积密度
-      vege_times: 1.0 // 植被高度缩放
-    },
-  });
+  const parameters = ref(createDefaultParameters());
 
   const windTurbines = ref([]);
   const infoExists = ref(false);
@@ -229,14 +275,13 @@ export const useCaseStore = defineStore('caseStore', () => {
 	      localStorage.setItem('currentCaseId', id);
 	      caseId.value = id;
 	      caseName.value = name || id;
-      try {
-        const response = await axios.get(`/api/cases/${caseId.value}/parameters`);
-        const { parameters: backendParams, geographicBounds: bounds } = response.data;
+        parameters.value = createDefaultParameters();
+	      try {
+	        const response = await axios.get(`/api/cases/${caseId.value}/parameters`);
+	        const { parameters: backendParams, geographicBounds: bounds } = response.data;
 
-        // 更新参数 (已有逻辑)
-        if (backendParams) {
-          parameters.value = { ...parameters.value, ...backendParams };
-        }
+	        // 更新参数 (已有逻辑)
+	        parameters.value = normalizeParameters(backendParams || {});
 
         // [新增] 如果后端返回了地理边界，则恢复它们
         if (bounds) {

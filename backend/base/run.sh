@@ -134,18 +134,12 @@ fi
 echo "=== 开始模板化配置文件 ==="
 
 # --- 读取公共参数 ---
-delta_t=$(jq '.simulation.deltaT' ../info.json -r)
+delta_t=$(jq '.simulation.pseudoTimeStep // .simulation.deltaT' ../info.json -r)
 end_time=$(jq '.simulation.step_count' ../info.json -r)
-wind_speed=$(jq '.wind.speed' ../info.json -r) # 读取风速
 
 # --- 导出 controlDict 环境变量 ---
 export deltaT="${delta_t}"
 export endTime="${end_time}"
-
-# --- 导出 U 文件的环境变量 (风始终沿X轴) ---
-export Ux="${wind_speed}"
-export Uy="0"
-export Uz="0"
 
 # --- 模板化 controlDict ---
 echo "模板化 controlDict..."
@@ -155,15 +149,15 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-# --- 模板化 U 文件 ---
-echo "模板化 U 文件，使用风速: ${Ux} m/s..."
-envsubst < ../../../base/initcase/0/U.template > 0/U
+# --- 生成入口边界场文件 ---
+echo "生成入口边界场文件..."
+python3 ../../../base/solver/writeBoundaryFields.py
 if [ $? -ne 0 ]; then
-  echo "模板化 U 文件失败!" >&2
+  echo "生成入口边界场文件失败!" >&2
   exit 1
 fi
 
-echo "=== 配置文件模板化完成 ==="
+echo "=== 配置文件生成完成 ==="
 # --------------------------------------------------
 
 # Step 5: Execute makeGmsh.py and gmsh

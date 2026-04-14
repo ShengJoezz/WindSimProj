@@ -746,6 +746,12 @@ router.get("/:caseId/parameters", async (req, res) => {
             conditions: {
                  windDirection: info.wind?.angle ?? parameters.conditions?.windDirection ?? 0,
                  inletWindSpeed: info.wind?.speed ?? parameters.conditions?.inletWindSpeed ?? 10,
+                 inflowProfile: info.wind?.profile ?? parameters.conditions?.inflowProfile ?? 'uniform',
+                 referenceHeight: info.wind?.referenceHeight ?? info.wind?.Zref ?? parameters.conditions?.referenceHeight ?? 120,
+                 roughnessLength: info.wind?.roughnessLength ?? info.wind?.z0 ?? parameters.conditions?.roughnessLength ?? 0.03,
+                 displacementHeight: info.wind?.displacementHeight ?? info.wind?.d ?? parameters.conditions?.displacementHeight ?? 0,
+                 turbulenceIntensity: info.wind?.turbulenceIntensity ?? parameters.conditions?.turbulenceIntensity ?? 0.1,
+                 turbulenceLengthScale: info.wind?.turbulenceLengthScale ?? parameters.conditions?.turbulenceLengthScale ?? 10,
             },
              grid: {
                  encryptionHeight: info.mesh?.h1 ?? parameters.grid?.encryptionHeight ?? 210,
@@ -765,7 +771,7 @@ router.get("/:caseId/parameters", async (req, res) => {
              simulation: {
                  cores: info.simulation?.core ?? parameters.simulation?.cores ?? 8,
                  steps: info.simulation?.step_count ?? parameters.simulation?.steps ?? 1000,
-                 deltaT: info.simulation?.deltaT ?? parameters.simulation?.deltaT ?? 1,
+                 pseudoTimeStep: info.simulation?.pseudoTimeStep ?? info.simulation?.deltaT ?? parameters.simulation?.pseudoTimeStep ?? parameters.simulation?.deltaT ?? 1,
              },
              postProcessing: {
                  resultLayers: info.post?.numh ?? parameters.postProcessing?.resultLayers ?? 10,
@@ -774,6 +780,15 @@ router.get("/:caseId/parameters", async (req, res) => {
                  layerDataWidth: parameters.postProcessing?.layerDataWidth ?? info.post?.width ?? 1000,
                  layerDataHeight: parameters.postProcessing?.layerDataHeight ?? info.post?.height ?? 1000,
              },
+             terrain: {
+                 r1: info.terrain?.r1 ?? parameters.terrain?.r1 ?? 4000,
+                 r2: info.terrain?.r2 ?? parameters.terrain?.r2 ?? 5000,
+             },
+             roughness: {
+                 Cd: info.roughness?.Cd ?? parameters.roughness?.Cd ?? 0.2,
+                 lad_max: info.roughness?.lad_max ?? parameters.roughness?.lad_max ?? 0.5,
+                 vege_times: info.roughness?.vege_times ?? parameters.roughness?.vege_times ?? 1.0,
+             },
         };
 
 
@@ -781,7 +796,16 @@ router.get("/:caseId/parameters", async (req, res) => {
         const defaultParams = {
             caseName: caseId,
             calculationDomain: { width: 6500, height: 800 },
-            conditions: { windDirection: 0, inletWindSpeed: 10 }, // Default North wind
+            conditions: {
+                windDirection: 0,
+                inletWindSpeed: 10,
+                inflowProfile: 'uniform',
+                referenceHeight: 120,
+                roughnessLength: 0.03,
+                displacementHeight: 0,
+                turbulenceIntensity: 0.1,
+                turbulenceLengthScale: 10,
+            }, // Default North wind
             grid: {
                 encryptionHeight: 210, encryptionLayers: 21, gridGrowthRate: 1.2,
                 maxExtensionLength: 360, encryptionRadialLength: 10, downstreamRadialLength: 60,
@@ -789,10 +813,19 @@ router.get("/:caseId/parameters", async (req, res) => {
                 terrainTransitionRadius: 6500, downstreamLength: 2000, downstreamWidth: 600,
                 scale: 0.001,
             },
-            simulation: { cores: 8, steps: 200, deltaT: 1 }, // Increased defaults
+            simulation: { cores: 8, steps: 200, pseudoTimeStep: 1 }, // Increased defaults
             postProcessing: {
                 resultLayers: 10, layerSpacing: 20, layerDataWidth: 1000,
                 layerDataHeight: 1000,
+            },
+            terrain: {
+                r1: 4000,
+                r2: 5000,
+            },
+            roughness: {
+                Cd: 0.2,
+                lad_max: 0.5,
+                vege_times: 1.0,
             },
             center: { lon: null, lat: null },
         };
@@ -831,7 +864,13 @@ router.post("/:caseId/parameters", async (req, res) => {
         }).required(),
         conditions: Joi.object({
             windDirection: Joi.number().min(0).max(360).required(),
-            inletWindSpeed: Joi.number().positive().required()
+            inletWindSpeed: Joi.number().positive().required(),
+            inflowProfile: Joi.string().valid('uniform', 'abl_log').required(),
+            referenceHeight: Joi.number().positive().required(),
+            roughnessLength: Joi.number().positive().required(),
+            displacementHeight: Joi.number().min(0).required(),
+            turbulenceIntensity: Joi.number().positive().max(1).required(),
+            turbulenceLengthScale: Joi.number().positive().required()
         }).required(),
         grid: Joi.object({ // 明确定义 grid 对象内部所有期望的参数
             encryptionHeight: Joi.number().required(), // 例如：encryptionHeight 是数字且必须
@@ -851,8 +890,9 @@ router.post("/:caseId/parameters", async (req, res) => {
         simulation: Joi.object({
             cores: Joi.number().integer().positive().required(),
             steps: Joi.number().integer().positive().required(),
-            deltaT: Joi.number().positive().required()
-        }).required(),
+            pseudoTimeStep: Joi.number().positive().optional(),
+            deltaT: Joi.number().positive().optional()
+        }).or('pseudoTimeStep', 'deltaT').required(),
         
         postProcessing: Joi.object({ // 明确定义 postProcessing 对象内部所有期望的参数
             resultLayers: Joi.number().integer().positive().required(),
@@ -1968,7 +2008,13 @@ router.post('/:caseId/info', async (req, res) => {
         }).required(),
         conditions: Joi.object({
             windDirection: Joi.number().required(),
-            inletWindSpeed: Joi.number().required()
+            inletWindSpeed: Joi.number().required(),
+            inflowProfile: Joi.string().valid('uniform', 'abl_log').required(),
+            referenceHeight: Joi.number().positive().required(),
+            roughnessLength: Joi.number().positive().required(),
+            displacementHeight: Joi.number().min(0).required(),
+            turbulenceIntensity: Joi.number().positive().max(1).required(),
+            turbulenceLengthScale: Joi.number().positive().required()
         }).required(),
         grid: Joi.object().unknown(true).required(),
         terrain: Joi.object({
@@ -1981,7 +2027,12 @@ router.post('/:caseId/info', async (req, res) => {
             vege_times: Joi.number().min(0).required()
         }).required(),
 
-        simulation: Joi.object().unknown(true).required(),
+        simulation: Joi.object({
+            cores: Joi.number().integer().positive().required(),
+            steps: Joi.number().integer().positive().required(),
+            pseudoTimeStep: Joi.number().positive().optional(),
+            deltaT: Joi.number().positive().optional()
+        }).or('pseudoTimeStep', 'deltaT').required(),
         postProcessing: Joi.object().unknown(true).required(),
         center: Joi.object({
             lon: Joi.number().allow(null).optional(),
@@ -2207,7 +2258,13 @@ router.post('/:caseId/info', async (req, res) => {
             },
             wind: {
                 angle: parameters.conditions?.windDirection ?? 270,
-                speed: parameters.conditions?.inletWindSpeed ?? 10
+                speed: parameters.conditions?.inletWindSpeed ?? 10,
+                profile: parameters.conditions?.inflowProfile ?? 'uniform',
+                referenceHeight: parameters.conditions?.referenceHeight ?? 120,
+                roughnessLength: parameters.conditions?.roughnessLength ?? 0.03,
+                displacementHeight: parameters.conditions?.displacementHeight ?? 0,
+                turbulenceIntensity: parameters.conditions?.turbulenceIntensity ?? 0.1,
+                turbulenceLengthScale: parameters.conditions?.turbulenceLengthScale ?? 10
             },
             mesh: {
                 h1: parameters.grid?.encryptionHeight ?? 210,
@@ -2238,7 +2295,8 @@ router.post('/:caseId/info', async (req, res) => {
             simulation: {
                 core: parameters.simulation?.cores ?? 4,
                 step_count: parameters.simulation?.steps ?? 1000,
-                deltaT: parameters.simulation?.deltaT ?? 1
+                deltaT: parameters.simulation?.pseudoTimeStep ?? parameters.simulation?.deltaT ?? 1,
+                pseudoTimeStep: parameters.simulation?.pseudoTimeStep ?? parameters.simulation?.deltaT ?? 1
             },
             post: {
                 numh: parameters.postProcessing?.resultLayers ?? 10,

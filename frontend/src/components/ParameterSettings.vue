@@ -58,6 +58,66 @@
           <el-form-item label="入口风速 (m/s)" prop="conditions.inletWindSpeed" :inline="true" class="child-form-item">
             <el-input-number v-model="caseStore.parameters.conditions.inletWindSpeed" :min="0" class="input-number" :disabled="caseStore.infoExists"/>
           </el-form-item>
+          <el-form-item label="入口剖面" prop="conditions.inflowProfile" :inline="true" class="child-form-item">
+            <el-select v-model="caseStore.parameters.conditions.inflowProfile" class="input-number" :disabled="caseStore.infoExists">
+              <el-option label="均匀入口" value="uniform" />
+              <el-option label="ABL 对数律" value="abl_log" />
+            </el-select>
+          </el-form-item>
+          <el-form-item
+            v-if="usesAblInflow"
+            label="参考高度 Zref (m)"
+            prop="conditions.referenceHeight"
+            :inline="true"
+            class="child-form-item"
+          >
+            <el-input-number v-model="caseStore.parameters.conditions.referenceHeight" :min="0.1" class="input-number" :disabled="caseStore.infoExists"/>
+          </el-form-item>
+          <el-form-item
+            v-if="usesAblInflow"
+            label="地表粗糙长度 z0 (m)"
+            prop="conditions.roughnessLength"
+            :inline="true"
+            class="child-form-item"
+          >
+            <el-input-number v-model="caseStore.parameters.conditions.roughnessLength" :min="0.0001" :step="0.01" class="input-number" :disabled="caseStore.infoExists"/>
+          </el-form-item>
+          <el-form-item
+            v-if="usesAblInflow"
+            label="位移高度 d (m)"
+            prop="conditions.displacementHeight"
+            :inline="true"
+            class="child-form-item"
+          >
+            <el-input-number v-model="caseStore.parameters.conditions.displacementHeight" :min="0" :step="0.5" class="input-number" :disabled="caseStore.infoExists"/>
+          </el-form-item>
+          <el-form-item
+            v-if="!usesAblInflow"
+            label="湍流强度 TI"
+            prop="conditions.turbulenceIntensity"
+            :inline="true"
+            class="child-form-item"
+          >
+            <el-input-number v-model="caseStore.parameters.conditions.turbulenceIntensity" :min="0.001" :max="1" :step="0.01" class="input-number" :disabled="caseStore.infoExists"/>
+          </el-form-item>
+          <el-form-item
+            v-if="!usesAblInflow"
+            label="湍流长度尺度 L (m)"
+            prop="conditions.turbulenceLengthScale"
+            :inline="true"
+            class="child-form-item"
+          >
+            <el-input-number v-model="caseStore.parameters.conditions.turbulenceLengthScale" :min="0.1" :step="1" class="input-number" :disabled="caseStore.infoExists"/>
+          </el-form-item>
+          <div class="full-width-hint">
+            <el-alert
+              :title="inflowModeNoticeTitle"
+              :description="inflowModeNoticeDescription"
+              type="info"
+              :closable="false"
+              show-icon
+            />
+          </div>
         </el-form-item>
         <el-form-item label="网格" class="parent-form-item">
           <div class="grid-section">
@@ -206,12 +266,21 @@
           <el-form-item label="核" prop="simulation.cores" :inline="true" class="child-form-item">
             <el-input-number v-model="caseStore.parameters.simulation.cores" :min="1" class="input-number" :disabled="caseStore.infoExists" />
           </el-form-item>
-          <el-form-item label="步数" prop="simulation.steps" :inline="true" class="child-form-item">
+          <el-form-item label="最大稳态迭代步数" prop="simulation.steps" :inline="true" class="child-form-item">
             <el-input-number v-model="caseStore.parameters.simulation.steps" :min="1" class="input-number" :disabled="caseStore.infoExists" />
           </el-form-item>
-          <el-form-item label="时间步长" prop="simulation.deltaT" :inline="true" class="child-form-item">
-            <el-input-number v-model="caseStore.parameters.simulation.deltaT" :min="0.001" class="input-number" :disabled="caseStore.infoExists" />
+          <el-form-item label="稳态伪时间步 Δt" prop="simulation.pseudoTimeStep" :inline="true" class="child-form-item">
+            <el-input-number v-model="caseStore.parameters.simulation.pseudoTimeStep" :min="0.001" class="input-number" :disabled="caseStore.infoExists" />
           </el-form-item>
+          <div class="full-width-hint">
+            <el-alert
+              title="这里的 Δt 不是物理历时"
+              description="当前主求解器 roughFoam 是稳态 RANS。这个 Δt 会写入 controlDict 的 deltaT，用作稳态迭代推进/写出控制，不代表真实风场演化时间。"
+              type="warning"
+              :closable="false"
+              show-icon
+            />
+          </div>
         </el-form-item>
         <el-form-item label="后处理" class="parent-form-item">
           <el-form-item label="结果层数" prop="postProcessing.resultLayers" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.postProcessing.resultLayers" :min="1" class="input-number" :disabled="caseStore.infoExists" /> </el-form-item>
@@ -1088,6 +1157,16 @@ onBeforeUnmount(() => {
   clearTransientUploads();
 });
 
+const usesAblInflow = computed(() => caseStore.parameters.conditions.inflowProfile === 'abl_log');
+const inflowModeNoticeTitle = computed(() => (
+  usesAblInflow.value ? 'ABL 对数律入口已启用' : '均匀入口已启用'
+));
+const inflowModeNoticeDescription = computed(() => (
+  usesAblInflow.value
+    ? '求解器将使用 OpenFOAM 官方 atmBoundaryLayerInletVelocity / K / Epsilon 边界条件，根据 Uref、Zref、z0 和 d 生成中性 ABL 平衡剖面。'
+    : '求解器将按 k = 1.5 (U * TI)^2、epsilon = Cmu^0.75 * k^1.5 / L 自动联动生成湍流入口，不再使用固定写死的 k / epsilon。'
+));
+
 // 页面控制与提交
 const handleGenerateClick = async () => {
   const computeHasGeographicBounds = () =>
@@ -1184,6 +1263,12 @@ const rules = reactive({
     'calculationDomain.height': [{ required: true, message: '请输入计算域高度', trigger: 'blur' }],
     'conditions.windDirection': [{ required: true, message: '请输入风向角', trigger: 'blur' }],
     'conditions.inletWindSpeed': [{ required: true, message: '请输入入口风速', trigger: 'blur' }],
+    'conditions.inflowProfile': [{ required: true, message: '请选择入口剖面', trigger: 'change' }],
+    'conditions.referenceHeight': [{ required: true, message: '请输入参考高度', trigger: 'blur' }],
+    'conditions.roughnessLength': [{ required: true, message: '请输入地表粗糙长度', trigger: 'blur' }],
+    'conditions.displacementHeight': [{ required: true, message: '请输入位移高度', trigger: 'blur' }],
+    'conditions.turbulenceIntensity': [{ required: true, message: '请输入湍流强度', trigger: 'blur' }],
+    'conditions.turbulenceLengthScale': [{ required: true, message: '请输入湍流长度尺度', trigger: 'blur' }],
     'grid.encryptionHeight': [{ required: true, message: '请输入粗糙层高度', trigger: 'blur' }],
     // 新增：粗糙度部分的验证规则
     'roughness.Cd': [{ required: true, message: '请输入植被拖曳系数', trigger: 'blur' }],
@@ -1191,7 +1276,7 @@ const rules = reactive({
     'roughness.vege_times': [{ required: true, message: '请输入植被高度缩放系数', trigger: 'blur' }],
     'simulation.cores': [{ required: true, message: '请输入核心数', trigger: 'blur' }],
     'simulation.steps': [{ required: true, message: '请输入步数', trigger: 'blur' }],
-    'simulation.deltaT': [{ required: true, message: '请输入时间步长', trigger: 'blur' }],
+    'simulation.pseudoTimeStep': [{ required: true, message: '请输入稳态伪时间步', trigger: 'blur' }],
 });
 </script>
 
@@ -1211,6 +1296,10 @@ const rules = reactive({
 .header-actions {
   display: flex;
   gap: 8px;
+}
+.full-width-hint {
+  width: 100%;
+  margin: 8px 0 0;
 }
 .filename.new-file {
   color: #409EFF;

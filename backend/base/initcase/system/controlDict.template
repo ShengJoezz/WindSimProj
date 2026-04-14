@@ -14,7 +14,7 @@ FoamFile
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-application     admFoam;
+application     roughFoam;
 
 startFrom       latestTime;
 
