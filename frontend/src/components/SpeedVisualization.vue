@@ -111,7 +111,7 @@
         </el-row>
       </div>
 
-      <div class="main-content">
+      <div class="viz-main-content">
         <!-- 左侧 - 风速场图片 -->
         <div class="speed-field-section">
           <div class="visualization-wrapper">
@@ -125,26 +125,17 @@
                 class="speed-field-canvas"
                 :class="{ visible: isSpeedFieldReady }"
               ></canvas>
-              <div
-                v-if="isSpeedFieldReady"
-                ref="speedFieldLegend"
-                class="speed-field-legend"
-                :style="speedFieldLegendStyle"
-              >
-                <button type="button" class="legend-handle" @pointerdown="startLegendDrag">
-                  JET 图例 · 拖动
-                </button>
-                <div class="legend-scale">
-                  <div class="legend-bar" :style="speedFieldLegendBarStyle"></div>
-                  <div class="legend-labels">
-                    <span v-for="tick in speedFieldLegendTicks" :key="tick">{{ tick }}</span>
-                  </div>
-                </div>
-              </div>
               <div v-if="chartLoading.speedField" class="image-loading-overlay">
                 <el-icon class="is-loading"><Loading /></el-icon>
                 <span>加载真实速度场...</span>
               </div>
+            </div>
+          </div>
+          <div v-if="isSpeedFieldReady" class="speed-field-legend speed-field-legend-footer">
+            <span class="legend-caption">JET</span>
+            <div class="legend-bar legend-bar-horizontal" :style="speedFieldLegendBarStyle"></div>
+            <div class="legend-labels legend-labels-horizontal">
+              <span v-for="tick in speedFieldLegendTicks" :key="tick">{{ tick }}</span>
             </div>
           </div>
         </div>
@@ -273,8 +264,6 @@ const isSpeedFieldReady = ref(false);
 // --- DOM Refs ---
 const speedFieldContainer = ref(null);
 const speedFieldCanvas = ref(null);
-const speedFieldLegend = ref(null);
-
 // --- Chart Instances ---
 const profileChart = ref(null);
 const wakeChart = ref(null);
@@ -289,10 +278,6 @@ let speedFieldImageData = null;
 let speedFieldRenderFrameId = null;
 let speedFieldXMap = null;
 let speedFieldYMap = null;
-const speedFieldLegendPosition = ref({ left: 18, top: 18 });
-const hasCustomLegendPosition = ref(false);
-let activeLegendPointerId = null;
-let legendDragOrigin = null;
 
 // --- Computed Properties ---
 const minHeight = computed(() => mainMetadata.value?.heightLevels?.[0] ?? 10);
@@ -317,18 +302,13 @@ const speedFieldLegendTicks = computed(() => {
     return ['0.0'];
   }
   return Array.from({ length: 5 }, (_, index) => {
-    const value = vmax - ((vmax - vmin) * index) / 4;
+    const value = vmin + ((vmax - vmin) * index) / 4;
     return value.toFixed(1);
   });
 });
 
 const speedFieldLegendBarStyle = computed(() => ({
   background: buildCssGradient(SIMULATION_JET_STOPS),
-}));
-
-const speedFieldLegendStyle = computed(() => ({
-  left: `${speedFieldLegendPosition.value.left}px`,
-  top: `${speedFieldLegendPosition.value.top}px`,
 }));
 
 const showPrecomputeLog = computed(() => {
@@ -427,91 +407,13 @@ const cancelSpeedFieldRender = () => {
   }
 };
 
-const clampLegendPosition = (left, top) => {
-  const container = speedFieldContainer.value;
-  const legend = speedFieldLegend.value;
-  if (!container || !legend) {
-    return {
-      left: Math.max(12, Math.round(left)),
-      top: Math.max(12, Math.round(top)),
-    };
-  }
-
-  const padding = 12;
-  const maxLeft = Math.max(padding, container.clientWidth - legend.offsetWidth - padding);
-  const maxTop = Math.max(padding, container.clientHeight - legend.offsetHeight - padding);
-  return {
-    left: Math.min(Math.max(padding, Math.round(left)), maxLeft),
-    top: Math.min(Math.max(padding, Math.round(top)), maxTop),
-  };
-};
-
-const ensureLegendPosition = (reset = false) => {
-  nextTick(() => {
-    if (!isSpeedFieldReady.value) return;
-    const container = speedFieldContainer.value;
-    const legend = speedFieldLegend.value;
-    if (!container || !legend) return;
-
-    const padding = 18;
-    const defaultLeft = Math.max(padding, container.clientWidth - legend.offsetWidth - padding);
-    const defaultTop = padding;
-
-    if (reset || !hasCustomLegendPosition.value) {
-      speedFieldLegendPosition.value = clampLegendPosition(defaultLeft, defaultTop);
-      return;
-    }
-
-    speedFieldLegendPosition.value = clampLegendPosition(
-      speedFieldLegendPosition.value.left,
-      speedFieldLegendPosition.value.top
-    );
-  });
-};
-
-const stopLegendDrag = (event) => {
-  if (event && activeLegendPointerId !== null && event.pointerId !== activeLegendPointerId) return;
-  activeLegendPointerId = null;
-  legendDragOrigin = null;
-  window.removeEventListener('pointermove', handleLegendPointerMove);
-  window.removeEventListener('pointerup', stopLegendDrag);
-  window.removeEventListener('pointercancel', stopLegendDrag);
-};
-
-const handleLegendPointerMove = (event) => {
-  if (activeLegendPointerId === null || event.pointerId !== activeLegendPointerId || !legendDragOrigin) return;
-  event.preventDefault();
-  const nextLeft = legendDragOrigin.left + (event.clientX - legendDragOrigin.clientX);
-  const nextTop = legendDragOrigin.top + (event.clientY - legendDragOrigin.clientY);
-  speedFieldLegendPosition.value = clampLegendPosition(nextLeft, nextTop);
-};
-
-const startLegendDrag = (event) => {
-  if (!speedFieldLegend.value || !speedFieldContainer.value) return;
-  event.preventDefault();
-  hasCustomLegendPosition.value = true;
-  activeLegendPointerId = event.pointerId;
-  legendDragOrigin = {
-    clientX: event.clientX,
-    clientY: event.clientY,
-    left: speedFieldLegendPosition.value.left,
-    top: speedFieldLegendPosition.value.top,
-  };
-  window.addEventListener('pointermove', handleLegendPointerMove, { passive: false });
-  window.addEventListener('pointerup', stopLegendDrag);
-  window.addEventListener('pointercancel', stopLegendDrag);
-};
-
 const clearSpeedFieldCanvas = () => {
   cancelSpeedFieldRender();
-  stopLegendDrag();
   speedFieldVolume = null;
   isSpeedFieldReady.value = false;
   speedFieldImageData = null;
   speedFieldXMap = null;
   speedFieldYMap = null;
-  hasCustomLegendPosition.value = false;
-  speedFieldLegendPosition.value = { left: 18, top: 18 };
   if (speedFieldCanvasCtx && speedFieldCanvas.value) {
     speedFieldCanvasCtx.clearRect(0, 0, speedFieldCanvas.value.width, speedFieldCanvas.value.height);
   }
@@ -682,7 +584,6 @@ const ensureSpeedFieldCanvasSize = () => {
     canvas.height = pixelHeight;
     speedFieldCanvasCtx = canvas.getContext('2d', {
       alpha: false,
-      desynchronized: true,
       willReadFrequently: true,
     });
     speedFieldImageData = speedFieldCanvasCtx ? speedFieldCanvasCtx.createImageData(pixelWidth, pixelHeight) : null;
@@ -753,7 +654,6 @@ const renderSpeedField = () => {
   speedFieldCanvasCtx.putImageData(speedFieldImageData, 0, 0);
   isSpeedFieldReady.value = true;
   chartLoading.value.speedField = false;
-  ensureLegendPosition();
 };
 
 const scheduleSpeedFieldRender = () => {
@@ -1150,7 +1050,6 @@ const forceChartsRender = () => { nextTick(() => { safeResizeCharts(); }); };
 // 19. Handle Resize
 const handleResize = debounce(() => {
     scheduleSpeedFieldRender();
-    ensureLegendPosition();
     safeResizeCharts();
 }, 200);
 
@@ -1247,12 +1146,6 @@ watch(currentHeight, (newVal, oldVal) => {
     }
 });
 
-watch(isSpeedFieldReady, (ready) => {
-  if (ready) {
-    ensureLegendPosition();
-  }
-});
-
 watch(() => props.caseId, (newVal, oldVal) => {
     if (newVal && newVal !== oldVal) {
         console.log(`观察者: 工况 ID 从 ${oldVal} 变为 ${newVal}, 重新获取所有数据...`);
@@ -1297,7 +1190,6 @@ onMounted(async () => {
 
 onUnmounted(() => {
   console.log("SpeedVisualization 即将卸载");
-  stopLegendDrag();
   window.removeEventListener('resize', handleResize);
   if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null; }
   clearSpeedFieldCanvas();
@@ -1312,20 +1204,25 @@ onUnmounted(() => {
 /* Paste your previous CSS styles here, BUT REMOVE the .turbine-overlay-canvas style */
 .advanced-visualization-container {
   width: 100%;
-  height: 100%; /* 尝试让容器撑满父容器 */
-  min-height: 650px; /* 设置最小高度防止塌陷 */
-  display: flex; /* 使用 flex 布局 */
-  flex-direction: column; /* 垂直排列子元素 */
+  min-height: 720px;
+  display: flex;
+  flex-direction: column;
 }
 
 .visualization-card {
-  flex: 1; /* 让卡片填满剩余空间 */
+  flex: 1;
   background-color: #f8f9fa;
-  border-radius: 8px; /* 统一圆角 */
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); /* 调整阴影 */
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  min-height: 720px;
+  overflow: hidden;
+}
+
+.visualization-card :deep(.el-card__body) {
   display: flex;
   flex-direction: column;
-  overflow: hidden; /* 防止内容溢出卡片 */
+  min-height: 720px;
+  padding: 0;
 }
 
 .card-header {
@@ -1416,49 +1313,52 @@ onUnmounted(() => {
 }
 
 /* 主内容区 */
-.main-content {
+.viz-main-content {
   display: flex;
-  flex: 1; /* 让主内容区填满卡片剩余空间 */
-  min-height: 0; /* 允许内容区在 flex 容器中收缩 */
-  padding: 0 10px 10px 10px; /* 统一内边距 */
-  gap: 15px; /* 调整左右间距 */
-  overflow: hidden; /* 防止内部元素溢出 */
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 10px 10px 10px;
+  gap: 15px;
+  overflow: hidden;
 }
 
 /* 左侧风速场图片部分 */
 .speed-field-section {
-  flex: 1; /* 占据可用空间 */
-  min-width: 40%; /* 设置最小宽度比例 */
-  max-width: 60%; /* 设置最大宽度比例 */
+  flex: 1 1 0;
+  min-width: 40%;
+  max-width: 60%;
   background-color: #fff;
   border-radius: 6px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   overflow: hidden;
   position: relative;
-  display: flex; /* 内部也用 flex */
-  justify-content: center;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  min-height: 420px;
 }
 
 .visualization-wrapper {
   position: relative;
   width: 100%;
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 5px; /* 减少内边距 */
+  padding: 8px 8px 4px;
 }
 
 .speed-field-container {
-  position: relative; /* 确保 canvas 定位相对于此容器 (虽然 canvas 没了，但 position: relative 无害) */
+  position: relative;
   width: 100%;
   height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   justify-content: center;
   align-items: center;
-  overflow: hidden; /* 隐藏溢出的部分 */
-  border-radius: 4px; /* 轻微圆角 */
+  overflow: hidden;
+  border-radius: 4px;
 }
 
 .speed-field-canvas {
@@ -1478,39 +1378,27 @@ onUnmounted(() => {
 }
 
 .speed-field-legend {
-  position: absolute;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px 10px;
+  gap: 8px;
+  padding: 10px 14px 12px;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
   backdrop-filter: blur(6px);
-  z-index: 3;
 }
 
-.legend-handle {
-  border: none;
-  border-radius: 999px;
-  padding: 6px 10px;
-  background: rgba(15, 23, 42, 0.08);
+.speed-field-legend-footer {
+  margin: 0 8px 8px;
+  flex-shrink: 0;
+}
+
+.legend-caption {
   color: #0f172a;
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.02em;
-  cursor: grab;
-  touch-action: none;
-}
-
-.legend-handle:active {
-  cursor: grabbing;
-}
-
-.legend-scale {
-  display: flex;
-  align-items: stretch;
-  gap: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .legend-bar {
@@ -1518,6 +1406,11 @@ onUnmounted(() => {
   height: 160px;
   border-radius: 999px;
   box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+}
+
+.legend-bar-horizontal {
+  width: 100%;
+  height: 14px;
 }
 
 .legend-labels {
@@ -1528,6 +1421,12 @@ onUnmounted(() => {
   font-size: 12px;
   font-weight: 600;
   color: #334155;
+}
+
+.legend-labels-horizontal {
+  flex-direction: row;
+  min-width: 0;
+  justify-content: space-between;
 }
 
 .no-image-placeholder, .turbine-details-placeholder {
@@ -1679,13 +1578,13 @@ onUnmounted(() => {
 
 /* 响应式布局优化 */
 @media (max-width: 1200px) {
-   .main-content { gap: 20px; }
+   .viz-main-content { gap: 20px; }
    .speed-field-section { min-width: 45%; }
    .charts-section { min-width: 40%; }
 }
 
 @media (max-width: 992px) {
-  .main-content { flex-direction: column; overflow-y: auto; overflow-x: hidden; padding: 0 10px 10px 10px; }
+  .viz-main-content { flex-direction: column; overflow-y: auto; overflow-x: hidden; padding: 0 10px 10px 10px; }
   .speed-field-section { max-width: 100%; min-width: 100%; height: 45vh; min-height: 350px; max-height: 500px; margin-bottom: 15px; }
   .charts-section { max-width: 100%; min-width: 100%; flex-direction: row; flex-wrap: wrap; overflow: visible; gap: 15px; }
   .chart-wrapper { flex-basis: calc(50% - 8px); min-width: 250px; min-height: 280px; }
@@ -1696,6 +1595,7 @@ onUnmounted(() => {
   .card-header h3 { font-size: 1rem; }
   .control-item .label { font-size: 0.8rem; }
   .speed-field-section { height: 40vh; min-height: 300px; max-height: 400px; }
+  .speed-field-legend-footer { margin: 0 6px 6px; }
   .charts-section { flex-direction: column; }
   .chart-wrapper { flex-basis: auto; min-height: 250px; }
   .turbine-details { flex-basis: auto; }
