@@ -61,8 +61,8 @@
           <el-form-item label="入口剖面" prop="conditions.inflowProfile" :inline="true" class="child-form-item">
             <el-select v-model="caseStore.parameters.conditions.inflowProfile" class="input-number" :disabled="caseStore.infoExists">
               <el-option label="旧工程兼容（固定 k/epsilon）" value="legacy_fixed" />
-              <el-option label="均匀入口" value="uniform" />
-              <el-option label="ABL 对数律" value="abl_log" />
+              <el-option v-if="showExperimentalInflowModes || usesLinkedUniformInflow" label="均匀入口" value="uniform" />
+              <el-option v-if="showExperimentalInflowModes || usesAblInflow" label="ABL 对数律" value="abl_log" />
             </el-select>
           </el-form-item>
           <el-form-item
@@ -1161,6 +1161,7 @@ onBeforeUnmount(() => {
 const usesAblInflow = computed(() => caseStore.parameters.conditions.inflowProfile === 'abl_log');
 const usesLegacyInflow = computed(() => caseStore.parameters.conditions.inflowProfile === 'legacy_fixed');
 const usesLinkedUniformInflow = computed(() => caseStore.parameters.conditions.inflowProfile === 'uniform');
+const showExperimentalInflowModes = false;
 const inflowModeNoticeTitle = computed(() => {
   if (usesAblInflow.value) return 'ABL 对数律入口已启用';
   if (usesLegacyInflow.value) return '旧工程兼容入口已启用';

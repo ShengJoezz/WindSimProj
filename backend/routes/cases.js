@@ -811,7 +811,7 @@ router.get("/:caseId/parameters", async (req, res) => {
             conditions: {
                 windDirection: 0,
                 inletWindSpeed: 10,
-                inflowProfile: 'uniform',
+                inflowProfile: 'legacy_fixed',
                 referenceHeight: 120,
                 roughnessLength: 0.03,
                 displacementHeight: 0,
