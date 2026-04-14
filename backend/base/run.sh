@@ -157,6 +157,9 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
+# 避免模板文件被 decomposePar/roughFoam 当成真实场文件读取。
+rm -f 0/*.template
+
 echo "=== 配置文件生成完成 ==="
 # --------------------------------------------------
 
@@ -206,6 +209,7 @@ sleep 1
 # Step 9: Modify boundaries
 emit_task_start "modify_boundaries"
 ../../../base/solver/modifyBoundary
+python3 ../../../base/solver/adjustBoundaryPatchTypes.py
 emit_progress 85 "modify_boundaries"
 sleep 1
 
@@ -226,6 +230,11 @@ fi
 echo "[Info] decomposeParDict 已更新为 numberOfSubdomains = ${num_cores}"
 
 decomposePar
+if [ $? -ne 0 ]; then
+  echo "[ERROR] decomposePar 执行失败!" >&2
+  echo "{\"action\":\"progress\", \"progress\": \"ERROR\", \"taskId\":\"decompose_parallel\"}"
+  exit 1
+fi
 emit_progress 90 "decompose_parallel"
 sleep 1
 echo "=== decomposePar 执行完成 ==="
