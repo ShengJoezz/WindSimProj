@@ -21,6 +21,25 @@
 # --- [FIX 1] 确保任何命令失败时，脚本立即退出 ---
 set -e
 
+resolve_python_bin() {
+  if [ -n "${WINDSIM_PYTHON:-}" ] && [ -x "${WINDSIM_PYTHON}" ]; then
+    echo "${WINDSIM_PYTHON}"
+    return 0
+  fi
+  if [ -n "${CONDA_PREFIX:-}" ] && [ -x "${CONDA_PREFIX}/bin/python3" ]; then
+    echo "${CONDA_PREFIX}/bin/python3"
+    return 0
+  fi
+  if [ -x "${HOME}/miniconda3/envs/Wind_env/bin/python3" ]; then
+    echo "${HOME}/miniconda3/envs/Wind_env/bin/python3"
+    return 0
+  fi
+  command -v python3
+}
+
+PYTHON_BIN="$(resolve_python_bin)"
+echo "[Info] 使用 Python 解释器: ${PYTHON_BIN}"
+
 # --- 函数定义 ---
 emit_progress() {
   echo "{\"action\":\"progress\",\"progress\": $1, \"taskId\":\"$2\"}"
@@ -67,10 +86,10 @@ envsubst < ../../../base/initcase/0/U.template > 0/U
 emit_progress 15 "template_configs"
 
 emit_task_start "meshing_pipeline"
-python3 ../../../base/solver/makeGmsh.py
+"${PYTHON_BIN}" ../../../base/solver/makeGmsh.py
 gmsh -3 modeling.geo -o flat.msh
-python3 ../../../base/solver/buildTerrain.py
-python3 ../../../base/solver/makeInput.py
+"${PYTHON_BIN}" ../../../base/solver/buildTerrain.py
+"${PYTHON_BIN}" ../../../base/solver/makeInput.py
 gambitToFoam output.neu
 emit_progress 50 "meshing_pipeline"
 
@@ -101,7 +120,7 @@ postFoam
 
 # 执行 Python 后处理器以生成最终文件
 echo "--- 执行 Python post.py ---"
-python3 ../../../base/solver/post.py
+"${PYTHON_BIN}" ../../../base/solver/post.py
 
 
 echo "=== 后处理完成 ==="

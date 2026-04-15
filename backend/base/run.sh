@@ -7,6 +7,25 @@ if [ -z "${WM_PROJECT_DIR:-}" ]; then
   fi
 fi
 
+resolve_python_bin() {
+  if [ -n "${WINDSIM_PYTHON:-}" ] && [ -x "${WINDSIM_PYTHON}" ]; then
+    echo "${WINDSIM_PYTHON}"
+    return 0
+  fi
+  if [ -n "${CONDA_PREFIX:-}" ] && [ -x "${CONDA_PREFIX}/bin/python3" ]; then
+    echo "${CONDA_PREFIX}/bin/python3"
+    return 0
+  fi
+  if [ -x "${HOME}/miniconda3/envs/Wind_env/bin/python3" ]; then
+    echo "${HOME}/miniconda3/envs/Wind_env/bin/python3"
+    return 0
+  fi
+  command -v python3
+}
+
+PYTHON_BIN="$(resolve_python_bin)"
+echo "[Info] 使用 Python 解释器: ${PYTHON_BIN}"
+
 emit_progress() {
   echo "{\"action\":\"progress\",\"progress\": $1, \"taskId\":\"$2\"}"
   echo "[Debug] 当前工作目录: $(pwd)"
@@ -151,7 +170,7 @@ fi
 
 # --- 生成入口边界场文件 ---
 echo "生成入口边界场文件..."
-python3 ../../../base/solver/writeBoundaryFields.py
+"${PYTHON_BIN}" ../../../base/solver/writeBoundaryFields.py
 if [ $? -ne 0 ]; then
   echo "生成入口边界场文件失败!" >&2
   exit 1
@@ -165,7 +184,7 @@ echo "=== 配置文件生成完成 ==="
 
 # Step 5: Execute makeGmsh.py and gmsh
 emit_task_start "modeling"
-python3 ../../../base/solver/makeGmsh.py
+"${PYTHON_BIN}" ../../../base/solver/makeGmsh.py
 if [ $? -ne 0 ]; then
   echo "{\"action\":\"progress\", \"progress\": \"ERROR\", \"taskId\":\"modeling\"}"
   exit 1
@@ -182,7 +201,7 @@ sleep 1
 
 # Step 6: Execute buildTerrain.py
 emit_task_start "build_terrain"
-python3 ../../../base/solver/buildTerrain.py
+"${PYTHON_BIN}" ../../../base/solver/buildTerrain.py
 if [ $? -ne 0 ]; then
   echo "{\"action\":\"progress\", \"progress\": \"ERROR\", \"taskId\":\"build_terrain\"}"
   exit 1
@@ -192,7 +211,7 @@ sleep 1
 
 # Step 7: Execute makeInput.py
 emit_task_start "make_input"
-python3 ../../../base/solver/makeInput.py
+"${PYTHON_BIN}" ../../../base/solver/makeInput.py
 if [ $? -ne 0 ]; then
   echo "{\"action\":\"progress\", \"progress\": \"ERROR\", \"taskId\":\"make_input\"}"
   exit 1
@@ -209,7 +228,7 @@ sleep 1
 # Step 9: Modify boundaries
 emit_task_start "modify_boundaries"
 ../../../base/solver/modifyBoundary
-python3 ../../../base/solver/adjustBoundaryPatchTypes.py
+"${PYTHON_BIN}" ../../../base/solver/adjustBoundaryPatchTypes.py
 emit_progress 85 "modify_boundaries"
 sleep 1
 
@@ -258,7 +277,7 @@ sleep 1
 
 # Final step: Execute post.py
 emit_task_start "execute_post_script"
-python3 ../../../base/solver/post.py
+"${PYTHON_BIN}" ../../../base/solver/post.py
 emit_progress 100 "execute_post_script"
 sleep 1
 
@@ -277,7 +296,7 @@ fi
 emit_task_start "process_vtk"
 mkdir -p ./VTK/processed  # 使用相对路径
 # 将 internal.vtu 和 bot.vtp 复制并处理到 processed 目录
-python3 ../../../utils/process_vtk.py "$VTK_RUN_DIR/internal.vtu" ./VTK/processed
+"${PYTHON_BIN}" ../../../utils/process_vtk.py "$VTK_RUN_DIR/internal.vtu" ./VTK/processed
 mv "$VTK_RUN_DIR/boundary/bot.vtp" ./VTK/processed
 cp "$VTK_RUN_DIR/internal.vtu" ./VTK/processed/internal.vtu
 if [ $? -ne 0 ]; then
@@ -518,7 +537,7 @@ do
 
   TARGET_SEED_SAMPLE=1500
 
-  python3 "${UTILS_DIR}/preStreamLines.py" \
+  "${PYTHON_BIN}" "${UTILS_DIR}/preStreamLines.py" \
     "${FIELD_FOR_STREAMLINES}" \
     -H "${height}" \
     --scale 1000 \
@@ -561,7 +580,7 @@ echo "[Info] 自动检测到的 Case ID: ${CASE_ID}"
 UTILS_DIR="../../../utils"
 
 # 调用脚本，并使用 --caseId 参数传入ID (使用简洁的单行写法)
-python3 "${UTILS_DIR}/precompute_visualization.py" --caseId "${CASE_ID}"
+"${PYTHON_BIN}" "${UTILS_DIR}/precompute_visualization.py" --caseId "${CASE_ID}"
 if [ $? -ne 0 ]; then
   echo "{\"action\":\"progress\", \"progress\": \"ERROR\", \"taskId\":\"precompute_visualization\", \"message\": \"执行 precompute_visualization.py 失败！\"}"
   exit 1

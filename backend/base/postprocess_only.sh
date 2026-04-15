@@ -14,6 +14,25 @@
 # 脚本：postprocess_streamlines_only.sh（修正版）
 # ==============================================================================
 
+resolve_python_bin() {
+  if [ -n "${WINDSIM_PYTHON:-}" ] && [ -x "${WINDSIM_PYTHON}" ]; then
+    echo "${WINDSIM_PYTHON}"
+    return 0
+  fi
+  if [ -n "${CONDA_PREFIX:-}" ] && [ -x "${CONDA_PREFIX}/bin/python3" ]; then
+    echo "${CONDA_PREFIX}/bin/python3"
+    return 0
+  fi
+  if [ -x "${HOME}/miniconda3/envs/Wind_env/bin/python3" ]; then
+    echo "${HOME}/miniconda3/envs/Wind_env/bin/python3"
+    return 0
+  fi
+  command -v python3
+}
+
+PYTHON_BIN="$(resolve_python_bin)"
+echo "[Info] 使用 Python 解释器: ${PYTHON_BIN}"
+
 # --- 输出函数 ---
 emit_progress() {
   echo "{\"action\":\"progress\",\"progress\": $1, \"taskId\":\"$2\"}"
@@ -57,7 +76,7 @@ mkdir -p ./VTK/processed
 
 # 调用process_vtk.py处理VTK文件（与第一个脚本保持一致）
 echo "[Info] 使用process_vtk.py处理VTK文件..."
-python3 ../../../utils/process_vtk.py "$VTK_RUN_DIR/internal.vtu" ./VTK/processed
+"${PYTHON_BIN}" ../../../utils/process_vtk.py "$VTK_RUN_DIR/internal.vtu" ./VTK/processed
 if [ $? -ne 0 ]; then
   echo "{\"action\":\"progress\", \"progress\": \"ERROR\", \"taskId\":\"process_vtk\", \"message\": \"VTK文件处理失败！\"}" >&2
   exit 1
@@ -158,7 +177,7 @@ do
   echo "[Info] 使用VTP种子表面: ${SEED_SURFACE_VTP}"
   echo "[Info] 将从种子表面采样 ${TARGET_SEED_SAMPLE} 个点生成流线..."
   
-  python3 "${UTILS_DIR}/preStreamLines.py" \
+  "${PYTHON_BIN}" "${UTILS_DIR}/preStreamLines.py" \
     "${FIELD_FOR_STREAMLINES}" \
     -H "${height}" \
     --scale 1000 \
@@ -192,7 +211,7 @@ if [ -z "${CASE_ID}" ]; then
 fi
 echo "[Info] 自动检测到的 Case ID: ${CASE_ID}"
 
-python3 "${UTILS_DIR}/precompute_visualization.py" --caseId "${CASE_ID}"
+"${PYTHON_BIN}" "${UTILS_DIR}/precompute_visualization.py" --caseId "${CASE_ID}"
 if [ $? -ne 0 ]; then
   echo "{\"action\":\"progress\", \"progress\": \"ERROR\", \"taskId\":\"precompute_visualization\", \"message\": \"执行 precompute_visualization.py 失败！\"}" >&2
   exit 1

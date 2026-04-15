@@ -38,6 +38,28 @@ const getCalculationTimeoutMs = () => {
     return Number.isFinite(ms) && ms > 0 ? ms : 0;
 };
 
+const resolvePythonExecutable = () => {
+    const candidates = [
+        process.env.WINDSIM_PYTHON,
+        process.env.CONDA_PREFIX ? path.join(process.env.CONDA_PREFIX, 'bin', 'python3') : null,
+        '/home/joe/miniconda3/envs/Wind_env/bin/python3',
+        'python3',
+    ].filter(Boolean);
+
+    for (const candidate of candidates) {
+        if (candidate === 'python3') return candidate;
+        try {
+            if (fs.existsSync(candidate)) return candidate;
+        } catch {
+            // Ignore unreadable candidate and continue.
+        }
+    }
+
+    return 'python3';
+};
+
+const PYTHON_EXECUTABLE = resolvePythonExecutable();
+
 const isNumericProcDir = (name) => /^\d+$/.test(String(name || ''));
 
 const isWithinCasePath = (targetPath, casePath) => {
@@ -2110,7 +2132,7 @@ router.post('/:caseId/precompute-visualization', async (req, res) => {
     // Use an async function wrapper to handle the spawn and updates without blocking.
     (async () => {
         try {
-            const pythonProcess = spawn('python3', [scriptPath, '--caseId', caseId], {
+            const pythonProcess = spawn(PYTHON_EXECUTABLE, [scriptPath, '--caseId', caseId], {
                 stdio: ['ignore', 'pipe', 'pipe'] // Ignore stdin, capture stdout/stderr
             });
 
@@ -3247,9 +3269,9 @@ router.post('/:caseId/process-vtk', async (req, res) => {
 
     try {
         await fsPromises.mkdir(resolvedOutputDir, { recursive: true });
-        console.log(`执行 VTK 处理脚本: python3 ${script} ${resolvedInputPath} ${resolvedOutputDir}`);
+        console.log(`执行 VTK 处理脚本: ${PYTHON_EXECUTABLE} ${script} ${resolvedInputPath} ${resolvedOutputDir}`);
         // Pass arguments securely
-        const pythonProcess = spawn('python3', [script, resolvedInputPath, resolvedOutputDir]);
+        const pythonProcess = spawn(PYTHON_EXECUTABLE, [script, resolvedInputPath, resolvedOutputDir]);
 
         let outputData = '';
         let errorData = '';
