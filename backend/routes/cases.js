@@ -105,6 +105,33 @@ const buildPendingTaskStatuses = () => {
     return taskStatuses;
 };
 
+const knownTaskOrder = new Map(knownTasks.map((task, index) => [task.id, index]));
+
+const normalizeSequentialTaskStatuses = (taskStatuses, activeTaskId = null) => {
+    if (!taskStatuses || typeof taskStatuses !== 'object') return taskStatuses;
+
+    let effectiveActiveTaskId = activeTaskId;
+    if (!effectiveActiveTaskId) {
+        const runningTasks = knownTasks.filter(task => taskStatuses[task.id] === 'running');
+        if (runningTasks.length === 0) return taskStatuses;
+        effectiveActiveTaskId = runningTasks[runningTasks.length - 1].id;
+    }
+
+    const activeIndex = knownTaskOrder.get(effectiveActiveTaskId);
+    if (activeIndex === undefined) return taskStatuses;
+
+    knownTasks.forEach((task, index) => {
+        if (index < activeIndex && taskStatuses[task.id] !== 'completed' && taskStatuses[task.id] !== 'error') {
+            taskStatuses[task.id] = 'completed';
+        } else if (index > activeIndex && taskStatuses[task.id] === 'running') {
+            taskStatuses[task.id] = 'pending';
+        }
+    });
+
+    taskStatuses[effectiveActiveTaskId] = 'running';
+    return taskStatuses;
+};
+
 const recoverStaleCalculationState = async (caseId, casePath, reason = 'stale_running_state') => {
     const infoJsonPath = path.join(casePath, 'info.json');
     const progressPath = path.join(casePath, 'calculation_progress.json');
@@ -1448,6 +1475,7 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
                         taskStatuses[msg.taskId] = "running";
                         currentTaskId = msg.taskId;
                         lastTaskId = msg.taskId;
+                        normalizeSequentialTaskStatuses(taskStatuses, msg.taskId);
                         if (io) io.to(caseId).emit("taskStarted", msg.taskId);
                         progressChanged = true;
                         // Emit an updated overall progress on task start (monotonic).

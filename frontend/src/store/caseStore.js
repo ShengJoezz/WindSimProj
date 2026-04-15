@@ -12,7 +12,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
-import { knownTasks } from '../utils/tasks.js';
+import { knownTasks, normalizeSequentialTaskStatuses } from '../utils/tasks.js';
 import { io } from 'socket.io-client';
 import { useWindMastStore } from './windMastStore';
 import { notifyError, notifySuccess } from '../utils/notify.js';
@@ -609,7 +609,7 @@ export const useCaseStore = defineStore('caseStore', () => {
         if (prog.tasks) {
             const persistentTasks = {};
             knownTasks.forEach(task => { persistentTasks[task.id] = prog.tasks[task.id] || 'pending'; });
-            tasks.value = persistentTasks;
+            tasks.value = normalizeSequentialTaskStatuses(persistentTasks);
         } else {
             knownTasks.forEach(task => { tasks.value[task.id] = 'pending'; });
         }
@@ -758,7 +758,10 @@ export const useCaseStore = defineStore('caseStore', () => {
 
     socket.value.on('calculationOutput', (output) => calculationOutputs.value.push({ type: 'output', message: output }));
     socket.value.on('taskUpdate', (taskStatuses) => {
-      Object.assign(tasks.value, taskStatuses);
+      tasks.value = normalizeSequentialTaskStatuses({
+        ...tasks.value,
+        ...(taskStatuses || {}),
+      });
     });
     socket.value.on('calculationProgress', (data) => {
         overallProgress.value = data.progress;

@@ -33,3 +33,30 @@ export const knownTasks = [
     { id: 'precompute_visualization', name: '可视化预计算' },
     { id: 'computation_end', name: '计算完成' },
   ];
+
+const taskOrder = new Map(knownTasks.map((task, index) => [task.id, index]));
+
+export const normalizeSequentialTaskStatuses = (rawStatuses = {}) => {
+  const normalized = {};
+  knownTasks.forEach((task) => {
+    normalized[task.id] = rawStatuses?.[task.id] || 'pending';
+  });
+
+  const runningTasks = knownTasks.filter((task) => normalized[task.id] === 'running');
+  if (runningTasks.length === 0) return normalized;
+
+  const activeTask = runningTasks[runningTasks.length - 1];
+  const activeIndex = taskOrder.get(activeTask.id);
+  if (activeIndex === undefined) return normalized;
+
+  knownTasks.forEach((task, index) => {
+    if (index < activeIndex && normalized[task.id] !== 'completed' && normalized[task.id] !== 'error') {
+      normalized[task.id] = 'completed';
+    } else if (index > activeIndex && normalized[task.id] === 'running') {
+      normalized[task.id] = 'pending';
+    }
+  });
+
+  normalized[activeTask.id] = 'running';
+  return normalized;
+};

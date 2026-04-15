@@ -195,7 +195,7 @@ import {
 import axios from 'axios';
 import { useRoute, useRouter } from 'vue-router';
 import { useCaseStore } from '../store/caseStore';
-import { knownTasks } from '../utils/tasks';
+import { knownTasks, normalizeSequentialTaskStatuses } from '../utils/tasks';
 
 const route = useRoute();
 const router = useRouter();
@@ -242,7 +242,7 @@ const terminalContent = ref(null);
 const isCanceling = ref(false);
 
 const tasksList = computed(() => {
-  const statusMap = store.tasks || {};
+  const statusMap = normalizeSequentialTaskStatuses(store.tasks || {});
   return knownTasks.map(task => ({
     id: task.id,
     name: task.name,
