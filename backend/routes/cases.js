@@ -38,6 +38,143 @@ const getCalculationTimeoutMs = () => {
     return Number.isFinite(ms) && ms > 0 ? ms : 0;
 };
 
+const isNumericProcDir = (name) => /^\d+$/.test(String(name || ''));
+
+const isWithinCasePath = (targetPath, casePath) => {
+    if (!targetPath || !casePath) return false;
+    return targetPath === casePath || targetPath.startsWith(`${casePath}${path.sep}`);
+};
+
+const listCaseWorkingDirectoryPids = async (casePath) => {
+    if (!casePath) return [];
+    let procEntries = [];
+    try {
+        procEntries = await fsPromises.readdir('/proc', { withFileTypes: true });
+    } catch {
+        return [];
+    }
+
+    const matched = [];
+    for (const entry of procEntries) {
+        if (!entry?.isDirectory?.() || !isNumericProcDir(entry.name)) continue;
+        const pid = Number(entry.name);
+        if (!Number.isFinite(pid) || pid <= 1 || pid === process.pid) continue;
+        try {
+            const cwd = await fsPromises.readlink(`/proc/${pid}/cwd`);
+            if (isWithinCasePath(cwd, casePath)) matched.push(pid);
+        } catch {
+            // Process may have exited or deny inspection mid-scan; ignore.
+        }
+    }
+
+    return matched.sort((a, b) => a - b);
+};
+
+const detectRunningCalculation = async (caseId, casePath) => {
+    const entry = runningCalculations.get(caseId);
+    if (entry?.child && !entry.child.killed) {
+        return {
+            active: true,
+            source: 'registry',
+            entry,
+            pids: typeof entry.child.pid === 'number' ? [entry.child.pid] : [],
+        };
+    }
+
+    const pids = await listCaseWorkingDirectoryPids(casePath);
+    if (pids.length > 0) {
+        return {
+            active: true,
+            source: 'procfs',
+            entry: entry || null,
+            pids,
+        };
+    }
+
+    return {
+        active: false,
+        source: null,
+        entry: entry || null,
+        pids: [],
+    };
+};
+
+const buildPendingTaskStatuses = () => {
+    const taskStatuses = {};
+    knownTasks.forEach(task => { taskStatuses[task.id] = 'pending'; });
+    return taskStatuses;
+};
+
+const recoverStaleCalculationState = async (caseId, casePath, reason = 'stale_running_state') => {
+    const infoJsonPath = path.join(casePath, 'info.json');
+    const progressPath = path.join(casePath, 'calculation_progress.json');
+    const now = Date.now();
+    const nowIso = new Date(now).toISOString();
+    const pendingTasks = buildPendingTaskStatuses();
+
+    if (fs.existsSync(progressPath)) {
+        try {
+            const existing = JSON.parse(await fsPromises.readFile(progressPath, 'utf-8'));
+            const recovered = {
+                ...existing,
+                status: 'not_started',
+                isCalculating: false,
+                progress: 0,
+                completed: false,
+                tasks: pendingTasks,
+                timestamp: now,
+                endTime: existing?.endTime ?? now,
+                canceled: false,
+                timeout: false,
+                currentTaskId: null,
+                recoveredFromStaleState: true,
+                recoveryReason: reason,
+                recoveryTime: nowIso,
+            };
+            await fsPromises.writeFile(progressPath, JSON.stringify(recovered, null, 2), 'utf-8');
+        } catch (error) {
+            console.warn(`恢复僵尸计算状态时，重写 calculation_progress.json 失败 (${caseId}):`, error);
+            try {
+                await fsPromises.unlink(progressPath);
+            } catch {/* ignore */}
+        }
+    }
+
+    if (fs.existsSync(infoJsonPath)) {
+        try {
+            const info = JSON.parse(await fsPromises.readFile(infoJsonPath, 'utf-8'));
+            info.calculationStatus = 'not_started';
+            info.lastCalculationRecovered = true;
+            info.lastCalculationRecoveryReason = reason;
+            info.lastCalculationRecoveryTime = nowIso;
+            await fsPromises.writeFile(infoJsonPath, JSON.stringify(info, null, 2), 'utf-8');
+        } catch (error) {
+            console.warn(`恢复僵尸计算状态时，更新 info.json 失败 (${caseId}):`, error);
+        }
+    }
+
+    return {
+        success: true,
+        recovered: true,
+        calculationStatus: 'not_started',
+        recoveryReason: reason,
+        recoveredAt: nowIso,
+    };
+};
+
+const terminateCasePids = (pids, signal) => {
+    let killed = 0;
+    for (const pid of [...new Set(pids)].sort((a, b) => b - a)) {
+        try {
+            process.kill(pid, signal);
+            killed += 1;
+        } catch {
+            // Ignore already-exited or inaccessible processes.
+        }
+    }
+    return killed;
+};
+
 const killProcessGroup = (child, signal) => {
     if (!child || typeof child.pid !== 'number') return false;
     try {
@@ -1132,9 +1269,13 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
         return res.status(400).json({ success: false, message: "缺少配置文件 (info.json)，请先生成或上传" });
     }
 
-    // Prevent starting twice for the same case within this backend instance
-    const existingRun = runningCalculations.get(caseId);
-    if (existingRun && existingRun.child && !existingRun.child.killed) {
+    const activeRun = await detectRunningCalculation(caseId, casePath);
+    if (!activeRun.active && req.calculationStatus === 'running') {
+        await recoverStaleCalculationState(caseId, casePath, 'stale_state_detected_on_calculate');
+    }
+
+    // Prevent starting twice for the same case when an active process still exists.
+    if (activeRun.active) {
         return res.status(409).json({ success: false, message: "该工况已有计算在进行中（请等待完成或先取消）" });
     }
 
@@ -1510,11 +1651,58 @@ router.post("/:caseId/calculate", checkCalculationStatus, async (req, res) => {
 // 取消正在进行的计算
 router.post("/:caseId/cancel", async (req, res) => {
     const { caseId } = req.params;
+    const casePath = path.join(__dirname, "../uploads", caseId);
     const io = req.app.get("socketio");
-    const entry = runningCalculations.get(caseId);
-    if (!entry || !entry.child || entry.child.killed) {
+    const activeRun = await detectRunningCalculation(caseId, casePath);
+
+    if (!activeRun.active) {
+        const infoJsonPath = path.join(casePath, 'info.json');
+        const progressPath = path.join(casePath, 'calculation_progress.json');
+        let hasStaleRunningState = false;
+
+        try {
+            if (fs.existsSync(infoJsonPath)) {
+                const info = JSON.parse(await fsPromises.readFile(infoJsonPath, 'utf-8'));
+                hasStaleRunningState = hasStaleRunningState || info?.calculationStatus === 'running';
+            }
+        } catch {/* ignore */}
+
+        try {
+            if (fs.existsSync(progressPath)) {
+                const progress = JSON.parse(await fsPromises.readFile(progressPath, 'utf-8'));
+                hasStaleRunningState = hasStaleRunningState || progress?.status === 'running' || progress?.isCalculating === true;
+            }
+        } catch {/* ignore */}
+
+        if (hasStaleRunningState) {
+            await recoverStaleCalculationState(caseId, casePath, 'stale_state_detected_on_cancel');
+            if (io) {
+                io.to(caseId).emit("calculationOutput", "[SYSTEM] 检测到僵尸计算状态，已自动重置，可重新开始计算。\n");
+                io.to(caseId).emit("calculationCanceled", { message: "检测到僵尸计算状态，已自动重置" });
+                io.to(caseId).emit("taskUpdate", buildPendingTaskStatuses());
+            }
+            return res.json({
+                success: true,
+                recoveredStale: true,
+                calculationStatus: 'not_started',
+                message: "检测到该工况没有活动计算进程，已自动重置卡死状态，可重新开始计算。",
+            });
+        }
+
         return res.status(409).json({ success: false, message: "当前没有正在运行的计算可取消" });
     }
+
+    if (!activeRun.entry?.child) {
+        const terminated = terminateCasePids(activeRun.pids, 'SIGTERM');
+        setTimeout(() => terminateCasePids(activeRun.pids, 'SIGKILL'), 10_000);
+        if (io) io.to(caseId).emit("calculationOutput", `[USER] 已请求取消计算，正在终止 ${terminated} 个活动进程...\n`);
+        return res.json({
+            success: true,
+            message: `已请求取消，正在终止 ${terminated} 个活动进程...`,
+        });
+    }
+
+    const entry = activeRun.entry;
     if (!entry.cancelReason) {
         entry.cancelReason = 'user';
         if (io) io.to(caseId).emit("calculationOutput", "[USER] 已请求取消计算，正在终止进程...\n");
@@ -2419,6 +2607,7 @@ router.delete('/:caseId/info', async (req, res) => {
 // 14. 获取特定工况的计算状态 (从 info.json 读取)
 router.get('/:caseId/calculation-status', async (req, res) => { // Make async
     const { caseId } = req.params;
+    const casePath = path.join(__dirname, '../uploads', caseId);
     const infoJsonPath = path.join(__dirname, '../uploads', caseId, 'info.json');
 
     if (!fs.existsSync(infoJsonPath)) {
@@ -2429,9 +2618,20 @@ router.get('/:caseId/calculation-status', async (req, res) => { // Make async
     try {
         const data = await fsPromises.readFile(infoJsonPath, 'utf-8');
         const info = JSON.parse(data);
-        const calcStatus = info.calculationStatus || 'unknown'; // Default to 'unknown' if field missing
+        let calcStatus = info.calculationStatus || 'unknown'; // Default to 'unknown' if field missing
         const vizStatus = info.visualizationStatus || null; // Get viz status too
-        res.json({ calculationStatus: calcStatus, visualizationStatus: vizStatus });
+        let recoveredStale = false;
+
+        if (calcStatus === 'running') {
+            const activeRun = await detectRunningCalculation(caseId, casePath);
+            if (!activeRun.active) {
+                await recoverStaleCalculationState(caseId, casePath, 'stale_state_detected_on_status_read');
+                calcStatus = 'not_started';
+                recoveredStale = true;
+            }
+        }
+
+        res.json({ calculationStatus: calcStatus, visualizationStatus: vizStatus, recoveredStale });
     } catch (error) {
         console.error(`读取 info.json (${caseId}) 状态时出错:`, error);
         // Return a specific error status if reading fails
@@ -2486,11 +2686,36 @@ router.post('/:caseId/calculation-progress', async (req, res) => {
 // 获取计算进度
 router.get('/:caseId/calculation-progress', async (req, res) => {
     const { caseId } = req.params;
+    const casePath = path.join(__dirname, `../uploads/${caseId}`);
     const progressPath = path.join(__dirname, `../uploads/${caseId}/calculation_progress.json`);
     try {
         if (fs.existsSync(progressPath)) {
             const progressData = await fsPromises.readFile(progressPath, 'utf-8');
-            const progress = JSON.parse(progressData);
+            let progress = JSON.parse(progressData);
+            if (progress.status === 'running' || progress.isCalculating === true) {
+                const activeRun = await detectRunningCalculation(caseId, casePath);
+                if (!activeRun.active) {
+                    await recoverStaleCalculationState(caseId, casePath, 'stale_state_detected_on_progress_read');
+                    progress = {
+                        status: 'not_started',
+                        isCalculating: false,
+                        progress: 0,
+                        tasks: buildPendingTaskStatuses(),
+                        outputs: Array.isArray(progress.outputs) ? progress.outputs : [],
+                        completed: false,
+                        timestamp: Date.now(),
+                        startTime: progress.startTime || null,
+                        endTime: progress.endTime || Date.now(),
+                        exitCode: progress.exitCode ?? null,
+                        canceled: false,
+                        timeout: false,
+                        currentTaskId: null,
+                        lastTaskId: progress.lastTaskId || null,
+                        recoveredFromStaleState: true,
+                        recoveryReason: 'stale_state_detected_on_progress_read',
+                    };
+                }
+            }
             // Ensure all required fields are present, provide defaults if not
             const defaultProgress = {
                 status: 'not_started',

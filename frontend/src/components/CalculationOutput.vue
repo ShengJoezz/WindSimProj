@@ -435,6 +435,11 @@ const cancelComputation = async () => {
     if (!response.data?.success) {
       throw new Error(response.data?.message || '取消计算失败');
     }
+    if (response.data?.recoveredStale || response.data?.calculationStatus === 'not_started') {
+      store.resetCalculationProgress();
+      await store.fetchCalculationStatus();
+      await store.loadCalculationProgress();
+    }
     ElMessage.success(response.data.message || '已请求取消，正在终止计算进程...');
   } catch (error) {
     if (error === 'cancel' || error === 'close') return;
