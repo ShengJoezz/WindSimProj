@@ -14,6 +14,10 @@ FoamFile
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
+// Make sure OpenFOAM utilities can load atmospheric boundary conditions
+// and fvOptions when the case enables ABL-specific models.
+libs            (atmosphericModels);
+
 application     roughFoam;
 
 startFrom       latestTime;

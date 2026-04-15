@@ -315,7 +315,9 @@ boundaryField
 
     outlet
     {{
-        type            zeroGradient;
+        type            inletOutlet;
+        inletValue      uniform {fmt_vector(0.0, 0.0, 0.0)};
+        value           $internalField;
     }}
 
     front
@@ -340,6 +342,53 @@ boundaryField
         value           uniform {fmt_vector(0.0, 0.0, 0.0)};
     }}
 }}
+
+// ************************************************************************* //
+"""
+    )
+
+
+def build_abl_p():
+    return (
+        foam_header("volScalarField", "p")
+        + """
+dimensions      [0 2 -2 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    inlet
+    {
+        type            zeroGradient;
+    }
+
+    outlet
+    {
+        type            uniformFixedValue;
+        uniformValue    constant 0;
+    }
+
+    front
+    {
+        type            symmetry;
+    }
+
+    back
+    {
+        type            symmetry;
+    }
+
+    bot
+    {
+        type            zeroGradient;
+    }
+
+    top
+    {
+        type            zeroGradient;
+    }
+}
 
 // ************************************************************************* //
 """
@@ -557,7 +606,14 @@ atmPlantCanopyTurbSource1
     )
 
 
-def write_case_files(u_text, k_text, epsilon_text, nut_text, fv_options_text=None):
+def write_case_files(
+    u_text,
+    k_text,
+    epsilon_text,
+    nut_text,
+    fv_options_text=None,
+    p_text=None,
+):
     zero_dir = Path("0")
     zero_dir.mkdir(exist_ok=True)
     constant_dir = Path("constant")
@@ -566,6 +622,8 @@ def write_case_files(u_text, k_text, epsilon_text, nut_text, fv_options_text=Non
     (zero_dir / "k").write_text(k_text, encoding="utf-8")
     (zero_dir / "epsilon").write_text(epsilon_text, encoding="utf-8")
     (zero_dir / "nut").write_text(nut_text, encoding="utf-8")
+    if p_text is not None:
+        (zero_dir / "p").write_text(p_text, encoding="utf-8")
 
     fv_options_path = constant_dir / "fvOptions"
     if fv_options_text is None:
@@ -619,6 +677,7 @@ def main():
             build_abl_epsilon(speed, z_ref, z0, displacement, epsilon_ref),
             build_abl_nut(z0),
             build_abl_fv_options(z_ref),
+            p_text=build_abl_p(),
         )
         print(
             "[INFO] Wrote ABL inlet fields:",
@@ -630,6 +689,7 @@ def main():
             f"kRef={k_ref:.6f}",
             f"epsilonRef={epsilon_ref:.6f}",
             f"Lmax={max(10.0, float(z_ref) * ABL_LENGTH_SCALE_LIMIT_FACTOR):.6f}",
+            "pBC=inlet:zeroGradient,outlet:uniformFixedValue(0)",
         )
         return
 
