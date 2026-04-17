@@ -60,9 +60,9 @@
           </el-form-item>
           <el-form-item label="入口剖面" prop="conditions.inflowProfile" :inline="true" class="child-form-item">
             <el-select v-model="caseStore.parameters.conditions.inflowProfile" class="input-number" :disabled="caseStore.infoExists">
-              <el-option label="旧工程兼容（固定 k/epsilon）" value="legacy_fixed" />
-              <el-option v-if="showExperimentalInflowModes || usesLinkedUniformInflow" label="均匀入口" value="uniform" />
-              <el-option v-if="showExperimentalInflowModes || usesAblInflow" label="ABL 对数律" value="abl_log" />
+              <el-option label="旧工程兼容（稳定优先）" value="legacy_fixed" />
+              <el-option v-if="showExperimentalInflowModes || usesLinkedUniformInflow" label="均匀入口（显式 TI/L）" value="uniform" />
+              <el-option v-if="showExperimentalInflowModes || usesAblInflow" label="ABL 对数律（实验）" value="abl_log" />
             </el-select>
           </el-form-item>
           <el-form-item
@@ -114,7 +114,7 @@
             <el-alert
               :title="inflowModeNoticeTitle"
               :description="inflowModeNoticeDescription"
-              type="info"
+              :type="inflowModeNoticeType"
               :closable="false"
               show-icon
             />
@@ -1162,19 +1162,20 @@ const usesAblInflow = computed(() => caseStore.parameters.conditions.inflowProfi
 const usesLegacyInflow = computed(() => caseStore.parameters.conditions.inflowProfile === 'legacy_fixed');
 const usesLinkedUniformInflow = computed(() => caseStore.parameters.conditions.inflowProfile === 'uniform');
 const showExperimentalInflowModes = false;
+const inflowModeNoticeType = computed(() => (usesAblInflow.value ? 'warning' : 'info'));
 const inflowModeNoticeTitle = computed(() => {
-  if (usesAblInflow.value) return 'ABL 对数律入口已启用';
-  if (usesLegacyInflow.value) return '旧工程兼容入口已启用';
+  if (usesAblInflow.value) return 'ABL 对数律入口已启用（实验）';
+  if (usesLegacyInflow.value) return '旧工程兼容入口已启用（稳定优先）';
   return '均匀入口已启用';
 });
 const inflowModeNoticeDescription = computed(() => {
   if (usesAblInflow.value) {
-    return '求解器将使用 OpenFOAM 官方 atmBoundaryLayerInletVelocity / K / Epsilon 边界条件，根据 Uref、Zref、z0 和 d 生成中性 ABL 平衡剖面。';
+    return '该模式会启用 OpenFOAM atmBoundaryLayer 边界条件。当前在项目真实复杂地形链路上的稳定性不足，仅建议离线试验，不建议作为主平台默认生产入口。';
   }
   if (usesLegacyInflow.value) {
-    return '为避免旧工况被新默认值悄悄改物理，求解器将继续使用历史固定入口：k = 0.5、epsilon = 0.375。仅建议用于旧工程复现或对照。';
+    return '这是当前主平台默认的稳定路径。求解器将继续使用历史固定入口：k = 0.5、epsilon = 0.375，优先保证旧工况复现和整体计算稳定性。';
   }
-  return '求解器将按 k = 1.5 (U * TI)^2、epsilon = Cmu^0.75 * k^1.5 / L 自动联动生成湍流入口，不再使用固定写死的 k / epsilon。';
+  return '求解器将按 k = 1.5 (U * TI)^2、epsilon = Cmu^0.75 * k^1.5 / L 自动联动生成湍流入口。该模式比 ABL 更稳，但主平台默认仍保持旧工程兼容入口。';
 });
 
 // 页面控制与提交

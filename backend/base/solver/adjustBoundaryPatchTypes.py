@@ -5,7 +5,7 @@ from pathlib import Path
 
 def load_profile():
     info = json.loads(Path("../info.json").read_text(encoding="utf-8"))
-    return str(info.get("wind", {}).get("profile", "uniform")).strip().lower()
+    return str(info.get("wind", {}).get("profile", "legacy_fixed")).strip().lower()
 
 
 def replace_patch_type(boundary_text, patch_name, new_type):

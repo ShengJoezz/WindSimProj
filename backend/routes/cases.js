@@ -922,14 +922,7 @@ router.get("/:caseId/parameters", async (req, res) => {
         const detectedInflowProfile = info.wind?.profile
             ?? parameters.conditions?.inflowProfile
             ?? parameters.conditions?.profile
-            ?? (
-                info.wind?.turbulenceIntensity != null ||
-                info.wind?.turbulenceLengthScale != null ||
-                parameters.conditions?.turbulenceIntensity != null ||
-                parameters.conditions?.turbulenceLengthScale != null
-                    ? 'uniform'
-                    : 'legacy_fixed'
-            );
+            ?? 'legacy_fixed';
 
         const combinedParameters = {
             ...parameters, // Start with parameters.json content
@@ -2509,7 +2502,7 @@ router.post('/:caseId/info', async (req, res) => {
             wind: {
                 angle: parameters.conditions?.windDirection ?? 270,
                 speed: parameters.conditions?.inletWindSpeed ?? 10,
-                profile: parameters.conditions?.inflowProfile ?? 'uniform',
+                profile: parameters.conditions?.inflowProfile ?? 'legacy_fixed',
                 referenceHeight: parameters.conditions?.referenceHeight ?? 120,
                 roughnessLength: parameters.conditions?.roughnessLength ?? 0.03,
                 displacementHeight: parameters.conditions?.displacementHeight ?? 0,

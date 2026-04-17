@@ -640,10 +640,6 @@ def main():
     profile_raw = pick_first(wind, "profile", default=None)
     profile = None if profile_raw is None else str(profile_raw).strip().lower()
     speed = ensure_positive("wind.speed", pick_first(wind, "speed", default=10.0))
-    has_explicit_uniform_inputs = any(
-        wind.get(key) is not None
-        for key in ("turbulenceIntensity", "TI", "turbulenceLengthScale", "lengthScale", "L")
-    )
     turbulence_intensity = ensure_positive(
         "wind.turbulenceIntensity",
         pick_first(wind, "turbulenceIntensity", "TI", default=0.1),
@@ -693,7 +689,7 @@ def main():
         )
         return
 
-    if profile in (None, "", "legacy_fixed") and not has_explicit_uniform_inputs:
+    if profile in (None, "", "legacy_fixed"):
         write_case_files(
             build_uniform_u(speed),
             build_uniform_k(LEGACY_FIXED_K),
