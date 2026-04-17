@@ -61,7 +61,7 @@
           <el-form-item label="入口剖面" prop="conditions.inflowProfile" :inline="true" class="child-form-item">
             <el-select v-model="caseStore.parameters.conditions.inflowProfile" class="input-number" :disabled="caseStore.infoExists">
               <el-option label="旧工程兼容（稳定优先）" value="legacy_fixed" />
-              <el-option v-if="showExperimentalInflowModes || usesLinkedUniformInflow" label="均匀入口（显式 TI/L）" value="uniform" />
+              <el-option label="均匀入口（显式 TI/L）" value="uniform" />
               <el-option v-if="showExperimentalInflowModes || usesAblInflow" label="ABL 对数律（实验）" value="abl_log" />
             </el-select>
           </el-form-item>
