@@ -16,13 +16,29 @@
         show-icon
         :closable="false"
         title="这个页面只做实验验证"
-        description="它直接读取已有的 VTP 结果文件，验证真实数据驱动的 tube 流线、粒子头部动画和底部水平 JET 色带，不去改你的现有主页面渲染逻辑。"
+        description="它直接读取已有的 VTP 结果文件，对照 VTK 基线，并在隔离实验区里试验 Three.js + GitHub 开源流线方案，不去改你的现有主页面渲染逻辑。"
       />
     </el-card>
 
     <div class="content-grid">
       <div class="viewer-column">
-        <FlowParticleLabViewer :case-id="caseId" />
+        <el-card class="viewer-card" shadow="never">
+          <template #header>
+            <div class="viewer-header">
+              <strong>实验对比</strong>
+              <span>真实 VTP 数据，不改正式页面</span>
+            </div>
+          </template>
+
+          <el-tabs v-model="activeTab" class="viewer-tabs">
+            <el-tab-pane label="开源实验" name="meshline">
+              <FlowMeshlineLabViewer v-if="activeTab === 'meshline'" :case-id="caseId" />
+            </el-tab-pane>
+            <el-tab-pane label="VTK 基线对照" name="vtk">
+              <FlowParticleLabViewer v-if="activeTab === 'vtk'" :case-id="caseId" />
+            </el-tab-pane>
+          </el-tabs>
+        </el-card>
       </div>
 
       <div class="notes-column">
@@ -31,9 +47,9 @@
             <strong>适配结论</strong>
           </template>
           <ul class="note-list">
-            <li><code>VTK.js</code> 最适合继续作为主引擎，因为你现在的结果链路本身就是 <code>.vtp/.vtu</code>。</li>
-            <li><code>Three.js</code> 更适合后续叠加 GPU 粒子、光晕和拖尾，但不适合先替掉 VTK 读取层。</li>
-            <li><code>webgl-wind</code>、<code>wind-gl</code>、<code>cesium-wind</code> 更偏规则网格或地图风场，不适合直接做你的复杂地形 CFD 主链路。</li>
+            <li><code>VTK.js</code> 仍然最适合做你现有 <code>.vtp/.vtu</code> 主链路的严谨读取和基线对照。</li>
+            <li><code>pmndrs/meshline</code> 这类 GitHub 开源库更适合拿来做更自然的粗线、发光和脉冲流向实验。</li>
+            <li><code>three.quarks</code>、<code>three-nebula</code> 更偏特效发射器，后续可以试，但不适合作为你复杂地形 CFD 主线的第一渲染层。</li>
           </ul>
         </el-card>
 
@@ -44,8 +60,8 @@
           <ul class="note-list">
             <li>直接读取 <code>/uploads/&lt;caseId&gt;/run/postProcessing/Data/*.vtp</code> 作为切片面。</li>
             <li>直接读取 <code>/uploads/&lt;caseId&gt;/run/VTK/processed/internal_*m_web.vtp</code> 作为流线数据。</li>
-            <li>使用真实流线几何做采样渲染，而不是 PNG 假平滑，也不是切片贴图动画。</li>
-            <li>色带固定为底部水平 JET，先避免遮挡，再决定是否做可拖拽图例。</li>
+            <li>实验视图里的流线来自真实轨迹采样，不走 PNG 假平滑，也不是切片贴图动画。</li>
+            <li>底部保留水平 JET 色带，切片面继续用真实速度标量着色，便于和基线互相校对。</li>
           </ul>
         </el-card>
 
@@ -54,9 +70,9 @@
             <strong>下一步建议</strong>
           </template>
           <ul class="note-list">
-            <li>如果这个实验页的观感和性能都稳定，再把其中一部分能力逐步迁回正式页面。</li>
-            <li>正式页面要不要引入 Three.js 增强层，应当建立在现有 VTK 结果口径已经稳定一致的前提上。</li>
-            <li>如果后续要做更密集的粒子场，最好先把流线生成密度、点数和文件体积口径统一下来。</li>
+            <li>先比较开源实验和 VTK 基线的观感、交互和浏览器负载，再决定哪些能力值得迁回正式页面。</li>
+            <li>如果后续要做更密集的粒子场，最好先统一流线生成密度、点数和文件体积口径。</li>
+            <li>如果你认可这个方向，我下一轮可以继续把 <code>three.quarks</code> 做成只挂在实验页的“尾迹粒子层”。</li>
           </ul>
         </el-card>
       </div>
@@ -65,7 +81,12 @@
 </template>
 
 <script setup>
+import { ref } from 'vue';
+
+import FlowMeshlineLabViewer from '@/components/experimental/FlowMeshlineLabViewer.vue';
 import FlowParticleLabViewer from '@/components/experimental/FlowParticleLabViewer.vue';
+
+const activeTab = ref('meshline');
 
 defineProps({
   caseId: {
@@ -129,6 +150,27 @@ defineProps({
 .viewer-column,
 .notes-column {
   min-width: 0;
+}
+
+.viewer-card {
+  border-radius: 22px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+}
+
+.viewer-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.viewer-header span {
+  font-size: 13px;
+  color: #64748b;
+}
+
+:deep(.viewer-tabs > .el-tabs__header) {
+  margin-bottom: 18px;
 }
 
 .notes-column {
