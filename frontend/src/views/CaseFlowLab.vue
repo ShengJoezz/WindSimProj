@@ -34,6 +34,9 @@
             <el-tab-pane label="开源实验" name="meshline">
               <FlowMeshlineLabViewer v-if="activeTab === 'meshline'" :case-id="caseId" />
             </el-tab-pane>
+            <el-tab-pane label="风羽矢量场" name="feather">
+              <FlowFeatherFieldLabViewer v-if="activeTab === 'feather'" :case-id="caseId" />
+            </el-tab-pane>
             <el-tab-pane label="LIC 面纹理" name="lic">
               <FlowSurfaceLicLabViewer v-if="activeTab === 'lic'" :case-id="caseId" />
             </el-tab-pane>
@@ -52,7 +55,8 @@
           <ul class="note-list">
             <li><code>VTK.js</code> 仍然最适合做你现有 <code>.vtp/.vtu</code> 主链路的严谨读取和基线对照。</li>
             <li><code>pmndrs/meshline</code> 这类 GitHub 开源库更适合拿来做更自然的粗线、发光和脉冲流向实验。</li>
-            <li><code>Surface LIC</code> 更像 ParaView/VTK 里的表面向量纹理；在这个实验页里，我会先把切片面的 <code>CellData.U</code> 局部平均成 <code>PointData</code> 再驱动 LIC。</li>
+            <li><code>风羽矢量场</code> 更适合做“大胆但不失真”的切片表达，它直接把真实速度向量铺成刷痕式风羽层。</li>
+            <li><code>Surface LIC</code> 更像 ParaView/VTK 里的诊断纹理；在这个实验页里，我会先把切片面的 <code>CellData.U</code> 局部平均成 <code>PointData</code> 再驱动 LIC。</li>
             <li><code>three.quarks</code>、<code>three-nebula</code> 更偏特效发射器，后续可以试，但不适合作为你复杂地形 CFD 主线的第一渲染层。</li>
           </ul>
         </el-card>
@@ -87,6 +91,7 @@
 <script setup>
 import { ref } from 'vue';
 
+import FlowFeatherFieldLabViewer from '@/components/experimental/FlowFeatherFieldLabViewer.vue';
 import FlowMeshlineLabViewer from '@/components/experimental/FlowMeshlineLabViewer.vue';
 import FlowParticleLabViewer from '@/components/experimental/FlowParticleLabViewer.vue';
 import FlowSurfaceLicLabViewer from '@/components/experimental/FlowSurfaceLicLabViewer.vue';
