@@ -73,6 +73,13 @@ const routes = [
         component: () => import("../components/SpeedVisualization.vue"),
         props: true // Pass route params (caseId) as props
       },
+      {
+        path: "flow-lab",
+        name: "CaseFlowLab",
+        component: () => import("../views/CaseFlowLab.vue"),
+        meta: { allowScroll: true },
+        props: true,
+      },
       // { // Keep test route if needed
       //   path: "terrainTest",
       //   name: "TerrainTest",
