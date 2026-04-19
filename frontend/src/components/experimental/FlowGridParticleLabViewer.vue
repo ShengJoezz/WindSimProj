@@ -102,9 +102,110 @@
       </div>
     </div>
 
+    <div class="pv-toolbar">
+      <div class="pv-group">
+        <div class="pv-title">ParaView 风格映射</div>
+        <div class="pv-fields">
+          <div class="pv-field">
+            <span class="label">色标预设</span>
+            <el-select v-model="colorPreset" class="select" @change="redrawStaticLayers">
+              <el-option label="Jet / Rainbow" value="jet" />
+              <el-option label="Cool to Warm" value="coolToWarm" />
+              <el-option label="Viridis" value="viridis" />
+              <el-option label="Black-Body" value="blackBody" />
+            </el-select>
+          </div>
+
+          <div class="pv-field pv-field--compact">
+            <span class="label">反转色标</span>
+            <el-switch v-model="invertColors" @change="redrawStaticLayers" />
+          </div>
+
+          <div class="pv-field pv-field--compact">
+            <span class="label">Log 映射</span>
+            <el-switch v-model="useLogScale" :disabled="!canUseLogScale" @change="redrawStaticLayers" />
+          </div>
+
+          <div class="pv-field">
+            <span class="label">范围口径</span>
+            <el-radio-group v-model="rangeMode" size="small" @change="handleRangeModeChange">
+              <el-radio-button value="data">数据范围</el-radio-button>
+              <el-radio-button value="custom">自定义</el-radio-button>
+            </el-radio-group>
+          </div>
+
+          <div class="pv-field" v-if="rangeMode === 'custom'">
+            <span class="label">最小值</span>
+            <el-input-number
+              v-model="customRangeMin"
+              :min="-1000000"
+              :max="1000000"
+              :step="0.1"
+              :controls="false"
+              @change="handleCustomRangeInput"
+            />
+          </div>
+
+          <div class="pv-field" v-if="rangeMode === 'custom'">
+            <span class="label">最大值</span>
+            <el-input-number
+              v-model="customRangeMax"
+              :min="-1000000"
+              :max="1000000"
+              :step="0.1"
+              :controls="false"
+              @change="handleCustomRangeInput"
+            />
+          </div>
+
+          <div class="pv-field pv-field--compact">
+            <span class="label">重标定</span>
+            <el-button plain @click="resetCustomRange">恢复数据范围</el-button>
+          </div>
+        </div>
+      </div>
+
+      <div class="pv-group">
+        <div class="pv-title">ParaView 风格叠加</div>
+        <div class="pv-fields">
+          <div class="pv-field pv-field--compact">
+            <span class="label">Glyph</span>
+            <el-switch v-model="showGlyphs" @change="redrawStaticLayers" />
+          </div>
+
+          <div class="pv-field">
+            <span class="label">Glyph 密度</span>
+            <el-slider
+              v-model="glyphDensity"
+              :min="10"
+              :max="28"
+              :step="2"
+              show-input
+              input-size="small"
+              @change="redrawStaticLayers"
+            />
+          </div>
+
+          <div class="pv-field">
+            <span class="label">Glyph 尺度</span>
+            <el-slider
+              v-model="glyphScale"
+              :min="0.4"
+              :max="2.2"
+              :step="0.1"
+              show-input
+              input-size="small"
+              @change="redrawStaticLayers"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div ref="viewerShell" class="viewer-shell">
       <canvas ref="backdropCanvas" class="layer-canvas"></canvas>
       <canvas ref="contourCanvas" class="layer-canvas"></canvas>
+      <canvas ref="glyphCanvas" class="layer-canvas"></canvas>
       <canvas ref="particleCanvas" class="layer-canvas"></canvas>
 
       <div v-if="loading" class="overlay overlay--loading">
@@ -183,7 +284,12 @@ import { contours as createContours } from 'd3-contour';
 import vtkDataArray from '@kitware/vtk.js/Common/Core/DataArray';
 import vtkXMLPolyDataReader from '@kitware/vtk.js/IO/XML/XMLPolyDataReader';
 
-import { SIMULATION_JET_STOPS, buildColorLookupTable, buildCssGradient } from '@/utils/colormaps';
+import {
+  buildColorLookupTable,
+  buildCssGradient,
+  getSimulationColormapStops,
+  reverseColorStops,
+} from '@/utils/colormaps';
 
 const props = defineProps({
   caseId: {
@@ -195,6 +301,7 @@ const props = defineProps({
 const viewerShell = ref(null);
 const backdropCanvas = ref(null);
 const contourCanvas = ref(null);
+const glyphCanvas = ref(null);
 const particleCanvas = ref(null);
 
 const availableHeights = ref([]);
@@ -207,6 +314,15 @@ const contourLevels = ref(7);
 const showBackdrop = ref(true);
 const showContours = ref(true);
 const showParticles = ref(true);
+const colorPreset = ref('jet');
+const invertColors = ref(false);
+const useLogScale = ref(false);
+const rangeMode = ref('data');
+const customRangeMin = ref(0);
+const customRangeMax = ref(1);
+const showGlyphs = ref(true);
+const glyphDensity = ref(18);
+const glyphScale = ref(1.1);
 const loading = ref(false);
 const loadingText = ref('正在读取规则网格实验数据...');
 const errorMessage = ref('');
@@ -215,8 +331,7 @@ const rawTriangleCount = ref(0);
 const validCoverage = ref(0);
 const gridShapeLabel = ref('-');
 const speedRange = ref({ min: 0, max: 1 });
-
-const jetLookup = buildColorLookupTable(SIMULATION_JET_STOPS, 512);
+const rawDataRange = ref({ min: 0, max: 1 });
 
 let resizeObserver = null;
 let animationFrameId = 0;
@@ -235,12 +350,22 @@ const layerSummary = computed(() => {
   const names = [];
   if (showBackdrop.value) names.push('平滑底图');
   if (showContours.value) names.push('等值线');
+  if (showGlyphs.value) names.push('Glyph');
   if (showParticles.value) names.push('粒子随流');
   return names.length ? names.join(' + ') : '无图层';
 });
 
+const activeColorStops = computed(() => {
+  const base = getSimulationColormapStops(colorPreset.value);
+  return invertColors.value ? reverseColorStops(base) : base;
+});
+
+const activeColorLookup = computed(() => (
+  buildColorLookupTable(activeColorStops.value, 512)
+));
+
 const legendBarStyle = computed(() => ({
-  background: buildCssGradient(SIMULATION_JET_STOPS, '90deg'),
+  background: buildCssGradient(activeColorStops.value, '90deg'),
 }));
 
 const legendTicks = computed(() => {
@@ -255,6 +380,8 @@ const legendTicks = computed(() => {
 const speedRangeLabel = computed(() => (
   `${Number(speedRange.value.min ?? 0).toFixed(2)} ~ ${Number(speedRange.value.max ?? 1).toFixed(2)} m/s`
 ));
+
+const canUseLogScale = computed(() => Number(speedRange.value.min ?? 0) > 0);
 
 const coverageLabel = computed(() => (
   `${(Number(validCoverage.value || 0) * 100).toFixed(1)}%`
@@ -677,17 +804,38 @@ function sampleGridField(field, x, y) {
   };
 }
 
-function lookupJetColor(value, alpha = 255) {
+function getActiveRange() {
+  if (rangeMode.value === 'custom') {
+    const min = Number(customRangeMin.value ?? rawDataRange.value.min ?? 0);
+    const maxCandidate = Number(customRangeMax.value ?? rawDataRange.value.max ?? 1);
+    return normalizeRange([min, maxCandidate]);
+  }
+  return normalizeRange([rawDataRange.value.min, rawDataRange.value.max]);
+}
+
+function mapScalarToUnit(value) {
   const min = Number(speedRange.value.min ?? 0);
   const max = Number(speedRange.value.max ?? 1);
+  if (useLogScale.value && canUseLogScale.value) {
+    const safeValue = Math.max(Number(value ?? min), min);
+    const logMin = Math.log10(Math.max(min, 1e-9));
+    const logMax = Math.log10(Math.max(max, min + 1e-9));
+    const logValue = Math.log10(Math.max(safeValue, 1e-9));
+    return clamp((logValue - logMin) / Math.max(1e-6, logMax - logMin), 0, 1);
+  }
+
   const span = Math.max(1e-6, max - min);
-  const t = clamp((value - min) / span, 0, 1);
-  const colorCount = Math.max(1, (jetLookup.length / 4) - 1);
+  return clamp((value - min) / span, 0, 1);
+}
+
+function lookupScalarColor(value, alpha = 255) {
+  const t = mapScalarToUnit(value);
+  const colorCount = Math.max(1, (activeColorLookup.value.length / 4) - 1);
   const offset = Math.round(t * colorCount) * 4;
   return [
-    jetLookup[offset],
-    jetLookup[offset + 1],
-    jetLookup[offset + 2],
+    activeColorLookup.value[offset],
+    activeColorLookup.value[offset + 1],
+    activeColorLookup.value[offset + 2],
     alpha,
   ];
 }
@@ -756,7 +904,7 @@ function rebuildBackdropRaster() {
         continue;
       }
 
-      const color = lookupJetColor(gridField.speed[sourceIndex], 242);
+      const color = lookupScalarColor(gridField.speed[sourceIndex], 242);
       data[pixelIndex] = color[0];
       data[pixelIndex + 1] = color[1];
       data[pixelIndex + 2] = color[2];
@@ -828,7 +976,7 @@ function drawContours() {
   context.lineCap = 'round';
 
   contourShapes.forEach((feature) => {
-    const color = lookupJetColor(Number(feature.value ?? 0), 216);
+    const color = lookupScalarColor(Number(feature.value ?? 0), 216);
     context.strokeStyle = rgbaString(color, 0.78);
 
     feature.coordinates.forEach((polygon) => {
@@ -846,6 +994,73 @@ function drawContours() {
       });
     });
   });
+
+  context.restore();
+}
+
+function drawGlyphs() {
+  const canvas = glyphCanvas.value;
+  if (!canvas) return;
+  const context = canvas.getContext('2d');
+  context.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (!gridField || !viewMetrics || !showGlyphs.value) return;
+
+  const stepX = clamp(Math.round(gridField.cols / glyphDensity.value), 6, Math.max(gridField.cols, 6));
+  const stepY = clamp(Math.round(gridField.rows / glyphDensity.value), 6, Math.max(gridField.rows, 6));
+  const baseLength = Math.max(10, (Math.min(viewMetrics.width, viewMetrics.height) / Math.max(glyphDensity.value, 1)) * 0.42) * glyphScale.value;
+
+  context.save();
+  context.lineCap = 'round';
+  context.lineJoin = 'round';
+
+  for (let row = Math.floor(stepY / 2); row < gridField.rows; row += stepY) {
+    for (let col = Math.floor(stepX / 2); col < gridField.cols; col += stepX) {
+      const index = (row * gridField.cols) + col;
+      if (!gridField.valid[index]) continue;
+
+      const vx = Number(gridField.vx[index] ?? 0);
+      const vy = Number(gridField.vy[index] ?? 0);
+      const speed = Number(gridField.speed[index] ?? 0);
+      const magnitude = Math.sqrt((vx * vx) + (vy * vy));
+      if (!Number.isFinite(magnitude) || magnitude < 1e-8) continue;
+
+      const worldX = gridField.bounds.minX + ((col / Math.max(gridField.cols - 1, 1)) * gridField.bounds.width);
+      const worldY = gridField.bounds.minY + ((row / Math.max(gridField.rows - 1, 1)) * gridField.bounds.height);
+      const [px, py] = worldToCanvas(worldX, worldY);
+      const normX = vx / magnitude;
+      const normY = vy / magnitude;
+      const length = baseLength * (0.35 + (mapScalarToUnit(speed) * 0.85));
+      const tailX = px - (normX * length * 0.35);
+      const tailY = py + (normY * length * 0.35);
+      const tipX = px + (normX * length * 0.65);
+      const tipY = py - (normY * length * 0.65);
+      const color = lookupScalarColor(speed, 255);
+      const strokeAlpha = 0.35 + (mapScalarToUnit(speed) * 0.55);
+
+      context.strokeStyle = rgbaString(color, strokeAlpha);
+      context.fillStyle = rgbaString(color, Math.min(1, strokeAlpha + 0.08));
+      context.lineWidth = (window.devicePixelRatio || 1) * (0.8 + (mapScalarToUnit(speed) * 0.8));
+
+      context.beginPath();
+      context.moveTo(tailX, tailY);
+      context.lineTo(tipX, tipY);
+      context.stroke();
+
+      const headLength = Math.max(4, length * 0.22);
+      const leftX = tipX - (normX * headLength) - (normY * headLength * 0.55);
+      const leftY = tipY + (normY * headLength) - (normX * headLength * 0.55);
+      const rightX = tipX - (normX * headLength) + (normY * headLength * 0.55);
+      const rightY = tipY + (normY * headLength) + (normX * headLength * 0.55);
+
+      context.beginPath();
+      context.moveTo(tipX, tipY);
+      context.lineTo(leftX, leftY);
+      context.lineTo(rightX, rightY);
+      context.closePath();
+      context.fill();
+    }
+  }
 
   context.restore();
 }
@@ -938,7 +1153,7 @@ function animateParticles(timestamp) {
     }
 
     const [endX, endY] = worldToCanvas(particle.x, particle.y);
-    const color = lookupJetColor(nextSample.speed, 255);
+    const color = lookupScalarColor(nextSample.speed, 255);
     context.strokeStyle = rgbaString(color, 0.22 + (normSpeed * 0.58));
     context.lineWidth = (window.devicePixelRatio || 1) * (0.7 + (normSpeed * 0.9));
     context.beginPath();
@@ -971,6 +1186,7 @@ function redrawStaticLayers() {
   if (!gridField) return;
   drawBackdrop();
   drawContours();
+  drawGlyphs();
 }
 
 function resizeCanvases() {
@@ -978,6 +1194,7 @@ function resizeCanvases() {
   const changed = [
     ensureCanvasSize(backdropCanvas.value),
     ensureCanvasSize(contourCanvas.value),
+    ensureCanvasSize(glyphCanvas.value),
     ensureCanvasSize(particleCanvas.value),
   ].some(Boolean);
 
@@ -1014,7 +1231,12 @@ async function rebuildGridField(resetParticles = true) {
   try {
     gridField = buildRegularGrid(meshField, gridResolution.value);
     gridShapeLabel.value = `${gridField.cols} x ${gridField.rows}`;
-    speedRange.value = normalizeRange([gridField.minSpeed, gridField.maxSpeed]);
+    rawDataRange.value = normalizeRange([gridField.minSpeed, gridField.maxSpeed]);
+    if (rangeMode.value !== 'custom') {
+      customRangeMin.value = rawDataRange.value.min;
+      customRangeMax.value = rawDataRange.value.max;
+    }
+    speedRange.value = getActiveRange();
     validCoverage.value = gridField.coverage;
     rebuildBackdropRaster();
     resizeCanvases();
@@ -1044,7 +1266,7 @@ async function loadScene() {
 
     const { vectorName, range } = ensureGridPointVectors(surfaceData);
     if (!vectorName) throw new Error('切片中没有可用于插值的速度向量。');
-    speedRange.value = range;
+    rawDataRange.value = range;
     meshField = buildTriangleField(surfaceData, vectorName);
 
     await rebuildGridField(true);
@@ -1061,6 +1283,31 @@ async function loadScene() {
 async function handleGridResolutionChange() {
   if (!meshField) return;
   await rebuildGridField(true);
+}
+
+function handleRangeModeChange() {
+  if (rangeMode.value !== 'custom') {
+    customRangeMin.value = rawDataRange.value.min;
+    customRangeMax.value = rawDataRange.value.max;
+  }
+  speedRange.value = getActiveRange();
+  if (!canUseLogScale.value) useLogScale.value = false;
+  redrawStaticLayers();
+}
+
+function handleCustomRangeInput() {
+  speedRange.value = getActiveRange();
+  if (!canUseLogScale.value) useLogScale.value = false;
+  redrawStaticLayers();
+}
+
+function resetCustomRange() {
+  customRangeMin.value = rawDataRange.value.min;
+  customRangeMax.value = rawDataRange.value.max;
+  rangeMode.value = 'data';
+  speedRange.value = getActiveRange();
+  if (!canUseLogScale.value) useLogScale.value = false;
+  redrawStaticLayers();
 }
 
 function handleParticleCountChange() {
@@ -1129,6 +1376,55 @@ onBeforeUnmount(() => {
   border-radius: 18px;
   background: #ffffff;
   border: 1px solid rgba(226, 232, 240, 0.95);
+}
+
+.pv-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  gap: 14px;
+}
+
+.pv-group {
+  padding: 16px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.98) 100%);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+}
+
+.pv-title {
+  margin-bottom: 14px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pv-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 14px;
+  align-items: end;
+}
+
+.pv-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pv-field--compact {
+  align-self: center;
+}
+
+.pv-field :deep(.el-input-number) {
+  width: 100%;
+}
+
+.pv-field :deep(.el-radio-group) {
+  display: flex;
+  flex-wrap: wrap;
 }
 
 .toolbar-item {
@@ -1326,6 +1622,10 @@ onBeforeUnmount(() => {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
+  .pv-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .stats {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -1334,6 +1634,10 @@ onBeforeUnmount(() => {
 @media (max-width: 960px) {
   .toolbar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pv-toolbar {
+    grid-template-columns: 1fr;
   }
 
   .toolbar-item--wide {
@@ -1351,7 +1655,8 @@ onBeforeUnmount(() => {
 
 @media (max-width: 680px) {
   .toolbar,
-  .stats {
+  .stats,
+  .pv-fields {
     grid-template-columns: 1fr;
   }
 

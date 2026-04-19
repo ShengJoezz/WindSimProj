@@ -14,6 +14,54 @@ export const SIMULATION_JET_STOPS = [
 // Backward-compatible alias for existing imports.
 export const SIMULATION_RAINBOW_STOPS = SIMULATION_JET_STOPS;
 
+// ParaView-style diverging preset.
+export const SIMULATION_COOL_TO_WARM_STOPS = [
+  [0.0, [59, 76, 192]],
+  [0.2, [102, 126, 221]],
+  [0.4, [170, 197, 255]],
+  [0.5, [221, 221, 221]],
+  [0.6, [247, 184, 156]],
+  [0.8, [220, 110, 87]],
+  [1.0, [180, 4, 38]],
+];
+
+export const SIMULATION_VIRIDIS_STOPS = [
+  [0.0, [68, 1, 84]],
+  [0.2, [59, 82, 139]],
+  [0.4, [33, 145, 140]],
+  [0.6, [94, 201, 98]],
+  [0.8, [170, 220, 50]],
+  [1.0, [253, 231, 37]],
+];
+
+export const SIMULATION_BLACK_BODY_STOPS = [
+  [0.0, [0, 0, 0]],
+  [0.2, [120, 0, 0]],
+  [0.4, [180, 30, 0]],
+  [0.6, [230, 120, 0]],
+  [0.8, [255, 210, 80]],
+  [1.0, [255, 255, 255]],
+];
+
+export const SIMULATION_COLORMAP_PRESETS = {
+  jet: SIMULATION_JET_STOPS,
+  rainbow: SIMULATION_RAINBOW_STOPS,
+  coolToWarm: SIMULATION_COOL_TO_WARM_STOPS,
+  viridis: SIMULATION_VIRIDIS_STOPS,
+  blackBody: SIMULATION_BLACK_BODY_STOPS,
+};
+
+export const getSimulationColormapStops = (preset = 'jet') => (
+  SIMULATION_COLORMAP_PRESETS[preset] || SIMULATION_JET_STOPS
+);
+
+export const reverseColorStops = (stops) => {
+  if (!Array.isArray(stops)) return [];
+  return [...stops]
+    .reverse()
+    .map(([position, rgb]) => [1 - position, rgb]);
+};
+
 export const buildColorLookupTable = (stops, size = 256) => {
   const lut = new Uint8ClampedArray(size * 4);
   if (!Array.isArray(stops) || stops.length === 0) {
