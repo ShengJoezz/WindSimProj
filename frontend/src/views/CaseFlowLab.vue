@@ -31,6 +31,9 @@
           </template>
 
           <el-tabs v-model="activeTab" class="viewer-tabs">
+            <el-tab-pane label="3D 叠层实验" name="stack3d">
+              <FlowVolumeStackLabViewer v-if="activeTab === 'stack3d'" :case-id="caseId" />
+            </el-tab-pane>
             <el-tab-pane label="ParaView 风格" name="grid">
               <FlowGridParticleLabViewer v-if="activeTab === 'grid'" :case-id="caseId" />
             </el-tab-pane>
@@ -60,6 +63,7 @@
           </template>
           <ul class="note-list">
             <li><code>VTK.js</code> 仍然最适合做你现有 <code>.vtp/.vtu</code> 主链路的严谨读取和基线对照。</li>
+            <li><code>3D 叠层实验</code> 会把多个高度切片和对应流线按真实高度叠起来，再加上地形和网格外壳，让你先看到浏览器可承受的三维风场质感。</li>
             <li><code>ParaView 风格</code> 这一页会优先模拟 ParaView 常见的切片后处理能力，比如色标预设、范围重标定、等值线和 glyph 叠加。</li>
             <li><code>deck.gl</code> 更适合做正投影切片分析图，尤其是“轮廓面 + 稀疏采样点 + 流线叠加”这种分析型后处理视图。</li>
             <li><code>pmndrs/meshline</code> 这类 GitHub 开源库更适合拿来做更自然的粗线、发光和脉冲流向实验。</li>
@@ -74,6 +78,7 @@
             <strong>本页验证内容</strong>
           </template>
           <ul class="note-list">
+            <li><code>3D 叠层实验</code> 当前优先走多高度 <code>.vtp</code> 叠层，不直接硬读完整 <code>internal.vtu</code>，这样更贴近浏览器端的真实承载能力。</li>
             <li><code>ParaView 风格</code> 的底层仍然是“非结构切片先重采样到规则网格”，这样颜色映射和粒子随流都挂在同一张插值场上。</li>
             <li><code>Deck 分析图</code> 直接把切片和流线转成数组图层，不走 <code>VTK</code> 前端渲染器。</li>
             <li>直接读取 <code>/uploads/&lt;caseId&gt;/run/postProcessing/Data/*.vtp</code> 作为切片面。</li>
@@ -88,6 +93,7 @@
             <strong>下一步建议</strong>
           </template>
           <ul class="note-list">
+            <li>如果这版 <code>3D 叠层实验</code> 方向对，你下一步就可以决定是继续做更强的三维浏览，还是再专门推进 <code>vtu -&gt; 轻量化 web 数据</code> 这条链。</li>
             <li>如果这组 ParaView 风格功能更接近你的工作习惯，我们就优先沿这条链继续做，而不是继续堆特效型流线。</li>
             <li>先优先看 <code>Deck 分析图</code> 是否更像你心里的工程后处理口径，再决定要不要继续扩成正式分析页。</li>
             <li>先比较开源实验和 VTK 基线的观感、交互和浏览器负载，再决定哪些能力值得迁回正式页面。</li>
@@ -103,6 +109,7 @@
 <script setup>
 import { defineAsyncComponent, ref } from 'vue';
 
+const FlowVolumeStackLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowVolumeStackLabViewer.vue'));
 const FlowGridParticleLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowGridParticleLabViewer.vue'));
 const FlowDeckSliceLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowDeckSliceLabViewer.vue'));
 const FlowFeatherFieldLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowFeatherFieldLabViewer.vue'));
