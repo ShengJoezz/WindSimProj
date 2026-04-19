@@ -95,13 +95,13 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { defineAsyncComponent, ref } from 'vue';
 
-import FlowDeckSliceLabViewer from '@/components/experimental/FlowDeckSliceLabViewer.vue';
-import FlowFeatherFieldLabViewer from '@/components/experimental/FlowFeatherFieldLabViewer.vue';
-import FlowMeshlineLabViewer from '@/components/experimental/FlowMeshlineLabViewer.vue';
-import FlowParticleLabViewer from '@/components/experimental/FlowParticleLabViewer.vue';
-import FlowSurfaceLicLabViewer from '@/components/experimental/FlowSurfaceLicLabViewer.vue';
+const FlowDeckSliceLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowDeckSliceLabViewer.vue'));
+const FlowFeatherFieldLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowFeatherFieldLabViewer.vue'));
+const FlowMeshlineLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowMeshlineLabViewer.vue'));
+const FlowParticleLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowParticleLabViewer.vue'));
+const FlowSurfaceLicLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowSurfaceLicLabViewer.vue'));
 
 const activeTab = ref('deck');
 
