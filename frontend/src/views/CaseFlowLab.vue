@@ -31,6 +31,9 @@
           </template>
 
           <el-tabs v-model="activeTab" class="viewer-tabs">
+            <el-tab-pane label="Deck 分析图" name="deck">
+              <FlowDeckSliceLabViewer v-if="activeTab === 'deck'" :case-id="caseId" />
+            </el-tab-pane>
             <el-tab-pane label="开源实验" name="meshline">
               <FlowMeshlineLabViewer v-if="activeTab === 'meshline'" :case-id="caseId" />
             </el-tab-pane>
@@ -54,6 +57,7 @@
           </template>
           <ul class="note-list">
             <li><code>VTK.js</code> 仍然最适合做你现有 <code>.vtp/.vtu</code> 主链路的严谨读取和基线对照。</li>
+            <li><code>deck.gl</code> 更适合做正投影切片分析图，尤其是“轮廓面 + 稀疏采样点 + 流线叠加”这种分析型后处理视图。</li>
             <li><code>pmndrs/meshline</code> 这类 GitHub 开源库更适合拿来做更自然的粗线、发光和脉冲流向实验。</li>
             <li><code>风羽矢量场</code> 更适合做“大胆但不失真”的切片表达，它直接把真实速度向量铺成刷痕式风羽层。</li>
             <li><code>Surface LIC</code> 更像 ParaView/VTK 里的诊断纹理；在这个实验页里，我会先把切片面的 <code>CellData.U</code> 局部平均成 <code>PointData</code> 再驱动 LIC。</li>
@@ -66,6 +70,7 @@
             <strong>本页验证内容</strong>
           </template>
           <ul class="note-list">
+            <li><code>Deck 分析图</code> 直接把切片和流线转成数组图层，不走 <code>VTK</code> 前端渲染器。</li>
             <li>直接读取 <code>/uploads/&lt;caseId&gt;/run/postProcessing/Data/*.vtp</code> 作为切片面。</li>
             <li>直接读取 <code>/uploads/&lt;caseId&gt;/run/VTK/processed/internal_*m_web.vtp</code> 作为流线数据。</li>
             <li>实验视图里的流线来自真实轨迹采样，不走 PNG 假平滑，也不是切片贴图动画。</li>
@@ -78,6 +83,7 @@
             <strong>下一步建议</strong>
           </template>
           <ul class="note-list">
+            <li>先优先看 <code>Deck 分析图</code> 是否更像你心里的工程后处理口径，再决定要不要继续扩成正式分析页。</li>
             <li>先比较开源实验和 VTK 基线的观感、交互和浏览器负载，再决定哪些能力值得迁回正式页面。</li>
             <li>如果后续要做更密集的粒子场，最好先统一流线生成密度、点数和文件体积口径。</li>
             <li>如果你认可这个方向，我下一轮可以继续把 <code>three.quarks</code> 做成只挂在实验页的“尾迹粒子层”。</li>
@@ -91,12 +97,13 @@
 <script setup>
 import { ref } from 'vue';
 
+import FlowDeckSliceLabViewer from '@/components/experimental/FlowDeckSliceLabViewer.vue';
 import FlowFeatherFieldLabViewer from '@/components/experimental/FlowFeatherFieldLabViewer.vue';
 import FlowMeshlineLabViewer from '@/components/experimental/FlowMeshlineLabViewer.vue';
 import FlowParticleLabViewer from '@/components/experimental/FlowParticleLabViewer.vue';
 import FlowSurfaceLicLabViewer from '@/components/experimental/FlowSurfaceLicLabViewer.vue';
 
-const activeTab = ref('meshline');
+const activeTab = ref('deck');
 
 defineProps({
   caseId: {

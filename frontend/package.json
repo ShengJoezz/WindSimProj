@@ -9,6 +9,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@deck.gl/aggregation-layers": "^9.3.1",
+    "@deck.gl/core": "^9.3.1",
+    "@deck.gl/layers": "^9.3.1",
     "@element-plus/icons-vue": "^2.3.1",
     "@kitware/vtk.js": "^33.1.0",
     "@tweenjs/tween.js": "^25.0.0",
