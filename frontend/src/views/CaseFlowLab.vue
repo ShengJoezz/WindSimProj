@@ -31,6 +31,9 @@
           </template>
 
           <el-tabs v-model="activeTab" class="viewer-tabs">
+            <el-tab-pane label="体积风廊" name="corridor">
+              <FlowVolumeCorridorLabViewer v-if="activeTab === 'corridor'" :case-id="caseId" />
+            </el-tab-pane>
             <el-tab-pane label="3D 叠层实验" name="stack3d">
               <FlowVolumeStackLabViewer v-if="activeTab === 'stack3d'" :case-id="caseId" />
             </el-tab-pane>
@@ -63,6 +66,7 @@
           </template>
           <ul class="note-list">
             <li><code>VTK.js</code> 仍然最适合做你现有 <code>.vtp/.vtu</code> 主链路的严谨读取和基线对照。</li>
+            <li><code>体积风廊</code> 会把多高度真实切片重建成浏览器可承受的 <code>3D texture</code>，用 ray-marching 直接看空间风速体，而不是继续堆二维贴片。</li>
             <li><code>3D 叠层实验</code> 会把多个高度切片和对应流线按真实高度叠起来，再加上地形和网格外壳，让你先看到浏览器可承受的三维风场质感。</li>
             <li><code>ParaView 风格</code> 这一页会优先模拟 ParaView 常见的切片后处理能力，比如色标预设、范围重标定、等值线和 glyph 叠加。</li>
             <li><code>deck.gl</code> 更适合做正投影切片分析图，尤其是“轮廓面 + 稀疏采样点 + 流线叠加”这种分析型后处理视图。</li>
@@ -109,6 +113,7 @@
 <script setup>
 import { defineAsyncComponent, ref } from 'vue';
 
+const FlowVolumeCorridorLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowVolumeCorridorLabViewer.vue'));
 const FlowVolumeStackLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowVolumeStackLabViewer.vue'));
 const FlowGridParticleLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowGridParticleLabViewer.vue'));
 const FlowDeckSliceLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowDeckSliceLabViewer.vue'));
@@ -117,7 +122,7 @@ const FlowMeshlineLabViewer = defineAsyncComponent(() => import('@/components/ex
 const FlowParticleLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowParticleLabViewer.vue'));
 const FlowSurfaceLicLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowSurfaceLicLabViewer.vue'));
 
-const activeTab = ref('grid');
+const activeTab = ref('corridor');
 
 defineProps({
   caseId: {
