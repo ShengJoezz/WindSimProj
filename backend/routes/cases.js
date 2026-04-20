@@ -59,6 +59,7 @@ const resolvePythonExecutable = () => {
 };
 
 const PYTHON_EXECUTABLE = resolvePythonExecutable();
+const EXPERIMENTAL_CFD_SCRIPT = path.join(__dirname, '../utils/experimental_cfd_slice.py');
 
 const isNumericProcDir = (name) => /^\d+$/.test(String(name || ''));
 
@@ -239,6 +240,85 @@ const killProcessGroup = (child, signal) => {
         }
     }
 };
+
+const runPythonJsonScript = ({ scriptPath, args = [], timeoutMs = 240_000 }) => new Promise((resolve, reject) => {
+    const child = spawn(PYTHON_EXECUTABLE, [scriptPath, ...args], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let finished = false;
+
+    const done = (handler) => (value) => {
+        if (finished) return;
+        finished = true;
+        handler(value);
+    };
+
+    const timer = timeoutMs > 0 ? setTimeout(() => {
+        try {
+            child.kill('SIGKILL');
+        } catch {
+            // Ignore kill failures on already-exited child.
+        }
+        done(reject)(new Error(`Python 脚本执行超时 (${timeoutMs} ms)`));
+    }, timeoutMs) : null;
+
+    child.stdout.on('data', (data) => {
+        stdout += data.toString();
+    });
+
+    child.stderr.on('data', (data) => {
+        stderr += data.toString();
+    });
+
+    child.on('error', done((error) => {
+        if (timer) clearTimeout(timer);
+        reject(error);
+    }));
+
+    child.on('close', done((code) => {
+        if (timer) clearTimeout(timer);
+
+        const lines = stdout
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(Boolean);
+        const lastLine = lines.length > 0 ? lines[lines.length - 1] : '';
+
+        let parsed = null;
+        if (lastLine) {
+            try {
+                parsed = JSON.parse(lastLine);
+            } catch {
+                // Keep parsed as null and handle below.
+            }
+        }
+
+        if (code !== 0) {
+            const error = new Error(parsed?.error || stderr.trim() || `Python 脚本失败，退出码 ${code}`);
+            error.exitCode = code;
+            error.stderr = stderr.trim();
+            error.stdout = stdout.trim();
+            error.payload = parsed;
+            return reject(error);
+        }
+
+        if (!parsed) {
+            const error = new Error('Python 脚本未返回可解析的 JSON。');
+            error.stderr = stderr.trim();
+            error.stdout = stdout.trim();
+            return reject(error);
+        }
+
+        resolve({
+            payload: parsed,
+            stderr: stderr.trim(),
+            stdout: stdout.trim(),
+        });
+    }));
+});
 
 const buildFileSnapshot = async (filePath) => {
     try {
@@ -2006,6 +2086,118 @@ router.get('/:caseId/visualization-wake/:turbineId', async (req, res) => {
              res.status(500).json({ success: false, message: 'Failed to read wake data cache.' });
          }
      }
+});
+
+router.get('/:caseId/experimental-cfd-metadata', async (req, res) => {
+    const { caseId } = req.params;
+    const casePath = path.join(__dirname, '../uploads', caseId);
+    const forceRebuild = String(req.query.forceRebuild || '').toLowerCase() === 'true';
+    const targetCellsRaw = Number(req.query.targetCells);
+    const targetCells = Number.isFinite(targetCellsRaw)
+        ? Math.max(250000, Math.min(2500000, Math.round(targetCellsRaw)))
+        : 1500000;
+
+    if (!fs.existsSync(casePath)) {
+        return res.status(404).json({ success: false, message: '工况目录不存在。' });
+    }
+
+    if (!fs.existsSync(EXPERIMENTAL_CFD_SCRIPT)) {
+        return res.status(500).json({ success: false, message: '实验性 CFD 脚本不存在。' });
+    }
+
+    try {
+        res.setHeader('Cache-Control', 'no-store');
+        const { payload, stderr } = await runPythonJsonScript({
+            scriptPath: EXPERIMENTAL_CFD_SCRIPT,
+            args: [
+                'metadata',
+                '--case-dir', casePath,
+                '--target-cells', String(targetCells),
+                ...(forceRebuild ? ['--force-rebuild'] : []),
+            ],
+            timeoutMs: 300000,
+        });
+
+        return res.json({
+            success: true,
+            metadata: payload,
+            stderr: stderr || null,
+        });
+    } catch (error) {
+        console.error(`实验性 CFD 元数据生成失败 (${caseId}):`, error);
+        return res.status(500).json({
+            success: false,
+            message: error?.payload?.error || error.message || '实验性 CFD 元数据生成失败。',
+            details: error?.stderr || null,
+        });
+    }
+});
+
+router.post('/:caseId/experimental-cfd-slice', async (req, res) => {
+    const { caseId } = req.params;
+    const casePath = path.join(__dirname, '../uploads', caseId);
+
+    if (!fs.existsSync(casePath)) {
+        return res.status(404).json({ success: false, message: '工况目录不存在。' });
+    }
+
+    if (!fs.existsSync(EXPERIMENTAL_CFD_SCRIPT)) {
+        return res.status(500).json({ success: false, message: '实验性 CFD 脚本不存在。' });
+    }
+
+    const sliceSchema = Joi.object({
+        mode: Joi.string().valid('xy', 'xz', 'yz', 'oblique').default('xy'),
+        offsetM: Joi.number().min(-50000).max(50000).default(0),
+        azimuthDeg: Joi.number().min(-360).max(360).default(35),
+        tiltDeg: Joi.number().min(0).max(90).default(55),
+        resolutionX: Joi.number().integer().min(64).max(320).default(220),
+        resolutionY: Joi.number().integer().min(64).max(280).default(160),
+        targetCells: Joi.number().integer().min(250000).max(2500000).default(1500000),
+    });
+
+    const { error, value } = sliceSchema.validate(req.body || {}, {
+        abortEarly: false,
+        convert: true,
+    });
+    if (error) {
+        return res.status(400).json({
+            success: false,
+            message: '实验性切片参数无效。',
+            errors: error.details.map((item) => item.message),
+        });
+    }
+
+    try {
+        res.setHeader('Cache-Control', 'no-store');
+        const { payload, stderr } = await runPythonJsonScript({
+            scriptPath: EXPERIMENTAL_CFD_SCRIPT,
+            args: [
+                'slice',
+                '--case-dir', casePath,
+                '--target-cells', String(value.targetCells),
+                '--mode', value.mode,
+                '--offset-m', String(value.offsetM),
+                '--azimuth-deg', String(value.azimuthDeg),
+                '--tilt-deg', String(value.tiltDeg),
+                '--resolution-x', String(value.resolutionX),
+                '--resolution-y', String(value.resolutionY),
+            ],
+            timeoutMs: 300000,
+        });
+
+        return res.json({
+            success: true,
+            ...payload,
+            stderr: stderr || null,
+        });
+    } catch (sliceError) {
+        console.error(`实验性 CFD 切片失败 (${caseId}):`, sliceError);
+        return res.status(500).json({
+            success: false,
+            message: sliceError?.payload?.error || sliceError.message || '实验性 CFD 切片失败。',
+            details: sliceError?.stderr || null,
+        });
+    }
 });
 
 // 新增：查询特定坐标点的风速
