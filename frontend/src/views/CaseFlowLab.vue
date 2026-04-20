@@ -37,6 +37,12 @@
             <el-tab-pane label="服务端剖切" name="serverSlice">
               <FlowServerSliceLabViewer v-if="activeTab === 'serverSlice'" :case-id="caseId" />
             </el-tab-pane>
+            <el-tab-pane label="服务端体显示" name="serverVolume">
+              <FlowServerVolumeLabViewer v-if="activeTab === 'serverVolume'" :case-id="caseId" />
+            </el-tab-pane>
+            <el-tab-pane label="VTK 体渲染" name="vtkVolume">
+              <FlowVtkVolumeLabViewer v-if="activeTab === 'vtkVolume'" :case-id="caseId" />
+            </el-tab-pane>
             <el-tab-pane label="3D 叠层实验" name="stack3d">
               <FlowVolumeStackLabViewer v-if="activeTab === 'stack3d'" :case-id="caseId" />
             </el-tab-pane>
@@ -71,6 +77,8 @@
             <li><code>VTK.js</code> 仍然最适合做你现有 <code>.vtp/.vtu</code> 主链路的严谨读取和基线对照。</li>
             <li><code>体积风廊</code> 会把多高度真实切片重建成浏览器可承受的 <code>3D texture</code>，用 ray-marching 直接看空间风速体，而不是继续堆二维贴片。</li>
             <li><code>服务端剖切</code> 直接从原始 CFD 结果构建服务端矢量体缓存，再按需切任意平面，是更接近真实后处理工作流的路线。</li>
+            <li><code>服务端体显示</code> 则更进一步，直接把服务端缓存后的体数据送进浏览器 3D volume，不再把“切面”当成唯一表达方式。</li>
+            <li><code>VTK 体渲染</code> 用同一套服务端规则体缓存回到 <code>vtkImageData + VolumeMapper</code> 这条路，观感和交互会更接近 ParaView 的体后处理逻辑。</li>
             <li><code>3D 叠层实验</code> 会把多个高度切片和对应流线按真实高度叠起来，再加上地形和网格外壳，让你先看到浏览器可承受的三维风场质感。</li>
             <li><code>ParaView 风格</code> 这一页会优先模拟 ParaView 常见的切片后处理能力，比如色标预设、范围重标定、等值线和 glyph 叠加。</li>
             <li><code>deck.gl</code> 更适合做正投影切片分析图，尤其是“轮廓面 + 稀疏采样点 + 流线叠加”这种分析型后处理视图。</li>
@@ -88,6 +96,8 @@
           <ul class="note-list">
             <li><code>3D 叠层实验</code> 当前优先走多高度 <code>.vtp</code> 叠层，不直接硬读完整 <code>internal.vtu</code>，这样更贴近浏览器端的真实承载能力。</li>
             <li><code>服务端剖切</code> 用服务端缓存承接 <code>.foam / internal.vtu</code> 这类重型源数据，浏览器只吃轻量切面 JSON。</li>
+            <li><code>服务端体显示</code> 用同一套服务端缓存输出轻量 3D 纹理文件，重点验证“更接近原始体数据”的三维浏览是否值得继续深挖。</li>
+            <li><code>VTK 体渲染</code> 则验证“同样的规则体缓存交给 VTK.js 是否更接近 ParaView”的问题，重点看体感、交互和浏览器负载。</li>
             <li><code>ParaView 风格</code> 的底层仍然是“非结构切片先重采样到规则网格”，这样颜色映射和粒子随流都挂在同一张插值场上。</li>
             <li><code>Deck 分析图</code> 直接把切片和流线转成数组图层，不走 <code>VTK</code> 前端渲染器。</li>
             <li>直接读取 <code>/uploads/&lt;caseId&gt;/run/postProcessing/Data/*.vtp</code> 作为切片面。</li>
@@ -120,6 +130,8 @@ import { defineAsyncComponent, ref } from 'vue';
 
 const FlowVolumeCorridorLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowVolumeCorridorLabViewer.vue'));
 const FlowServerSliceLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowServerSliceLabViewer.vue'));
+const FlowServerVolumeLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowServerVolumeLabViewer.vue'));
+const FlowVtkVolumeLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowVtkVolumeLabViewer.vue'));
 const FlowVolumeStackLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowVolumeStackLabViewer.vue'));
 const FlowGridParticleLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowGridParticleLabViewer.vue'));
 const FlowDeckSliceLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowDeckSliceLabViewer.vue'));
@@ -128,7 +140,7 @@ const FlowMeshlineLabViewer = defineAsyncComponent(() => import('@/components/ex
 const FlowParticleLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowParticleLabViewer.vue'));
 const FlowSurfaceLicLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowSurfaceLicLabViewer.vue'));
 
-const activeTab = ref('corridor');
+const activeTab = ref('serverVolume');
 
 defineProps({
   caseId: {

@@ -25,7 +25,7 @@ import numpy as np
 import pyvista as pv
 
 
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 DEFAULT_TARGET_CELLS = 1_500_000
 DEFAULT_MIN_DIMS = (64, 64, 24)
 DEFAULT_MAX_DIMS = (220, 220, 96)
@@ -203,8 +203,10 @@ def ensure_cache(case_dir: Path, *, target_cells: int = DEFAULT_TARGET_CELLS, fo
     cache_dir.mkdir(parents=True, exist_ok=True)
     metadata_path = cache_dir / "vector_volume_metadata.json"
     volume_path = cache_dir / "vector_volume_cache.npz"
+    volume_texture_path = cache_dir / "speed_volume_u8.bin"
+    case_id = case_dir.name
 
-    if not force_rebuild and metadata_path.exists() and volume_path.exists():
+    if not force_rebuild and metadata_path.exists() and volume_path.exists() and volume_texture_path.exists():
         try:
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
             if (
@@ -216,6 +218,7 @@ def ensure_cache(case_dir: Path, *, target_cells: int = DEFAULT_TARGET_CELLS, fo
                 metadata["cacheReady"] = True
                 metadata["cacheDir"] = str(cache_dir)
                 metadata["cacheFile"] = str(volume_path)
+                metadata["volumeTextureFile"] = str(volume_texture_path)
                 return metadata
         except Exception:
             pass
@@ -268,6 +271,15 @@ def ensure_cache(case_dir: Path, *, target_cells: int = DEFAULT_TARGET_CELLS, fo
     valid_speed = speed_zyx[valid_points]
     if valid_speed.size == 0:
         valid_speed = speed_zyx.reshape(-1)
+    speed_min = float(np.nanmin(valid_speed))
+    speed_max = float(np.nanmax(valid_speed))
+
+    texture_u8 = np.zeros(speed_zyx.shape, dtype=np.uint8)
+    if speed_max - speed_min < 1e-6:
+        texture_u8[valid_points] = 255
+    else:
+        normalized = np.clip((speed_zyx[valid_points] - speed_min) / (speed_max - speed_min), 0.0, 1.0)
+        texture_u8[valid_points] = np.clip(np.round(normalized * 254.0) + 1.0, 1.0, 255.0).astype(np.uint8)
 
     np.savez(
         volume_path,
@@ -285,25 +297,30 @@ def ensure_cache(case_dir: Path, *, target_cells: int = DEFAULT_TARGET_CELLS, fo
         ], dtype=np.float64),
         scale=np.array([scale], dtype=np.float64),
     )
+    volume_texture_path.write_bytes(texture_u8.tobytes(order="C"))
 
     metadata = {
         "cacheVersion": CACHE_VERSION,
         "cacheReady": True,
         "cacheDir": str(cache_dir),
         "cacheFile": str(volume_path),
+        "volumeTextureFile": str(volume_texture_path),
+        "volumeTextureUrl": f"/uploads/{case_id}/flow_lab_cache/{volume_texture_path.name}",
         "sourceKind": source.kind,
         "sourcePath": str(source.path),
         "targetCells": int(target_cells),
         "dims": [int(nx), int(ny), int(nz)],
+        "voxelCount": int(nx * ny * nz),
         "origin_m": [float(value) for value in origin_m],
         "spacing_m": [float(value) for value in spacing_m],
         "bounds_m": [float(value) for value in bounds_m],
         "scale": float(scale),
         "validRatio": float(np.mean(valid_zyx)),
         "speedRange": [
-            float(np.nanmin(valid_speed)),
-            float(np.nanmax(valid_speed)),
+            speed_min,
+            speed_max,
         ],
+        "volumeTextureRange": [1.0 / 255.0, 1.0],
         "speedP95": float(np.nanpercentile(valid_speed, 95.0)),
         "speedP995": float(np.nanpercentile(valid_speed, 99.5)),
         "buildSeconds": round(time.time() - started, 3),
