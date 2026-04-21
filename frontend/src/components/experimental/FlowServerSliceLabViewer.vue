@@ -131,8 +131,8 @@
           <strong>{{ normalLabel }}</strong>
         </div>
         <div class="chip">
-          <span>说明</span>
-          <strong>原始 CFD 结果 -> 服务端矢量体缓存 -> 任意面切片 JSON</strong>
+          <span>分辨率</span>
+          <strong>{{ sliceResolutionLabel }}</strong>
         </div>
       </div>
 
@@ -246,6 +246,8 @@ const normalLabel = computed(() => {
   if (!Array.isArray(normal) || normal.length !== 3) return '-';
   return normal.map((value) => Number(value).toFixed(2)).join(', ');
 });
+
+const sliceResolutionLabel = computed(() => `${resolution.value[0]} x ${resolution.value[1]}`);
 
 const coverageLabel = computed(() => {
   const coverage = Number(sliceData.value?.stats?.coverage ?? 0);
