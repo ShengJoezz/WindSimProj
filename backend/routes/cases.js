@@ -2183,6 +2183,96 @@ router.get('/:caseId/experimental-cfd-particles', async (req, res) => {
     }
 });
 
+router.get('/:caseId/experimental-cfd-convergence', async (req, res) => {
+    const { caseId } = req.params;
+    const casePath = path.join(__dirname, '../uploads', caseId);
+    const runPath = path.join(casePath, 'run');
+
+    if (!fs.existsSync(casePath) || !fs.existsSync(runPath)) {
+        return res.status(404).json({ success: false, message: '工况目录不存在。' });
+    }
+
+    try {
+        res.setHeader('Cache-Control', 'no-store');
+
+        const entries = await fsPromises.readdir(runPath, { withFileTypes: true });
+        const timeDirs = entries
+            .filter((entry) => entry.isDirectory() && Number.isFinite(Number(entry.name)))
+            .map((entry) => entry.name)
+            .sort((left, right) => Number(left) - Number(right));
+
+        const continuity = [];
+        for (const timeName of timeDirs) {
+            const filePath = path.join(runPath, timeName, 'uniform', 'cumulativeContErr');
+            if (!fs.existsSync(filePath)) continue;
+
+            try {
+                const raw = await fsPromises.readFile(filePath, 'utf-8');
+                const match = raw.match(/value\s+([+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*;/);
+                if (!match) continue;
+                continuity.push({
+                    time: Number(timeName),
+                    value: Number(match[1]),
+                });
+            } catch (readError) {
+                console.warn(`读取 cumulativeContErr 失败 (${caseId}, ${timeName}):`, readError?.message || readError);
+            }
+        }
+
+        const inputPath = path.join(runPath, 'Input', 'input.json');
+        let inputSummary = null;
+        if (fs.existsSync(inputPath)) {
+            try {
+                const inputRaw = await fsPromises.readFile(inputPath, 'utf-8');
+                const inputJson = JSON.parse(inputRaw);
+                inputSummary = {
+                    domainLt: Number(inputJson?.domain?.lt ?? 0),
+                    domainH: Number(inputJson?.domain?.h ?? 0),
+                    windSpeed: Number(inputJson?.wind?.speed ?? 0),
+                    windAngle: Number(inputJson?.wind?.angle ?? 0),
+                    numUdh: Number(inputJson?.post?.num_udh ?? 0),
+                    udh: Array.isArray(inputJson?.post?.udh) ? inputJson.post.udh.map((value) => Number(value)) : [],
+                };
+            } catch (inputError) {
+                console.warn(`读取 input.json 失败 (${caseId}):`, inputError?.message || inputError);
+            }
+        }
+
+        const values = continuity.map((item) => item.value);
+        const times = continuity.map((item) => item.time);
+        const latest = continuity.length ? continuity[continuity.length - 1] : null;
+        const first = continuity.length ? continuity[0] : null;
+
+        return res.json({
+            success: true,
+            convergence: {
+                count: continuity.length,
+                times,
+                values,
+                latestTime: latest?.time ?? null,
+                latestValue: latest?.value ?? null,
+                minValue: values.length ? Math.min(...values) : null,
+                maxValue: values.length ? Math.max(...values) : null,
+                drift: continuity.length > 1 ? (latest.value - first.value) : null,
+                inputSummary,
+                artifacts: {
+                    sampleDict: fs.existsSync(path.join(runPath, 'system', 'sampleDict')),
+                    streamLines: fs.existsSync(path.join(runPath, 'system', 'streamLines')),
+                    profiling: fs.existsSync(path.join(runPath, 'system', 'profiling')),
+                    vtk: fs.existsSync(path.join(runPath, 'VTK')),
+                    postProcessing: fs.existsSync(path.join(runPath, 'postProcessing')),
+                },
+            },
+        });
+    } catch (error) {
+        console.error(`读取实验性 CFD 收敛信息失败 (${caseId}):`, error);
+        return res.status(500).json({
+            success: false,
+            message: error.message || '读取实验性 CFD 收敛信息失败。',
+        });
+    }
+});
+
 router.post('/:caseId/experimental-cfd-slice', async (req, res) => {
     const { caseId } = req.params;
     const casePath = path.join(__dirname, '../uploads', caseId);

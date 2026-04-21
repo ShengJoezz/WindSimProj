@@ -84,6 +84,7 @@ const props = defineProps({
 });
 
 const FlowParticleCloudLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowParticleCloudLabViewer.vue'));
+const FlowConvergenceLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowConvergenceLabViewer.vue'));
 const FlowVolumeCorridorLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowVolumeCorridorLabViewer.vue'));
 const FlowServerSliceLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowServerSliceLabViewer.vue'));
 const FlowServerVolumeLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowServerVolumeLabViewer.vue'));
@@ -97,6 +98,7 @@ const FlowParticleLabViewer = defineAsyncComponent(() => import('@/components/ex
 const FlowSurfaceLicLabViewer = defineAsyncComponent(() => import('@/components/experimental/FlowSurfaceLicLabViewer.vue'));
 
 const componentMap = {
+  convergence: FlowConvergenceLabViewer,
   serverSlice: FlowServerSliceLabViewer,
   grid: FlowGridParticleLabViewer,
   deck: FlowDeckSliceLabViewer,
@@ -112,6 +114,13 @@ const componentMap = {
 };
 
 const sections = [
+  {
+    key: 'solver',
+    title: '求解',
+    modes: [
+      { name: 'convergence', title: '收敛', data: 'cumulativeContErr / input.json' },
+    ],
+  },
   {
     key: 'slice',
     title: '剖面',
@@ -158,7 +167,7 @@ const flatModes = sections.flatMap((section) => (
   }))
 ));
 
-const activeMode = ref('serverSlice');
+const activeMode = ref('convergence');
 
 const activeModeMeta = computed(() => (
   flatModes.find((mode) => mode.name === activeMode.value) || flatModes[0]
