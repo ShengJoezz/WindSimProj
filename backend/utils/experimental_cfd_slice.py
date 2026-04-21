@@ -30,6 +30,9 @@ DEFAULT_TARGET_CELLS = 1_500_000
 DEFAULT_MIN_DIMS = (64, 64, 24)
 DEFAULT_MAX_DIMS = (220, 220, 96)
 DEFAULT_SLICE_RESOLUTION = (220, 160)
+DEFAULT_PARTICLE_COUNT = 24_000
+MIN_PARTICLE_COUNT = 4_000
+MAX_PARTICLE_COUNT = 60_000
 
 
 def log(message: str) -> None:
@@ -354,6 +357,111 @@ def load_cached_volume(case_dir: Path, *, target_cells: int = DEFAULT_TARGET_CEL
     return metadata, volume
 
 
+def build_particle_cloud(case_dir: Path, metadata: dict, volume: dict, *, particle_count: int, force_rebuild: bool = False) -> dict:
+    cache_dir = case_dir / "flow_lab_cache"
+    sample_count = int(np.clip(int(particle_count), MIN_PARTICLE_COUNT, MAX_PARTICLE_COUNT))
+    particle_path = cache_dir / f"particle_cloud_{sample_count}.f32.bin"
+    particle_meta_path = cache_dir / f"particle_cloud_{sample_count}.json"
+    case_id = case_dir.name
+
+    if not force_rebuild and particle_path.exists() and particle_meta_path.exists():
+        try:
+            payload = json.loads(particle_meta_path.read_text(encoding="utf-8"))
+            payload["particleCloudFile"] = str(particle_path)
+            payload["particleCloudUrl"] = f"/uploads/{case_id}/flow_lab_cache/{particle_path.name}"
+            return payload
+        except Exception:
+            pass
+
+    started = time.time()
+    valid_mask = np.asarray(volume["valid"] > 0.5, dtype=bool)
+    flat_valid = np.flatnonzero(valid_mask.reshape(-1))
+    if flat_valid.size == 0:
+        raise ValueError("当前体缓存里没有可用于粒子云的有效体素。")
+
+    flat_speed = volume["speed"].reshape(-1).astype(np.float32)
+    flat_vectors = volume["vectors"].reshape((-1, 3)).astype(np.float32)
+    candidate_speed = flat_speed[flat_valid]
+    candidate_vectors = flat_vectors[flat_valid]
+    candidate_speed_max = float(np.nanmax(candidate_speed))
+    candidate_speed_p95 = float(np.nanpercentile(candidate_speed, 95.0))
+    speed_scale = max(1e-6, candidate_speed_p95)
+
+    # Favor energetic regions, but retain a baseline weight so slower recirculation zones still appear.
+    weights = 0.14 + np.power(np.clip(candidate_speed / speed_scale, 0.0, 1.4), 1.2)
+    weights = np.where(np.isfinite(weights), weights, 0.14).astype(np.float64)
+    weights_sum = float(np.sum(weights))
+    if weights_sum < 1e-9:
+        weights = np.full_like(weights, 1.0 / max(1, weights.size), dtype=np.float64)
+    else:
+        weights /= weights_sum
+
+    replace = flat_valid.size < sample_count
+    seed = int((metadata["voxelCount"] * 1315423911 + sample_count * 2654435761) % (2 ** 32))
+    rng = np.random.default_rng(seed=seed)
+    chosen_indices = rng.choice(flat_valid.size, size=sample_count, replace=replace, p=weights)
+    chosen_flat = flat_valid[chosen_indices]
+
+    nx, ny, nz = (int(value) for value in volume["dims"])
+    z_idx, y_idx, x_idx = np.unravel_index(chosen_flat, (nz, ny, nx))
+    origin_m = volume["origin_m"]
+    spacing_m = volume["spacing_m"]
+
+    positions = np.column_stack((
+        origin_m[0] + (x_idx.astype(np.float32) * spacing_m[0]),
+        origin_m[1] + (y_idx.astype(np.float32) * spacing_m[1]),
+        origin_m[2] + (z_idx.astype(np.float32) * spacing_m[2]),
+    )).astype(np.float32)
+    jitter = (rng.random((sample_count, 3), dtype=np.float32) - 0.5) * spacing_m.astype(np.float32)[None, :]
+    positions += jitter
+
+    directions = flat_vectors[chosen_flat].copy()
+    direction_norm = np.linalg.norm(directions, axis=1, keepdims=True)
+    valid_dir = direction_norm[:, 0] > 1e-6
+    directions[valid_dir] /= direction_norm[valid_dir]
+    directions[~valid_dir] = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+
+    speeds = flat_speed[chosen_flat].astype(np.float32)
+    phase = rng.random(sample_count, dtype=np.float32)
+
+    records = np.column_stack((
+        positions,
+        directions.astype(np.float32),
+        speeds,
+        phase,
+    )).astype(np.float32)
+    particle_path.write_bytes(records.tobytes(order="C"))
+
+    payload = {
+        "success": True,
+        "particleCount": int(sample_count),
+        "particleStrideFloats": 8,
+        "particleFields": [
+            "x_m",
+            "y_m",
+            "z_m",
+            "dir_x",
+            "dir_y",
+            "dir_z",
+            "speed_mps",
+            "phase01",
+        ],
+        "particleCloudFile": str(particle_path),
+        "particleCloudUrl": f"/uploads/{case_id}/flow_lab_cache/{particle_path.name}",
+        "particleCloudByteLength": int(records.nbytes),
+        "particleSpeedRange": [
+            float(np.nanmin(speeds)),
+            float(np.nanmax(speeds)),
+        ],
+        "particleSpeedP95": float(np.nanpercentile(speeds, 95.0)),
+        "sampleBias": "weighted_by_speed",
+        "buildSeconds": round(time.time() - started, 3),
+        "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    particle_meta_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
+
+
 def build_normal_from_mode(mode: str, azimuth_deg: float, tilt_deg: float) -> np.ndarray:
     if mode == "xy":
         return np.array([0.0, 0.0, 1.0], dtype=np.float64)
@@ -539,6 +647,30 @@ def build_slice(case_dir: Path, args: argparse.Namespace) -> dict:
     }
 
 
+def build_particles_payload(case_dir: Path, args: argparse.Namespace) -> dict:
+    metadata, volume = load_cached_volume(case_dir, target_cells=args.target_cells, ensure=True)
+    particle_payload = build_particle_cloud(
+        case_dir,
+        metadata,
+        volume,
+        particle_count=args.particle_count,
+        force_rebuild=bool(args.force_rebuild),
+    )
+    return {
+        "success": True,
+        "sourceKind": metadata["sourceKind"],
+        "sourcePath": metadata["sourcePath"],
+        "cacheVersion": metadata["cacheVersion"],
+        "cacheDims": metadata["dims"],
+        "bounds_m": metadata["bounds_m"],
+        "scale": metadata["scale"],
+        "speedRange": metadata["speedRange"],
+        "speedP95": metadata["speedP95"],
+        "speedP995": metadata["speedP995"],
+        **particle_payload,
+    }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Experimental CFD slice backend")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -557,6 +689,12 @@ def parse_args() -> argparse.Namespace:
     slice_parser.add_argument("--tilt-deg", type=float, default=55.0)
     slice_parser.add_argument("--resolution-x", type=int, default=DEFAULT_SLICE_RESOLUTION[0])
     slice_parser.add_argument("--resolution-y", type=int, default=DEFAULT_SLICE_RESOLUTION[1])
+
+    particle_parser = subparsers.add_parser("particles", help="Build a sparse 3D particle cloud from cached vector volume")
+    particle_parser.add_argument("--case-dir", required=True, help="Case directory path")
+    particle_parser.add_argument("--target-cells", type=int, default=DEFAULT_TARGET_CELLS)
+    particle_parser.add_argument("--particle-count", type=int, default=DEFAULT_PARTICLE_COUNT)
+    particle_parser.add_argument("--force-rebuild", action="store_true")
     return parser.parse_args()
 
 
@@ -578,6 +716,11 @@ def main() -> int:
 
     if args.command == "slice":
         payload = build_slice(case_dir, args)
+        json_dump(payload)
+        return 0
+
+    if args.command == "particles":
+        payload = build_particles_payload(case_dir, args)
         json_dump(payload)
         return 0
 

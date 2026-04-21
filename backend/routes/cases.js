@@ -2133,6 +2133,56 @@ router.get('/:caseId/experimental-cfd-metadata', async (req, res) => {
     }
 });
 
+router.get('/:caseId/experimental-cfd-particles', async (req, res) => {
+    const { caseId } = req.params;
+    const casePath = path.join(__dirname, '../uploads', caseId);
+    const forceRebuild = String(req.query.forceRebuild || '').toLowerCase() === 'true';
+    const targetCellsRaw = Number(req.query.targetCells);
+    const particleCountRaw = Number(req.query.particleCount);
+    const targetCells = Number.isFinite(targetCellsRaw)
+        ? Math.max(250000, Math.min(2500000, Math.round(targetCellsRaw)))
+        : 1500000;
+    const particleCount = Number.isFinite(particleCountRaw)
+        ? Math.max(4000, Math.min(60000, Math.round(particleCountRaw)))
+        : 24000;
+
+    if (!fs.existsSync(casePath)) {
+        return res.status(404).json({ success: false, message: '工况目录不存在。' });
+    }
+
+    if (!fs.existsSync(EXPERIMENTAL_CFD_SCRIPT)) {
+        return res.status(500).json({ success: false, message: '实验性 CFD 脚本不存在。' });
+    }
+
+    try {
+        res.setHeader('Cache-Control', 'no-store');
+        const { payload, stderr } = await runPythonJsonScript({
+            scriptPath: EXPERIMENTAL_CFD_SCRIPT,
+            args: [
+                'particles',
+                '--case-dir', casePath,
+                '--target-cells', String(targetCells),
+                '--particle-count', String(particleCount),
+                ...(forceRebuild ? ['--force-rebuild'] : []),
+            ],
+            timeoutMs: 300000,
+        });
+
+        return res.json({
+            success: true,
+            particles: payload,
+            stderr: stderr || null,
+        });
+    } catch (error) {
+        console.error(`实验性 CFD 粒子云生成失败 (${caseId}):`, error);
+        return res.status(500).json({
+            success: false,
+            message: error?.payload?.error || error.message || '实验性 CFD 粒子云生成失败。',
+            details: error?.stderr || null,
+        });
+    }
+});
+
 router.post('/:caseId/experimental-cfd-slice', async (req, res) => {
     const { caseId } = req.params;
     const casePath = path.join(__dirname, '../uploads', caseId);

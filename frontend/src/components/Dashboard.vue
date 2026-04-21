@@ -127,7 +127,7 @@ const menuItems = computed(() => {
     { index: `/cases/${caseId.value}/calculation`, icon: Monitor, title: "计算输出" },
     { index: `/cases/${caseId.value}/results`, icon: DataLine, title: "结果展示" },
     { index: `/cases/${caseId.value}/speed-visualization`, icon: WindPower, title: "速度场分析" },
-    { index: `/cases/${caseId.value}/flow-lab`, icon: DataLine, title: "流线粒子实验" },
+    { index: `/cases/${caseId.value}/flow-lab`, icon: DataLine, title: "三维风场实验" },
     { index: `/cases/${caseId.value}/wind-management`, icon: Files, title: "风机性能分析" }
   ];
 }else {
