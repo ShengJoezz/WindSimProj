@@ -2,8 +2,7 @@
   <div class="resource-lab">
     <header class="page-header">
       <div class="title-block">
-        <div class="eyebrow">WIND RESOURCE LAB</div>
-        <h1>风资源评估实验</h1>
+        <h1>风资源评估</h1>
         <div class="badge-row">
           <div v-for="badge in headerBadges" :key="badge.label" class="meta-pill">
             <span>{{ badge.label }}</span>
@@ -177,7 +176,6 @@
                 <tr>
                   <th>风机</th>
                   <th>层风速</th>
-                  <th>加速比</th>
                   <th>ADJUST功率</th>
                   <th>矢量窗口 Ux</th>
                   <th>窗口功率差</th>
@@ -194,7 +192,6 @@
                 >
                   <td>{{ row.name }}</td>
                   <td>{{ formatNumber(row.resourceSpeed, 2) }}</td>
-                  <td>{{ formatPercentRatio(row.resourceSpeedupRatio, 1) }}</td>
                   <td>{{ formatNumber(row.adjustPower, 1) }}</td>
                   <td>{{ formatNumber(row.vectorWindowUx, 2) }}</td>
                   <td :class="gapClass(row.vectorWindowPowerGap)">{{ formatSigned(row.vectorWindowPowerGap, 1) }}</td>
@@ -241,7 +238,7 @@
       <div class="detail-grid detail-grid-single">
         <section class="panel table-panel" v-if="vectorFocusRows.length">
           <div class="panel-head">
-            <h2>入流失配</h2>
+            <h2>重点失配机位</h2>
             <div class="panel-head-meta">
               <span>失配角降序</span>
             </div>
@@ -576,8 +573,8 @@ const dashboardCards = computed(() => [
     unit: 'm/s',
   },
   {
-    label: '当前层 P95',
-    value: summaryValue(resourceStats.value?.p95Speed, 2),
+    label: '当前层速度范围',
+    value: `${summaryValue(resourceStats.value?.minSpeed, 2)} - ${summaryValue(resourceStats.value?.maxSpeed, 2)}`,
     unit: 'm/s',
   },
   {
@@ -586,19 +583,16 @@ const dashboardCards = computed(() => [
     unit: 'kW',
   },
   {
-    label: '矢量窗口总功率',
-    value: summaryValue(vectorSummary.value?.totalCurvePowerAtWindowUx, 0),
+    label: '矢量窗口总功率差',
+    value: formatSigned(vectorWindowTotalPowerGap.value, 0),
     unit: 'kW',
+    tone: true,
+    toneValue: vectorWindowTotalPowerGap.value,
   },
   {
     label: '平均失配角',
     value: summaryValue(vectorSummary.value?.averageWindowMisalignmentDeg, 1),
     unit: 'deg',
-  },
-  {
-    label: '平均功率差',
-    value: summaryValue(vectorSummary.value?.averageAbsoluteWindowPowerGap, 1),
-    unit: 'kW',
   },
 ]);
 
@@ -616,7 +610,6 @@ const selectedMetrics = computed(() => {
     },
     { label: '失配角', value: `${formatNumber(selectedRow.value.vectorWindowMisalignment, 1)} deg` },
     { label: '上下半盘差', value: `${formatSigned(selectedRow.value.diskTopBottomUxDelta, 2)} m/s` },
-    { label: '加速比', value: `${formatPercentRatio(selectedRow.value.resourceSpeedupRatio, 1)} %` },
   ];
 });
 
@@ -944,6 +937,18 @@ const buildColorLookup = (steps = 512) => {
   return lookup;
 };
 
+const samplePlaneMetricValue = (plane, ix, iy, inletSpeed) => {
+  if (!plane?.nx || !plane?.ny || !Array.isArray(plane.values)) return null;
+  const clampedX = Math.max(0, Math.min(plane.nx - 1, ix));
+  const clampedY = Math.max(0, Math.min(plane.ny - 1, iy));
+  const speed = Number(plane.values[clampedY * plane.nx + clampedX]);
+  if (!Number.isFinite(speed)) return null;
+  if (mapMetric.value === 'speedup' && Number.isFinite(inletSpeed) && inletSpeed > 0) {
+    return speed / inletSpeed;
+  }
+  return speed;
+};
+
 const drawRawOverlayResourceStage = (ctx, width, height) => {
   const overlay = rawOverlay.value;
   const plane = resourcePlane.value;
@@ -1023,29 +1028,56 @@ const drawInterpolatedResourceStage = (ctx, width, height) => {
 
   const { min, max } = resourceRenderRange.value;
   const inlet = resourceMeta.value?.inletWindSpeed;
-  const xSpan = Number(plane.xMax) - Number(plane.xMin);
-  const ySpan = Number(plane.yMax) - Number(plane.yMin);
-  if (!(xSpan > 0) || !(ySpan > 0)) return;
-  const cellWidth = width / Math.max(plane.nx, 1);
-  const cellHeight = height / Math.max(plane.ny, 1);
+  if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return;
 
-  for (let iy = 0; iy < plane.ny; iy += 1) {
-    const py = ((plane.ny - 1 - iy + 0.5) / plane.ny) * height;
+  const colorLookup = buildColorLookup(512);
+  const imageData = ctx.createImageData(width, height);
+  const pixels = imageData.data;
+  const gridWidth = Math.max(1, plane.nx - 1);
+  const gridHeight = Math.max(1, plane.ny - 1);
 
-    for (let ix = 0; ix < plane.nx; ix += 1) {
-      const valueIndex = iy * plane.nx + ix;
-      const speed = plane.values[valueIndex];
-      if (!Number.isFinite(speed)) continue;
+  for (let py = 0; py < height; py += 1) {
+    const gy = ((height - 1 - py) / Math.max(1, height - 1)) * gridHeight;
+    const y0 = Math.floor(gy);
+    const y1 = Math.min(plane.ny - 1, y0 + 1);
+    const ty = gy - y0;
 
-      const px = ((ix + 0.5) / plane.nx) * width;
-      const metricValue = mapMetric.value === 'speedup' && Number.isFinite(inlet) && inlet > 0
-        ? speed / inlet
-        : speed;
+    for (let px = 0; px < width; px += 1) {
+      const gx = (px / Math.max(1, width - 1)) * gridWidth;
+      const x0 = Math.floor(gx);
+      const x1 = Math.min(plane.nx - 1, x0 + 1);
+      const tx = gx - x0;
 
-      ctx.fillStyle = interpolateColor(metricValue, min, max);
-      ctx.fillRect(px - cellWidth / 2, py - cellHeight / 2, cellWidth + 0.8, cellHeight + 0.8);
+      const samples = [
+        { value: samplePlaneMetricValue(plane, x0, y0, inlet), weight: (1 - tx) * (1 - ty) },
+        { value: samplePlaneMetricValue(plane, x1, y0, inlet), weight: tx * (1 - ty) },
+        { value: samplePlaneMetricValue(plane, x0, y1, inlet), weight: (1 - tx) * ty },
+        { value: samplePlaneMetricValue(plane, x1, y1, inlet), weight: tx * ty },
+      ];
+
+      let weightedValue = 0;
+      let weightSum = 0;
+      samples.forEach((sample) => {
+        if (!Number.isFinite(sample.value) || sample.weight <= 0) return;
+        weightedValue += sample.value * sample.weight;
+        weightSum += sample.weight;
+      });
+
+      const metricValue = weightSum > 0 ? weightedValue / weightSum : null;
+      const normalized = Number.isFinite(metricValue)
+        ? Math.max(0, Math.min(1, (metricValue - min) / (max - min)))
+        : 0;
+      const colorIndex = Math.min(511, Math.max(0, Math.round(normalized * 511)));
+      const colorOffset = colorIndex * 3;
+      const offset = (py * width + px) * 4;
+      pixels[offset] = colorLookup[colorOffset];
+      pixels[offset + 1] = colorLookup[colorOffset + 1];
+      pixels[offset + 2] = colorLookup[colorOffset + 2];
+      pixels[offset + 3] = 255;
     }
   }
+
+  ctx.putImageData(imageData, 0, 0);
 
   ctx.strokeStyle = 'rgba(30, 41, 59, 0.55)';
   ctx.lineWidth = 1.2;
