@@ -1,529 +1,474 @@
-<!--
- * @Author: joe 847304926@qq.com
- * @Date: 2025-04-25 20:17:05
- * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-04-26 01:15:00 (Removed turbine overlay canvas and logic)
- * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\SpeedVisualization.vue
- * @Description: 风场可视化组件，去除了风机点位在图上的覆盖显示。
- *
- * Copyright (c) 2025 by joe, All Rights Reserved.
--->
-
 <template>
-  <div class="advanced-visualization-container">
-    <el-card class="visualization-card" shadow="hover">
-      <template #header>
-        <div class="card-header">
-          <h3>风场可视化</h3>
-          <el-button-group>
-            <el-tooltip content="刷新数据">
-              <el-button :icon="Refresh" circle @click="fetchAllData" :loading="loading"></el-button>
-            </el-tooltip>
-            <el-tooltip content="导出图表">
-              <el-button :icon="Download" circle @click="exportCharts" :disabled="!isVisualizationReady"></el-button>
-            </el-tooltip>
-          </el-button-group>
+  <div class="speed-lab">
+    <header class="page-header">
+      <div class="title-block">
+        <h1>速度场分析</h1>
+        <div class="badge-row">
+          <div v-for="badge in headerBadges" :key="badge.label" class="meta-pill">
+            <span>{{ badge.label }}</span>
+            <strong>{{ badge.value }}</strong>
+          </div>
         </div>
+      </div>
+
+      <div class="toolbar">
+        <el-tooltip content="刷新">
+          <el-button :icon="Refresh" circle @click="retryLoad" :loading="loading" />
+        </el-tooltip>
+        <el-tooltip content="导出当前视图">
+          <el-button :icon="Download" circle @click="exportCurrentView" :disabled="!isVisualizationReady" />
+        </el-tooltip>
+      </div>
+    </header>
+
+    <el-alert
+      v-if="blockingAlert"
+      :type="blockingAlert.type"
+      show-icon
+      :closable="false"
+      class="status-alert"
+    >
+      <template #title>{{ blockingAlert.title }}</template>
+      <template #default>
+        {{ blockingAlert.message }}
+        <el-button
+          v-if="blockingAlert.actionText"
+          type="primary"
+          link
+          :loading="blockingAlert.loading"
+          @click="blockingAlert.action"
+        >
+          {{ blockingAlert.actionText }}
+        </el-button>
       </template>
+    </el-alert>
 
-      <el-alert
-        v-if="blockingAlert"
-        :type="blockingAlert.type"
-        show-icon
-        :closable="false"
-        class="precompute-alert"
-      >
-        <template #title>{{ blockingAlert.title }}</template>
-        <template #default>
-          {{ blockingAlert.message }}
-          <el-button
-            v-if="blockingAlert.actionText"
-            type="primary"
-            link
-            @click="blockingAlert.action"
-            :loading="blockingAlert.loading"
+    <template v-if="mainMetadata">
+      <section class="control-strip">
+        <div class="control-block control-block-height">
+          <span class="control-label">高度</span>
+          <el-slider
+            v-model="currentHeight"
+            :min="minHeight"
+            :max="maxHeight"
+            :step="heightSliderStep"
+            show-input
+          />
+        </div>
+
+        <div class="control-block">
+          <span class="control-label">风机</span>
+          <el-select
+            v-model="selectedTurbine"
+            placeholder="选择风机"
+            filterable
+            clearable
+            class="toolbar-select"
           >
-            {{ blockingAlert.actionText }}
-          </el-button>
-        </template>
-      </el-alert>
-
-      <div v-if="showPrecomputeLog" class="precompute-log">
-        <div class="precompute-log-header">
-          <span class="precompute-log-title">预计算日志</span>
-          <el-button type="info" link size="small" @click="clearPrecomputeLog">清空</el-button>
+            <el-option
+              v-for="turbine in mainMetadata.turbines || []"
+              :key="turbine.id"
+              :label="turbine.name || turbine.id"
+              :value="turbine.id"
+            />
+          </el-select>
         </div>
-        <div ref="precomputeLogRef" class="precompute-log-content">
-          <pre>{{ precomputeLogText }}</pre>
+
+        <div class="control-block">
+          <span class="control-label">组件</span>
+          <el-radio-group v-model="activePanel" size="small" class="toolbar-group">
+            <el-radio-button value="profile">风速廓线</el-radio-button>
+            <el-radio-button value="wake">尾流分析</el-radio-button>
+            <el-radio-button value="point">单点查询</el-radio-button>
+          </el-radio-group>
         </div>
-      </div>
+      </section>
 
-      <div class="viz-controls">
-        <el-row :gutter="20">
-          <el-col :xs="24" :md="16">
-            <div class="control-item">
-              <span class="label">高度 (m):</span>
-              <el-slider
-                v-model="currentHeight"
-                :min="minHeight"
-                :max="maxHeight"
-                :step="heightSliderStep"
-                show-input
-                :disabled="!mainMetadata || !mainMetadata.heightLevels || mainMetadata.heightLevels.length === 0"
-              />
-            </div>
-          </el-col>
-          <el-col :xs="24" :md="8">
-            <div class="control-item">
-              <span class="label">选择风机:</span>
-              <el-select
-                v-model="selectedTurbine"
-                placeholder="选择风机"
-                filterable
-                clearable
-                style="width: 100%"
-                :disabled="!mainMetadata || !mainMetadata.turbines || mainMetadata.turbines.length === 0">
-                <!-- 使用可选链和空数组后备 -->
-                <el-option
-                  v-for="turbine in mainMetadata?.turbines || []"
-                  :key="turbine.id"
-                  :label="turbine.name || turbine.id"
-                  :value="turbine.id"
-                />
-              </el-select>
-            </div>
-          </el-col>
-        </el-row>
-        <!-- 新增：单点查询功能 -->
-        <el-row :gutter="20" class="point-query-section">
-          <el-col :span="24">
-            <div class="control-item point-query-item">
-              <span class="label">单点查询 (m):</span>
-              <el-input-number v-model="queryPoint.x" placeholder="X" size="small" controls-position="right" class="query-input"></el-input-number>
-              <el-input-number v-model="queryPoint.y" placeholder="Y" size="small" controls-position="right" class="query-input"></el-input-number>
-              <el-input-number v-model="queryPoint.z" placeholder="Z" size="small" controls-position="right" class="query-input"></el-input-number>
-              <el-button type="primary" size="small" @click="handlePointQuery" :loading="chartLoading.pointQuery">查询</el-button>
-              <div v-if="pointQueryResult" class="query-result">
-                查询结果: <strong>{{ pointQueryResult }}</strong>
-              </div>
-            </div>
-          </el-col>
-        </el-row>
-      </div>
-
-      <div class="viz-main-content">
-        <!-- 左侧 - 风速场图片 -->
-        <div class="speed-field-section">
-          <div class="visualization-wrapper">
-            <div class="speed-field-container" ref="speedFieldContainer">
-              <div v-if="!isSpeedFieldReady && !chartLoading.speedField" class="no-image-placeholder">
-                <el-icon><Picture /></el-icon>
-                <span>{{ mainMetadata ? '正在准备真实速度场数据...' : '加载元数据中...' }}</span>
-              </div>
-              <canvas
-                ref="speedFieldCanvas"
-                class="speed-field-canvas"
-                :class="{ visible: isSpeedFieldReady }"
-              ></canvas>
-              <div v-if="chartLoading.speedField" class="image-loading-overlay">
-                <el-icon class="is-loading"><Loading /></el-icon>
-                <span>加载真实速度场...</span>
-              </div>
+      <div class="workspace-grid">
+        <section class="panel map-panel">
+          <div class="panel-head">
+            <h2>平面风速场</h2>
+            <div class="panel-meta">
+              <span>{{ formatNumber(currentHeight, 0) }} m</span>
+              <span>JET</span>
+              <span v-if="activePanel === 'point'">点选</span>
             </div>
           </div>
-          <div v-if="isSpeedFieldReady" class="speed-field-legend speed-field-legend-footer">
+
+          <div
+            ref="speedFieldContainer"
+            class="map-stage"
+            :style="mapStageStyle"
+            @click="handleStageClick"
+          >
+            <div v-if="!isSpeedFieldReady && !chartLoading.speedField" class="empty-state">
+              <el-icon><Picture /></el-icon>
+              <span>{{ loading ? '加载中...' : '暂无速度场数据' }}</span>
+            </div>
+
+            <canvas
+              ref="speedFieldCanvas"
+              class="speed-field-canvas"
+              :class="{
+                'speed-field-canvas--visible': isSpeedFieldReady,
+                'speed-field-canvas--pick': activePanel === 'point',
+              }"
+            />
+
+            <button
+              v-for="marker in markerItems"
+              :key="marker.id"
+              type="button"
+              class="map-marker"
+              :class="{ 'map-marker--active': marker.id === selectedTurbine }"
+              :style="marker.style"
+              :title="marker.title"
+              @click.stop="selectedTurbine = marker.id"
+            >
+              <span class="map-marker-dot"></span>
+              <span class="map-marker-label">{{ marker.name }}</span>
+            </button>
+
+            <div v-if="queryMarkerStyle" class="query-marker" :style="queryMarkerStyle"></div>
+
+            <div v-if="chartLoading.speedField" class="panel-overlay">
+              <el-icon class="is-loading"><Loading /></el-icon>
+              <span>加载速度场...</span>
+            </div>
+          </div>
+
+          <div v-if="isSpeedFieldReady" class="legend-strip">
             <span class="legend-caption">JET</span>
-            <div class="legend-bar legend-bar-horizontal" :style="speedFieldLegendBarStyle"></div>
-            <div class="legend-labels legend-labels-horizontal">
+            <div class="legend-bar" :style="speedFieldLegendBarStyle"></div>
+            <div class="legend-labels">
               <span v-for="tick in speedFieldLegendTicks" :key="tick">{{ tick }}</span>
             </div>
           </div>
-        </div>
+        </section>
 
-        <!-- 右侧 - 图表区域 -->
-        <div class="charts-section">
-          <div class="chart-wrapper">
-            <div class="chart-header">
-              <h4>风速廓线</h4>
-              <div class="header-right">
-                <span v-if="selectedTurbine" class="subtitle">{{ getTurbineName(selectedTurbine) }}</span>
-                <span v-else class="subtitle-placeholder">请选择风机</span>
-                <el-tooltip content="下载廓线数据 (CSV)">
-                  <el-button :icon="Document" size="small" circle @click="downloadProfileData" :disabled="!profileData"></el-button>
-                </el-tooltip>
+        <section class="panel side-panel">
+          <div class="panel-head">
+            <h2>{{ panelTitle }}</h2>
+            <div class="panel-meta">
+              <span v-if="activePanel === 'point'">{{ formatNumber(currentHeight, 0) }} m</span>
+              <span v-else>{{ selectedTurbineMeta?.name || '-' }}</span>
+            </div>
+          </div>
+
+          <template v-if="activePanel !== 'point'">
+            <div class="detail-grid">
+              <div v-for="item in selectedDetailItems" :key="item.label" class="detail-card">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
               </div>
             </div>
-            <div ref="profileChart" class="chart"></div>
-            <div v-if="chartLoading.profile" class="chart-loading">
-              <el-icon class="is-loading"><Loading /></el-icon>
-            </div>
-          </div>
 
-          <div class="chart-wrapper">
-            <div class="chart-header">
-              <h4>尾流分析</h4>
-              <div class="header-right">
-                <span v-if="selectedTurbine" class="subtitle">{{ getTurbineName(selectedTurbine) }}</span>
-                <span v-else class="subtitle-placeholder">请选择风机</span>
-                <el-tooltip content="下载尾流数据 (CSV)">
-                  <el-button :icon="Document" size="small" circle @click="downloadWakeData" :disabled="!wakeData"></el-button>
-                </el-tooltip>
+            <div v-show="activePanel === 'profile'" ref="profileChartRef" class="chart-surface"></div>
+            <div v-show="activePanel === 'wake'" ref="wakeChartRef" class="chart-surface"></div>
+          </template>
+
+          <div v-else class="point-panel">
+            <div class="point-form">
+              <div class="point-input">
+                <span>X (m)</span>
+                <el-input-number
+                  v-model="pointQuery.x"
+                  :step="10"
+                  :precision="1"
+                  :min="stageDomain?.xMin"
+                  :max="stageDomain?.xMax"
+                  controls-position="right"
+                />
+              </div>
+              <div class="point-input">
+                <span>Y (m)</span>
+                <el-input-number
+                  v-model="pointQuery.y"
+                  :step="10"
+                  :precision="1"
+                  :min="stageDomain?.yMin"
+                  :max="stageDomain?.yMax"
+                  controls-position="right"
+                />
+              </div>
+              <div class="point-input">
+                <span>Z (m)</span>
+                <div class="point-static">{{ formatNumber(currentHeight, 1) }}</div>
+              </div>
+              <el-button type="primary" :loading="chartLoading.pointQuery" @click="handlePointQuery">查询</el-button>
+            </div>
+
+            <div class="detail-grid">
+              <div class="detail-card">
+                <span>X</span>
+                <strong>{{ pointCard('x') }}</strong>
+              </div>
+              <div class="detail-card">
+                <span>Y</span>
+                <strong>{{ pointCard('y') }}</strong>
+              </div>
+              <div class="detail-card">
+                <span>Z</span>
+                <strong>{{ pointCard('z') }}</strong>
+              </div>
+              <div class="detail-card">
+                <span>风速</span>
+                <strong>{{ pointCard('speed') }}</strong>
               </div>
             </div>
-            <div ref="wakeChart" class="chart"></div>
-            <div v-if="chartLoading.wake" class="chart-loading">
-              <el-icon class="is-loading"><Loading /></el-icon>
-            </div>
+
+            <div class="point-note">{{ pointQueryMessage }}</div>
           </div>
 
-          <div v-if="selectedTurbine && turbineDetails" class="turbine-details">
-            <h4>风机详情</h4>
-            <el-descriptions :column="2" border size="small">
-              <el-descriptions-item label="ID">{{ turbineDetails.id }}</el-descriptions-item>
-              <el-descriptions-item label="坐标 (km)">{{ turbineDetails.coordinates }}</el-descriptions-item>
-              <el-descriptions-item label="轮毂高度 (m)">{{ turbineDetails.hubHeight }}</el-descriptions-item>
-              <el-descriptions-item label="叶轮直径 (m)">{{ turbineDetails.rotorDiameter }}</el-descriptions-item>
-              <el-descriptions-item label="当前高度风速 (m/s)">{{ turbineDetails.currentSpeed }}</el-descriptions-item>
-              <el-descriptions-item label="轮毂高度风速 (m/s)">{{ turbineDetails.hubSpeed }}</el-descriptions-item>
-            </el-descriptions>
+          <div v-if="activePanel === 'profile' && chartLoading.profile" class="panel-overlay panel-overlay--surface">
+            <el-icon class="is-loading"><Loading /></el-icon>
           </div>
-          <!-- Placeholder when no turbine selected -->
-          <div v-else-if="!selectedTurbine && mainMetadata && mainMetadata.turbines && mainMetadata.turbines.length > 0" class="turbine-details-placeholder">
-             <el-icon><InfoFilled /></el-icon>
-            <span>选择一个风机查看详细信息和图表</span>
+          <div v-if="activePanel === 'wake' && chartLoading.wake" class="panel-overlay panel-overlay--surface">
+            <el-icon class="is-loading"><Loading /></el-icon>
           </div>
-        </div>
+        </section>
       </div>
-    </el-card>
+    </template>
+
+    <div v-if="loading" class="loading-overlay">
+      <el-icon class="is-loading"><Loading /></el-icon>
+      <p>加载速度场分析中...</p>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
-import { Refresh, Download, Loading, Picture, InfoFilled, Document } from '@element-plus/icons-vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import * as echarts from 'echarts';
 import { debounce } from 'lodash-es';
-import { ElMessage, ElSlider, ElSelect, ElOption, ElCard, ElIcon, ElButtonGroup, ElTooltip, ElRow, ElCol, ElDescriptions, ElDescriptionsItem, ElInputNumber, ElButton, ElAlert } from 'element-plus';
-// Import the updated service function
-import { getMetadata, getVolumeData, getProfileData, getWakeData, findClosestIndex, clearClientCaseCache, getPointWindSpeed } from '@/services/visualizationService';
-import { SIMULATION_JET_STOPS, buildColorLookupTable, buildCssGradient } from '@/utils/colormaps';
+import { Download, Loading, Picture, Refresh } from '@element-plus/icons-vue';
+import { ElMessage } from 'element-plus';
+import {
+  clearClientCaseCache,
+  findClosestIndex,
+  getMetadata,
+  getProfileData,
+  getVolumeData,
+  getWakeData,
+} from '@/services/visualizationService';
+import { buildColorLookupTable, buildCssGradient, SIMULATION_JET_STOPS } from '@/utils/colormaps';
 import { useCaseStore } from '@/store/caseStore';
 import { useRouter } from 'vue-router';
 
-// --- Helper for CSV Download ---
-function downloadCSV(data, filename) {
-  if (!data || data.length === 0) {
-    ElMessage.warning('没有可下载的数据。');
-    return;
-  }
-  const headers = Object.keys(data[0]);
-  const csvContent = [
-    headers.join(','),
-    ...data.map(row => headers.map(header => row[header]).join(','))
-  ].join('\n');
-
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.setAttribute('download', filename);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(link.href);
-  ElMessage.success(`数据已导出为 ${filename}`);
-}
-
-// --- Color Scheme ---
-const colorScheme = {
-  primary: '#409EFF', success: '#67C23A', warning: '#E6A23C', danger: '#F56C6C',
-  info: '#909399', background: '#F5F7FA', text: '#303133', border: '#DCDFE6',
-  chartColors: ['#409EFF', '#67C23A', '#E6A23C', '#F56C6C', '#909399']
-};
-
-const speedFieldColorLut = buildColorLookupTable(SIMULATION_JET_STOPS);
-const MAX_SPEED_FIELD_PIXELS = 950000;
-
-// --- Props ---
 const props = defineProps({ caseId: { type: String, required: true } });
 const caseStore = useCaseStore();
 const router = useRouter();
 
-// --- State Variables ---
+const MAX_SPEED_FIELD_PIXELS = 950000;
+const speedFieldColorLut = buildColorLookupTable(SIMULATION_JET_STOPS);
+
 const loading = ref(false);
 const chartLoading = ref({ speedField: false, profile: false, wake: false, pointQuery: false });
 const mainMetadata = ref(null);
 const currentHeight = ref(10);
-const selectedTurbine = ref(null);
+const selectedTurbine = ref('');
+const activePanel = ref('profile');
 const profileData = ref(null);
 const wakeData = ref(null);
-const turbineDetails = ref(null);
-const queryPoint = ref({ x: 0, y: 0, z: 100 });
+const pointQuery = ref({ x: null, y: null });
 const pointQueryResult = ref(null);
+const isStartingPrecompute = ref(false);
 const isSpeedFieldReady = ref(false);
 
-// --- DOM Refs ---
 const speedFieldContainer = ref(null);
 const speedFieldCanvas = ref(null);
-// --- Chart Instances ---
-const profileChart = ref(null);
-const wakeChart = ref(null);
+const profileChartRef = ref(null);
+const wakeChartRef = ref(null);
+
 let profileInstance = null;
 let wakeInstance = null;
 let resizeObserver = null;
-const precomputeLogRef = ref(null);
-const isStartingPrecompute = ref(false);
-let speedFieldVolume = null;
+const speedFieldVolume = ref(null);
 let speedFieldCanvasCtx = null;
 let speedFieldImageData = null;
 let speedFieldRenderFrameId = null;
 let speedFieldXMap = null;
 let speedFieldYMap = null;
 
-// --- Computed Properties ---
+const formatNumber = (value, digits = 2) => (Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : '-');
+
 const minHeight = computed(() => mainMetadata.value?.heightLevels?.[0] ?? 10);
 const maxHeight = computed(() => {
-    const levels = mainMetadata.value?.heightLevels;
-    return levels && levels.length > 0 ? levels[levels.length - 1] : 200;
+  const levels = mainMetadata.value?.heightLevels;
+  return levels?.length ? levels[levels.length - 1] : 200;
 });
 const heightSliderStep = computed(() => {
   const range = maxHeight.value - minHeight.value;
-  if (!Number.isFinite(range) || range <= 0) return 0.1;
-  return range > 500 ? 0.5 : 0.1;
+  return Number.isFinite(range) && range > 500 ? 0.5 : 0.1;
 });
-
-const isVisualizationReady = computed(() => {
-  return Boolean(mainMetadata.value && isSpeedFieldReady.value);
-});
-
+const isVisualizationReady = computed(() => Boolean(mainMetadata.value && isSpeedFieldReady.value));
+const selectedTurbineMeta = computed(() => mainMetadata.value?.turbines?.find((item) => item.id === selectedTurbine.value) || null);
+const headerBadges = computed(() => [
+  { label: '工况', value: props.caseId || '-' },
+  { label: '高度', value: `${formatNumber(currentHeight.value, 0)} m` },
+  { label: '风机', value: selectedTurbineMeta.value?.name || '-' },
+]);
+const panelTitle = computed(() => (activePanel.value === 'wake' ? '尾流分析' : activePanel.value === 'point' ? '单点查询' : '风速廓线'));
 const speedFieldLegendTicks = computed(() => {
-  const vmin = Number(mainMetadata.value?.vmin ?? speedFieldVolume?.vmin ?? 0);
-  const vmax = Number(mainMetadata.value?.vmax ?? speedFieldVolume?.vmax ?? 0);
-  if (!Number.isFinite(vmin) || !Number.isFinite(vmax) || Math.abs(vmax - vmin) < 1e-6) {
-    return ['0.0'];
+  const vmin = Number(mainMetadata.value?.vmin ?? speedFieldVolume.value?.vmin ?? 0);
+  const vmax = Number(mainMetadata.value?.vmax ?? speedFieldVolume.value?.vmax ?? 0);
+  if (!Number.isFinite(vmin) || !Number.isFinite(vmax) || Math.abs(vmax - vmin) < 1e-6) return ['0.0'];
+  return Array.from({ length: 5 }, (_, index) => (vmin + ((vmax - vmin) * index) / 4).toFixed(1));
+});
+const speedFieldLegendBarStyle = computed(() => ({ background: buildCssGradient(SIMULATION_JET_STOPS) }));
+const stageDomain = computed(() => speedFieldVolume.value?.xCoords?.length && speedFieldVolume.value?.yCoords?.length ? {
+  xMin: speedFieldVolume.value.xCoords[0],
+  xMax: speedFieldVolume.value.xCoords[speedFieldVolume.value.xCoords.length - 1],
+  yMin: speedFieldVolume.value.yCoords[0],
+  yMax: speedFieldVolume.value.yCoords[speedFieldVolume.value.yCoords.length - 1],
+} : null);
+const mapStageStyle = computed(() => {
+  const domain = stageDomain.value;
+  if (!domain) return { aspectRatio: '1 / 1' };
+  return {
+    aspectRatio: `${Math.max(1e-6, domain.xMax - domain.xMin)} / ${Math.max(1e-6, domain.yMax - domain.yMin)}`,
+  };
+});
+const markerItems = computed(() => {
+  const domain = stageDomain.value;
+  const turbines = mainMetadata.value?.turbines || [];
+  if (!domain || !turbines.length) return [];
+  const xSpan = domain.xMax - domain.xMin;
+  const ySpan = domain.yMax - domain.yMin;
+  return turbines.map((turbine) => ({
+    id: turbine.id,
+    name: turbine.name || turbine.id,
+    title: `${turbine.name || turbine.id} | X ${formatNumber(turbine.x, 1)} m | Y ${formatNumber(turbine.y, 1)} m`,
+    style: {
+      left: `${((turbine.x - domain.xMin) / xSpan) * 100}%`,
+      top: `${((domain.yMax - turbine.y) / ySpan) * 100}%`,
+      zIndex: turbine.id === selectedTurbine.value ? 4 : 3,
+    },
+  }));
+});
+const queryMarkerStyle = computed(() => {
+  const domain = stageDomain.value;
+  const x = Number(pointQuery.value.x);
+  const y = Number(pointQuery.value.y);
+  if (!domain || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+  const xSpan = domain.xMax - domain.xMin;
+  const ySpan = domain.yMax - domain.yMin;
+  return {
+    left: `${((x - domain.xMin) / xSpan) * 100}%`,
+    top: `${((domain.yMax - y) / ySpan) * 100}%`,
+  };
+});
+const selectedDetailItems = computed(() => {
+  const turbine = selectedTurbineMeta.value;
+  if (!turbine) {
+    return [
+      { label: '风机', value: '-' },
+      { label: '当前高度风速', value: '-' },
+      { label: '轮毂高度风速', value: '-' },
+      { label: '轮毂高度', value: '-' },
+      { label: '叶轮直径', value: '-' },
+      { label: '坐标', value: '-' },
+    ];
   }
-  return Array.from({ length: 5 }, (_, index) => {
-    const value = vmin + ((vmax - vmin) * index) / 4;
-    return value.toFixed(1);
-  });
+  const currentSpeed = sampleSpeedFieldAtPoint(turbine.x, turbine.y, currentHeight.value);
+  const hubSpeed = sampleSpeedFieldAtPoint(turbine.x, turbine.y, turbine.hubHeight);
+  return [
+    { label: '风机', value: turbine.name || turbine.id },
+    { label: '当前高度风速', value: Number.isFinite(currentSpeed) ? `${formatNumber(currentSpeed, 2)} m/s` : '-' },
+    { label: '轮毂高度风速', value: Number.isFinite(hubSpeed) ? `${formatNumber(hubSpeed, 2)} m/s` : '-' },
+    { label: '轮毂高度', value: `${formatNumber(turbine.hubHeight, 1)} m` },
+    { label: '叶轮直径', value: `${formatNumber(turbine.rotorDiameter, 1)} m` },
+    { label: '坐标', value: `${formatNumber(turbine.x, 1)}, ${formatNumber(turbine.y, 1)}` },
+  ];
 });
-
-const speedFieldLegendBarStyle = computed(() => ({
-  background: buildCssGradient(SIMULATION_JET_STOPS),
-}));
-
-const showPrecomputeLog = computed(() => {
-  const status = caseStore.visualizationStatus;
-  if (!status) return false;
-  if (status === 'completed') return false;
-  return (caseStore.visualizationMessages || []).length > 0 || Boolean(caseStore.visualizationLastError);
+const pointQueryMessage = computed(() => {
+  if (!pointQueryResult.value) return '未查询';
+  return pointQueryResult.value.speed == null ? '计算域外' : '体插值结果';
 });
-
-const precomputeLogText = computed(() => {
-  const lines = caseStore.visualizationMessages || [];
-  const text = lines.join('');
-  if (caseStore.visualizationLastError && !text.includes(caseStore.visualizationLastError)) {
-    return `${text}\n${caseStore.visualizationLastError}`;
-  }
-  return text;
-});
-
+const pointCard = (key) => {
+  if (!pointQueryResult.value) return '-';
+  if (key === 'speed') return pointQueryResult.value.speed == null ? '计算域外' : `${formatNumber(pointQueryResult.value.speed, 3)} m/s`;
+  if (key === 'z') return `${formatNumber(pointQueryResult.value.z, 1)} m`;
+  return `${formatNumber(pointQueryResult.value[key], 1)} m`;
+};
 const blockingAlert = computed(() => {
   if (!props.caseId) return null;
-
-  if (!caseStore.hasFetchedCalculationStatus) {
-    return { type: 'info', title: '加载中', message: '正在加载工况状态与可视化信息...', actionText: '', loading: false, action: () => {} };
-  }
-
+  if (!caseStore.hasFetchedCalculationStatus) return { type: 'info', title: '加载中', message: '正在加载工况状态与速度场缓存...', actionText: '', loading: false, action: () => {} };
   if (caseStore.calculationStatus && caseStore.calculationStatus !== 'completed') {
     return {
       type: 'warning',
       title: '需要先完成主计算',
-      message: '速度场分析依赖计算结果，请先在“计算输出”完成计算后再查看此页面。',
+      message: '速度场分析依赖主计算结果，请先完成计算。',
       actionText: '去计算输出',
       loading: false,
       action: () => router.push({ name: 'CalculationOutput', params: { caseId: props.caseId } }),
     };
   }
-
   if (!mainMetadata.value) {
-    if (loading.value || chartLoading.value.speedField) {
-      return { type: 'info', title: '加载中', message: '正在加载可视化数据...', actionText: '', loading: false, action: () => {} };
-    }
-
     const vizStatus = caseStore.visualizationStatus || 'not_run';
-    if (vizStatus === 'starting' || vizStatus === 'running') {
-      return { type: 'info', title: '可视化预计算进行中', message: '正在生成速度场切片与分析缓存，请稍候或查看下方日志。', actionText: '', loading: false, action: () => {} };
-    }
-    if (vizStatus === 'completed') {
-      return {
-        type: 'error',
-        title: '可视化缓存异常',
-        message: '状态显示已完成，但未能加载元数据缓存。可尝试重新预计算。',
-        actionText: '重新预计算',
-        loading: isStartingPrecompute.value,
-        action: startPrecompute,
-      };
-    }
-    if (vizStatus === 'failed') {
-      return {
-        type: 'error',
-        title: '可视化预计算失败',
-        message: caseStore.visualizationLastError || '请查看下方日志后重试。',
-        actionText: '重新预计算',
-        loading: isStartingPrecompute.value,
-        action: startPrecompute,
-      };
-    }
-    return {
-      type: 'warning',
-      title: '未找到可视化缓存',
-      message: '此工况尚未生成速度场分析缓存，需要先运行“可视化预计算”。',
-      actionText: '运行预计算',
-      loading: isStartingPrecompute.value,
-      action: startPrecompute,
-    };
+    if (loading.value || chartLoading.value.speedField) return { type: 'info', title: '加载中', message: '正在读取速度场缓存...', actionText: '', loading: false, action: () => {} };
+    if (vizStatus === 'starting' || vizStatus === 'running') return { type: 'info', title: '可视化预计算进行中', message: '正在生成速度场缓存，请稍候。', actionText: '', loading: false, action: () => {} };
+    if (vizStatus === 'completed') return { type: 'error', title: '可视化缓存异常', message: '状态显示已完成，但未能读取元数据缓存。', actionText: '重新预计算', loading: isStartingPrecompute.value, action: startPrecompute };
+    if (vizStatus === 'failed') return { type: 'error', title: '可视化预计算失败', message: caseStore.visualizationLastError || '请重试。', actionText: '重新预计算', loading: isStartingPrecompute.value, action: startPrecompute };
+    return { type: 'warning', title: '未找到可视化缓存', message: '此工况尚未生成速度场分析缓存。', actionText: '运行预计算', loading: isStartingPrecompute.value, action: startPrecompute };
   }
-
   return null;
 });
 
-const scrollPrecomputeLogToBottom = () => {
-  nextTick(() => {
-    const el = precomputeLogRef.value;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  });
-};
-
-const clearPrecomputeLog = () => {
-  caseStore.visualizationMessages = [];
-  caseStore.visualizationLastError = '';
-};
-
-const cancelSpeedFieldRender = () => {
-  if (speedFieldRenderFrameId) {
-    cancelAnimationFrame(speedFieldRenderFrameId);
-    speedFieldRenderFrameId = null;
-  }
-};
-
-const clearSpeedFieldCanvas = () => {
-  cancelSpeedFieldRender();
-  speedFieldVolume = null;
-  isSpeedFieldReady.value = false;
-  speedFieldImageData = null;
-  speedFieldXMap = null;
-  speedFieldYMap = null;
-  if (speedFieldCanvasCtx && speedFieldCanvas.value) {
-    speedFieldCanvasCtx.clearRect(0, 0, speedFieldCanvas.value.width, speedFieldCanvas.value.height);
-  }
-  speedFieldCanvasCtx = null;
-};
-
-const buildAxisSamplingMap = (targetSize, coords, flip = false) => {
-  const lower = new Uint32Array(targetSize);
-  const upper = new Uint32Array(targetSize);
-  const weight = new Float32Array(targetSize);
-  const lastIndex = Math.max(0, (coords?.length ?? 1) - 1);
-  const denominator = Math.max(1, targetSize - 1);
-  const minCoord = coords?.[0];
-  const maxCoord = coords?.[lastIndex];
-
-  if (!coords?.length || !Number.isFinite(minCoord) || !Number.isFinite(maxCoord)) {
-    for (let i = 0; i < targetSize; i++) {
-      lower[i] = 0;
-      upper[i] = 0;
-      weight[i] = 0;
-    }
-    return { lower, upper, weight };
-  }
-
-  for (let i = 0; i < targetSize; i++) {
-    const normalized = targetSize <= 1 ? 0 : i / denominator;
-    const targetCoord = flip
-      ? maxCoord - (maxCoord - minCoord) * normalized
-      : minCoord + (maxCoord - minCoord) * normalized;
-    const bracket = getAxisBracket(coords, targetCoord);
-    if (!bracket) {
-      lower[i] = 0;
-      upper[i] = 0;
-      weight[i] = 0;
-      continue;
-    }
-    lower[i] = bracket.lowerIndex;
-    upper[i] = bracket.upperIndex;
-    weight[i] = bracket.mix;
-  }
-
-  return { lower, upper, weight };
-};
-
-const getBracketFromLevels = (levels, target) => {
-  if (!levels || levels.length === 0) return null;
-  if (levels.length === 1) return { lowerIndex: 0, upperIndex: 0, mix: 0 };
-
-  const clamped = Math.min(levels[levels.length - 1], Math.max(levels[0], target));
-  for (let i = 0; i < levels.length - 1; i++) {
-    const lower = levels[i];
-    const upper = levels[i + 1];
-    if (clamped >= lower && clamped <= upper) {
-      const span = Math.max(1e-6, upper - lower);
-      return {
-        lowerIndex: i,
-        upperIndex: i + 1,
-        mix: Math.max(0, Math.min(1, (clamped - lower) / span)),
-      };
-    }
-  }
-
-  return { lowerIndex: levels.length - 1, upperIndex: levels.length - 1, mix: 0 };
-};
-
 const getAxisBracket = (coords, target) => {
-  if (!coords || coords.length === 0) return null;
-  if (coords.length === 1) {
-    return Math.abs(target - coords[0]) <= 1e-6
-      ? { lowerIndex: 0, upperIndex: 0, mix: 0 }
-      : null;
-  }
-
-  const min = coords[0];
-  const max = coords[coords.length - 1];
-  if (target < min || target > max) return null;
-
+  if (!coords?.length) return null;
+  if (coords.length === 1) return { lowerIndex: 0, upperIndex: 0, mix: 0 };
+  if (target < coords[0] || target > coords[coords.length - 1]) return null;
   let lowerIndex = 0;
   let upperIndex = coords.length - 1;
   while (upperIndex - lowerIndex > 1) {
     const middleIndex = Math.floor((lowerIndex + upperIndex) / 2);
-    if (coords[middleIndex] <= target) {
-      lowerIndex = middleIndex;
-    } else {
-      upperIndex = middleIndex;
+    if (coords[middleIndex] <= target) lowerIndex = middleIndex;
+    else upperIndex = middleIndex;
+  }
+  const span = Math.max(1e-6, coords[upperIndex] - coords[lowerIndex]);
+  return { lowerIndex, upperIndex, mix: Math.max(0, Math.min(1, (target - coords[lowerIndex]) / span)) };
+};
+const getBracketFromLevels = (levels, target) => {
+  if (!levels?.length) return null;
+  if (levels.length === 1) return { lowerIndex: 0, upperIndex: 0, mix: 0 };
+  const clamped = Math.min(levels[levels.length - 1], Math.max(levels[0], target));
+  for (let i = 0; i < levels.length - 1; i += 1) {
+    if (clamped >= levels[i] && clamped <= levels[i + 1]) {
+      const span = Math.max(1e-6, levels[i + 1] - levels[i]);
+      return { lowerIndex: i, upperIndex: i + 1, mix: Math.max(0, Math.min(1, (clamped - levels[i]) / span)) };
     }
   }
-
-  const lowerValue = coords[lowerIndex];
-  const upperValue = coords[upperIndex];
-  const span = Math.max(1e-6, upperValue - lowerValue);
-  return {
-    lowerIndex,
-    upperIndex,
-    mix: Math.max(0, Math.min(1, (target - lowerValue) / span)),
-  };
+  return { lowerIndex: levels.length - 1, upperIndex: levels.length - 1, mix: 0 };
 };
-
+const buildAxisSamplingMap = (targetSize, coords, flip = false) => {
+  const lower = new Uint32Array(targetSize);
+  const upper = new Uint32Array(targetSize);
+  const weight = new Float32Array(targetSize);
+  if (!coords?.length) return { lower, upper, weight };
+  const denominator = Math.max(1, targetSize - 1);
+  const minCoord = coords[0];
+  const maxCoord = coords[coords.length - 1];
+  for (let i = 0; i < targetSize; i += 1) {
+    const normalized = targetSize <= 1 ? 0 : i / denominator;
+    const targetCoord = flip ? maxCoord - (maxCoord - minCoord) * normalized : minCoord + (maxCoord - minCoord) * normalized;
+    const bracket = getAxisBracket(coords, targetCoord);
+    if (!bracket) continue;
+    lower[i] = bracket.lowerIndex;
+    upper[i] = bracket.upperIndex;
+    weight[i] = bracket.mix;
+  }
+  return { lower, upper, weight };
+};
 const sampleSpeedFieldAtPoint = (x, y, z) => {
-  if (!speedFieldVolume) return null;
-
-  const xBracket = getAxisBracket(speedFieldVolume.xCoords, x);
-  const yBracket = getAxisBracket(speedFieldVolume.yCoords, y);
-  const zBracket = getBracketFromLevels(speedFieldVolume.heightLevels, z);
+  if (!speedFieldVolume.value) return null;
+  const xBracket = getAxisBracket(speedFieldVolume.value.xCoords, x);
+  const yBracket = getAxisBracket(speedFieldVolume.value.yCoords, y);
+  const zBracket = getBracketFromLevels(speedFieldVolume.value.heightLevels, z);
   if (!xBracket || !yBracket || !zBracket) return null;
-
-  const { values, width, layerSize } = speedFieldVolume;
+  const { values, width, layerSize } = speedFieldVolume.value;
   const lowerBase = zBracket.lowerIndex * layerSize;
   const upperBase = zBracket.upperIndex * layerSize;
-
   const readPlane = (base, yIndex, xIndex) => values[base + yIndex * width + xIndex];
   const bilerp = (base) => {
     const v00 = readPlane(base, yBracket.lowerIndex, xBracket.lowerIndex);
@@ -534,37 +479,19 @@ const sampleSpeedFieldAtPoint = (x, y, z) => {
     const bottom = v01 + (v11 - v01) * xBracket.mix;
     return top + (bottom - top) * yBracket.mix;
   };
-
   const lowerValue = bilerp(lowerBase);
   const upperValue = bilerp(upperBase);
   const value = lowerValue + (upperValue - lowerValue) * zBracket.mix;
-
   return Number.isFinite(value) ? value : null;
 };
-
 const ensureSpeedFieldCanvasSize = () => {
   const canvas = speedFieldCanvas.value;
   const container = speedFieldContainer.value;
-  if (!canvas || !container || !speedFieldVolume) return false;
-
-  const containerRect = container.getBoundingClientRect();
-  const containerWidth = Math.max(1, Math.floor(containerRect.width));
-  const containerHeight = Math.max(1, Math.floor(containerRect.height));
-  if (!containerWidth || !containerHeight) return false;
-
+  if (!canvas || !container || !speedFieldVolume.value) return false;
+  const rect = container.getBoundingClientRect();
+  const cssWidth = Math.max(1, Math.floor(rect.width));
+  const cssHeight = Math.max(1, Math.floor(rect.height));
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const extent = speedFieldVolume.extent;
-  const dataAspect = extent && extent.length === 4
-    ? Math.abs((extent[3] - extent[2]) / Math.max(1e-6, extent[1] - extent[0]))
-    : speedFieldVolume.height / Math.max(1, speedFieldVolume.width);
-
-  let cssWidth = containerWidth;
-  let cssHeight = Math.max(1, Math.floor(cssWidth * dataAspect));
-  if (cssHeight > containerHeight) {
-    cssHeight = containerHeight;
-    cssWidth = Math.max(1, Math.floor(cssHeight / Math.max(1e-6, dataAspect)));
-  }
-
   let pixelWidth = Math.max(1, Math.floor(cssWidth * dpr));
   let pixelHeight = Math.max(1, Math.floor(cssHeight * dpr));
   const totalPixels = pixelWidth * pixelHeight;
@@ -573,44 +500,28 @@ const ensureSpeedFieldCanvasSize = () => {
     pixelWidth = Math.max(1, Math.floor(pixelWidth * scale));
     pixelHeight = Math.max(1, Math.floor(pixelHeight * scale));
   }
-
-  const sizeChanged = canvas.width !== pixelWidth || canvas.height !== pixelHeight;
-  const resourcesMissing = !speedFieldCanvasCtx || !speedFieldImageData || !speedFieldXMap || !speedFieldYMap;
-  canvas.style.width = `${cssWidth}px`;
-  canvas.style.height = `${cssHeight}px`;
-
-  if (sizeChanged || resourcesMissing) {
+  if (canvas.width !== pixelWidth || canvas.height !== pixelHeight || !speedFieldCanvasCtx || !speedFieldImageData || !speedFieldXMap || !speedFieldYMap) {
     canvas.width = pixelWidth;
     canvas.height = pixelHeight;
-    speedFieldCanvasCtx = canvas.getContext('2d', {
-      alpha: false,
-      willReadFrequently: true,
-    });
+    speedFieldCanvasCtx = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
     speedFieldImageData = speedFieldCanvasCtx ? speedFieldCanvasCtx.createImageData(pixelWidth, pixelHeight) : null;
-    speedFieldXMap = buildAxisSamplingMap(pixelWidth, speedFieldVolume.xCoords, false);
-    speedFieldYMap = buildAxisSamplingMap(pixelHeight, speedFieldVolume.yCoords, true);
+    speedFieldXMap = buildAxisSamplingMap(pixelWidth, speedFieldVolume.value.xCoords, false);
+    speedFieldYMap = buildAxisSamplingMap(pixelHeight, speedFieldVolume.value.yCoords, true);
   }
-
   return Boolean(speedFieldCanvasCtx && speedFieldImageData && speedFieldXMap && speedFieldYMap);
 };
-
 const renderSpeedField = () => {
-  cancelSpeedFieldRender();
-  if (!speedFieldVolume || !ensureSpeedFieldCanvasSize()) return;
-
-  const { values, width, layerSize, heightLevels, vmin, vmax } = speedFieldVolume;
-  const levels = heightLevels || [];
-  const levelBracket = getBracketFromLevels(levels, currentHeight.value);
+  if (!speedFieldVolume.value || !ensureSpeedFieldCanvasSize()) return;
+  const { values, width, layerSize, heightLevels, vmin, vmax } = speedFieldVolume.value;
+  const levelBracket = getBracketFromLevels(heightLevels, currentHeight.value);
   if (!levelBracket) return;
-
   const lowerBase = levelBracket.lowerIndex * layerSize;
   const upperBase = levelBracket.upperIndex * layerSize;
   const zMix = levelBracket.mix;
   const valueRange = Math.max(1e-6, vmax - vmin);
   const output = speedFieldImageData.data;
   let outIndex = 0;
-
-  for (let py = 0; py < speedFieldImageData.height; py++) {
+  for (let py = 0; py < speedFieldImageData.height; py += 1) {
     const y0 = speedFieldYMap.lower[py];
     const y1 = speedFieldYMap.upper[py];
     const yMix = speedFieldYMap.weight[py];
@@ -618,20 +529,16 @@ const renderSpeedField = () => {
     const lowerRow1 = lowerBase + y1 * width;
     const upperRow0 = upperBase + y0 * width;
     const upperRow1 = upperBase + y1 * width;
-
-    for (let px = 0; px < speedFieldImageData.width; px++) {
+    for (let px = 0; px < speedFieldImageData.width; px += 1) {
       const x0 = speedFieldXMap.lower[px];
       const x1 = speedFieldXMap.upper[px];
       const xMix = speedFieldXMap.weight[px];
-
       const lowerTop = values[lowerRow0 + x0] + (values[lowerRow0 + x1] - values[lowerRow0 + x0]) * xMix;
       const lowerBottom = values[lowerRow1 + x0] + (values[lowerRow1 + x1] - values[lowerRow1 + x0]) * xMix;
-      const lowerValue = lowerTop + (lowerBottom - lowerTop) * yMix;
-
       const upperTop = values[upperRow0 + x0] + (values[upperRow0 + x1] - values[upperRow0 + x0]) * xMix;
       const upperBottom = values[upperRow1 + x0] + (values[upperRow1 + x1] - values[upperRow1 + x0]) * xMix;
+      const lowerValue = lowerTop + (lowerBottom - lowerTop) * yMix;
       const upperValue = upperTop + (upperBottom - upperTop) * yMix;
-
       const interpolated = lowerValue + (upperValue - lowerValue) * zMix;
       if (!Number.isFinite(interpolated)) {
         output[outIndex++] = 245;
@@ -640,972 +547,393 @@ const renderSpeedField = () => {
         output[outIndex++] = 255;
         continue;
       }
-
       const normalized = Math.max(0, Math.min(1, (interpolated - vmin) / valueRange));
-      const lutIndex = Math.min(255, Math.max(0, Math.floor(normalized * 255)));
-      const lutOffset = lutIndex * 4;
-      output[outIndex++] = speedFieldColorLut[lutOffset];
-      output[outIndex++] = speedFieldColorLut[lutOffset + 1];
-      output[outIndex++] = speedFieldColorLut[lutOffset + 2];
+      const lutIndex = Math.min(255, Math.max(0, Math.floor(normalized * 255))) * 4;
+      output[outIndex++] = speedFieldColorLut[lutIndex];
+      output[outIndex++] = speedFieldColorLut[lutIndex + 1];
+      output[outIndex++] = speedFieldColorLut[lutIndex + 2];
       output[outIndex++] = 255;
     }
   }
-
   speedFieldCanvasCtx.putImageData(speedFieldImageData, 0, 0);
   isSpeedFieldReady.value = true;
   chartLoading.value.speedField = false;
 };
-
 const scheduleSpeedFieldRender = () => {
-  if (!speedFieldVolume) return;
-  if (speedFieldRenderFrameId) return;
+  if (!speedFieldVolume.value || speedFieldRenderFrameId) return;
   speedFieldRenderFrameId = requestAnimationFrame(() => {
     speedFieldRenderFrameId = null;
     renderSpeedField();
   });
 };
-
-const loadVolumeFieldData = async () => {
-  if (!props.caseId || !mainMetadata.value) return;
-  chartLoading.value.speedField = true;
+const clearSpeedFieldCanvas = () => {
+  if (speedFieldRenderFrameId) cancelAnimationFrame(speedFieldRenderFrameId);
+  speedFieldRenderFrameId = null;
+  speedFieldVolume.value = null;
+  speedFieldCanvasCtx = null;
+  speedFieldImageData = null;
+  speedFieldXMap = null;
+  speedFieldYMap = null;
   isSpeedFieldReady.value = false;
-
-  try {
-    speedFieldVolume = await getVolumeData(props.caseId, mainMetadata.value);
-    if (!Number.isFinite(currentHeight.value) || currentHeight.value < minHeight.value || currentHeight.value > maxHeight.value) {
-      currentHeight.value = minHeight.value;
-    }
-    await nextTick();
-    renderSpeedField();
-  } catch (error) {
-    console.error('加载真实速度体数据失败:', error);
-    chartLoading.value.speedField = false;
-    isSpeedFieldReady.value = false;
-    throw error;
-  }
 };
-
-async function startPrecompute() {
-  if (!props.caseId) return;
-  if (isStartingPrecompute.value) return;
-  try {
-    isStartingPrecompute.value = true;
-    await caseStore.startVisualizationPrecompute();
-    ElMessage.success('已开始预计算，请查看下方日志。');
-  } catch (error) {
-    ElMessage.error(error?.message || '预计算启动失败');
-  } finally {
-    isStartingPrecompute.value = false;
-    scrollPrecomputeLogToBottom();
-  }
-}
-
-// --- Methods ---
-
-const ensureCaseLoaded = async (id) => {
-  if (!id) return false;
-  try {
-    if (caseStore.caseId !== id || caseStore.currentCaseId !== id) {
-      await caseStore.initializeCase(id);
-    } else if (typeof caseStore.fetchCalculationStatus === 'function') {
-      await caseStore.fetchCalculationStatus();
-    }
-    return true;
-  } catch (error) {
-    console.error('SpeedVisualization 初始化工况失败:', error);
-    ElMessage.error(error?.message || '初始化工况失败');
-    return false;
-  }
-};
-
-// 1. Reset State
-const resetVisualizationState = () => {
-  console.log("重置可视化状态...");
-  loading.value = false; chartLoading.value = { speedField: false, profile: false, wake: false, pointQuery: false };
-  mainMetadata.value = null; currentHeight.value = 10; selectedTurbine.value = null;
-  profileData.value = null; wakeData.value = null; turbineDetails.value = null;
-  clearSpeedFieldCanvas();
-  if (profileInstance) { try { profileInstance.dispose(); } catch(e) { console.warn("销毁 profileInstance 失败", e); } profileInstance = null; }
-  if (wakeInstance) { try { wakeInstance.dispose(); } catch(e) { console.warn("销毁 wakeInstance 失败", e); } wakeInstance = null; }
-};
-
-// 2. Fetch All Data
-const fetchAllData = async () => {
-  if (!props.caseId) { resetVisualizationState(); return; }
-  if (caseStore.calculationStatus && caseStore.calculationStatus !== 'completed') {
-    resetVisualizationState();
+const updatePointQuery = () => {
+  const x = Number(pointQuery.value.x);
+  const y = Number(pointQuery.value.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    pointQueryResult.value = null;
     return;
   }
-  console.log(`为工况 ${props.caseId} 获取所有可视化数据...`);
-  loading.value = true;
-  // Partial reset
-  selectedTurbine.value = null; profileData.value = null; wakeData.value = null;
-  turbineDetails.value = null;
-  clearSpeedFieldCanvas();
-  if (profileInstance) profileInstance.clear(); if (wakeInstance) wakeInstance.clear();
-
-  try {
-    await fetchMetadata();
-    let initialTurbineId = null;
-    if (mainMetadata.value?.turbines?.length > 0) {
-        initialTurbineId = mainMetadata.value.turbines[0].id;
-        selectedTurbine.value = initialTurbineId;
-    }
-    if (mainMetadata.value?.heightLevels?.length > 0) {
-      if (!Number.isFinite(currentHeight.value) || currentHeight.value < minHeight.value || currentHeight.value > maxHeight.value) {
-         currentHeight.value = mainMetadata.value.heightLevels[0];
-      }
-      await loadVolumeFieldData();
-    } else {
-      chartLoading.value.speedField = false;
-    }
-    if (selectedTurbine.value) {
-      await Promise.allSettled([fetchProfileData(selectedTurbine.value), fetchWakeData(selectedTurbine.value)]);
-    }
-  } catch (error) {
-    console.error('获取可视化数据失败:', error);
-    resetVisualizationState();
-  }
-  finally { loading.value = false; nextTick(() => { initChartInstances(); }); }
+  pointQueryResult.value = { x, y, z: currentHeight.value, speed: sampleSpeedFieldAtPoint(x, y, currentHeight.value) };
 };
-
-// 3. Fetch Main Metadata
 const fetchMetadata = async () => {
-  console.log(`获取工况 ${props.caseId} 的主元数据...`);
   chartLoading.value.speedField = true;
-  try {
-    const meta = await getMetadata(props.caseId);
-    mainMetadata.value = meta;
-    console.log("主元数据加载成功:", meta);
-  } catch (error) {
-    console.error('获取主元数据失败:', error);
-    caseStore.visualizationStatus = error?.response?.data?.visualizationStatus ?? caseStore.visualizationStatus;
-    caseStore.visualizationLastError = error?.response?.data?.message || error?.message || caseStore.visualizationLastError;
-    mainMetadata.value = null; throw error;
-  }
+  mainMetadata.value = await getMetadata(props.caseId);
 };
-
-
-// 5. Fetch Profile Data (No changes needed)
-const fetchProfileData = async (turbineId) => {
-  if (!turbineId || !props.caseId) return;
+const fetchProfile = async (turbineId) => {
+  if (!turbineId) return;
   chartLoading.value.profile = true;
   try {
-    const response = await getProfileData(props.caseId, turbineId);
-    if (response && response.profile && Array.isArray(response.profile.heights) && Array.isArray(response.profile.speeds)) {
-       profileData.value = response.profile;
-       await nextTick();
-       renderProfileChart();
-       updateTurbineDetails();
-    } else {
-       console.error("从 API 获取的风廓线数据格式不正确:", response);
-       profileData.value = null;
-       if (profileInstance) profileInstance.clear();
-    }
+    profileData.value = (await getProfileData(props.caseId, turbineId))?.profile || null;
+    await nextTick();
+    renderProfileChart();
   } catch (error) {
-    console.error(`获取风机 ${turbineId} 的风廓线数据失败:`, error);
-    ElMessage.error(`加载风机 ${getTurbineName(turbineId)} 的风廓线数据失败。`);
     profileData.value = null;
-    if (profileInstance) profileInstance.clear();
-  } finally { chartLoading.value.profile = false; }
+    profileInstance?.clear();
+    ElMessage.error(error?.message || '加载风廓线失败');
+  } finally {
+    chartLoading.value.profile = false;
+  }
 };
-
-// 6. Fetch Wake Data (No changes needed)
-const fetchWakeData = async (turbineId) => {
-  if (!turbineId || !props.caseId) return;
+const fetchWake = async (turbineId) => {
+  if (!turbineId) return;
   chartLoading.value.wake = true;
   try {
-    const response = await getWakeData(props.caseId, turbineId);
-    if (response && response.wake && Array.isArray(response.wake.distances) && Array.isArray(response.wake.speeds)) {
-        wakeData.value = response.wake;
-        await nextTick();
-        renderWakeChart();
-    } else {
-        console.error("从 API 获取的尾流数据格式不正确:", response);
-        wakeData.value = null;
-        if (wakeInstance) wakeInstance.clear();
-    }
+    wakeData.value = (await getWakeData(props.caseId, turbineId))?.wake || null;
+    await nextTick();
+    renderWakeChart();
   } catch (error) {
-    console.error(`获取风机 ${turbineId} 的尾流数据失败:`, error);
-    ElMessage.error(`加载风机 ${getTurbineName(turbineId)} 的尾流数据失败。`);
     wakeData.value = null;
-    if (wakeInstance) wakeInstance.clear();
-  } finally { chartLoading.value.wake = false; }
+    wakeInstance?.clear();
+    ElMessage.error(error?.message || '加载尾流分析失败');
+  } finally {
+    chartLoading.value.wake = false;
+  }
 };
-
-// 8. Get Turbine Name (No changes needed)
-const getTurbineName = (turbineId) => {
-  const turbine = mainMetadata.value?.turbines?.find(t => t.id === turbineId);
-  return turbine ? (turbine.name || turbine.id) : turbineId;
-};
-
-// 9. Update Turbine Details (No changes needed)
-const updateTurbineDetails = () => {
-  if (!selectedTurbine.value || !mainMetadata.value?.turbines) { turbineDetails.value = null; return; }
-  const turbine = mainMetadata.value.turbines.find(t => t.id === selectedTurbine.value);
-  if (!turbine) { turbineDetails.value = null; return; }
-  let currentHeightSpeed = 'N/A';
-  let hubHeightSpeed = 'N/A';
-
-  const interpolatedCurrentSpeed = sampleSpeedFieldAtPoint(turbine.x, turbine.y, currentHeight.value);
-  if (interpolatedCurrentSpeed != null) {
-    currentHeightSpeed = interpolatedCurrentSpeed.toFixed(2);
-  } else if (profileData.value?.heights?.length && profileData.value.heights.length === profileData.value.speeds?.length) {
-    const currentHeightIndex = findClosestIndex(profileData.value.heights, currentHeight.value);
-    if (currentHeightIndex !== -1 && profileData.value.speeds[currentHeightIndex] != null) {
-      currentHeightSpeed = profileData.value.speeds[currentHeightIndex].toFixed(2);
+const initCharts = () => {
+  if (profileChartRef.value && (!profileInstance || profileInstance.isDisposed())) {
+    const rect = profileChartRef.value.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      profileInstance = echarts.init(profileChartRef.value);
     }
   }
-
-  const interpolatedHubSpeed = sampleSpeedFieldAtPoint(turbine.x, turbine.y, turbine.hubHeight);
-  if (interpolatedHubSpeed != null) {
-    hubHeightSpeed = interpolatedHubSpeed.toFixed(2);
-  } else if (profileData.value?.heights?.length && profileData.value.heights.length === profileData.value.speeds?.length) {
-    const hubHeightIndex = findClosestIndex(profileData.value.heights, turbine.hubHeight);
-    if (hubHeightIndex !== -1 && profileData.value.speeds[hubHeightIndex] != null) {
-      hubHeightSpeed = profileData.value.speeds[hubHeightIndex].toFixed(2);
+  if (wakeChartRef.value && (!wakeInstance || wakeInstance.isDisposed())) {
+    const rect = wakeChartRef.value.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      wakeInstance = echarts.init(wakeChartRef.value);
     }
   }
-
-  turbineDetails.value = {
-    id: turbine.id, coordinates: `(${turbine.x.toFixed(2)}, ${turbine.y.toFixed(2)})`,
-    hubHeight: turbine.hubHeight.toFixed(1), rotorDiameter: turbine.rotorDiameter.toFixed(1),
-    currentSpeed: currentHeightSpeed, hubSpeed: hubHeightSpeed
+  if (profileData.value) renderProfileChart();
+  if (wakeData.value) renderWakeChart();
+};
+const renderProfileChart = () => {
+  if (!profileInstance || !profileData.value?.heights?.length) return;
+  const validData = profileData.value.heights
+    .map((height, index) => [Number(profileData.value.speeds[index]), Number(height)])
+    .filter(([speed, height]) => Number.isFinite(speed) && Number.isFinite(height));
+  const option = {
+    animation: false,
+    grid: { left: 48, right: 18, top: 24, bottom: 32 },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross' },
+      formatter: (params) => {
+        const item = params?.[0]?.value;
+        return item ? `高度 ${formatNumber(item[1], 1)} m<br>风速 ${formatNumber(item[0], 2)} m/s` : '';
+      },
+    },
+    xAxis: { type: 'value', name: '风速 (m/s)', nameLocation: 'middle', nameGap: 24, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.16)' } } },
+    yAxis: { type: 'value', name: '高度 (m)', nameLocation: 'middle', nameGap: 42, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.16)' } } },
+    series: [{
+      type: 'line',
+      smooth: true,
+      symbol: 'none',
+      data: validData,
+      lineStyle: { width: 2.4, color: '#1677ff' },
+      areaStyle: { color: 'rgba(22,119,255,0.08)' },
+      markLine: { symbol: 'none', lineStyle: { type: 'dashed', color: '#64748b' }, data: [{ yAxis: currentHeight.value, label: { formatter: `${formatNumber(currentHeight.value, 0)} m` } }] },
+    }],
   };
-};
-
-// --- New Feature Methods ---
-const downloadProfileData = () => {
-  if (!profileData.value || !profileData.value.heights || !profileData.value.speeds) {
-    ElMessage.warning('没有可下载的风廓线数据。');
-    return;
+  const turbine = selectedTurbineMeta.value;
+  if (turbine?.hubHeight != null) {
+    const hubIndex = findClosestIndex(profileData.value.heights, turbine.hubHeight);
+    if (hubIndex !== -1 && Number.isFinite(profileData.value.speeds[hubIndex])) {
+      option.series.push({ type: 'scatter', symbol: 'diamond', symbolSize: 10, data: [[profileData.value.speeds[hubIndex], profileData.value.heights[hubIndex]]], itemStyle: { color: '#f59e0b', borderColor: '#fff', borderWidth: 1 } });
+    }
   }
-  const dataToExport = profileData.value.heights.map((height, index) => ({
-    height_m: height.toFixed(2),
-    speed_mps: profileData.value.speeds[index]?.toFixed(3) ?? 'N/A'
-  }));
-  const filename = `profile_${props.caseId}_${selectedTurbine.value}.csv`;
-  downloadCSV(dataToExport, filename);
+  profileInstance.setOption(option, true);
 };
-
-const downloadWakeData = () => {
-  if (!wakeData.value || !wakeData.value.distances || !wakeData.value.speeds) {
-    ElMessage.warning('没有可下载的尾流数据。');
-    return;
-  }
-  const dataToExport = wakeData.value.distances.map((distance, index) => ({
-    distance_km: distance.toFixed(3),
-    speed_mps: wakeData.value.speeds[index]?.toFixed(3) ?? 'N/A'
-  }));
-  const filename = `wake_${props.caseId}_${selectedTurbine.value}.csv`;
-  downloadCSV(dataToExport, filename);
+const renderWakeChart = () => {
+  if (!wakeInstance || !wakeData.value?.distances?.length) return;
+  const validData = wakeData.value.distances
+    .map((distance, index) => [Number(distance), Number(wakeData.value.speeds[index])])
+    .filter(([distance, speed]) => Number.isFinite(distance) && Number.isFinite(speed));
+  wakeInstance.setOption({
+    animation: false,
+    grid: { left: 48, right: 18, top: 24, bottom: 32 },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross' },
+      formatter: (params) => {
+        const item = params?.[0]?.value;
+        if (!item) return '';
+        const prefix = item[0] >= 0 ? '下游' : '上游';
+        return `${prefix} ${formatNumber(Math.abs(item[0]), 1)} m<br>风速 ${formatNumber(item[1], 2)} m/s`;
+      },
+    },
+    xAxis: { type: 'value', name: '距离 (m)', nameLocation: 'middle', nameGap: 24, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.16)' } } },
+    yAxis: { type: 'value', name: '风速 (m/s)', nameLocation: 'middle', nameGap: 42, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.16)' } } },
+    series: [{ type: 'line', smooth: true, symbol: 'none', data: validData, lineStyle: { width: 2.4, color: '#12b981' }, areaStyle: { color: 'rgba(18,185,129,0.08)' }, markLine: { symbol: 'none', lineStyle: { type: 'dashed', color: '#ef4444' }, data: [{ xAxis: 0 }] } }],
+  }, true);
 };
-
+const safeResize = () => {
+  profileInstance?.resize();
+  wakeInstance?.resize();
+};
+const handleResize = debounce(() => {
+  scheduleSpeedFieldRender();
+  safeResize();
+}, 160);
+const setupResizeObserver = () => {
+  const elements = [profileChartRef.value, wakeChartRef.value, speedFieldContainer.value].filter(Boolean);
+  if (!elements.length || typeof ResizeObserver === 'undefined') return;
+  if (!resizeObserver) resizeObserver = new ResizeObserver(handleResize);
+  else resizeObserver.disconnect();
+  elements.forEach((element) => resizeObserver.observe(element));
+};
+const handleStageClick = (event) => {
+  if (activePanel.value !== 'point' || !stageDomain.value || !speedFieldContainer.value) return;
+  const rect = speedFieldContainer.value.getBoundingClientRect();
+  const relativeX = (event.clientX - rect.left) / rect.width;
+  const relativeY = (event.clientY - rect.top) / rect.height;
+  if (relativeX < 0 || relativeX > 1 || relativeY < 0 || relativeY > 1) return;
+  pointQuery.value = {
+    x: stageDomain.value.xMin + (stageDomain.value.xMax - stageDomain.value.xMin) * relativeX,
+    y: stageDomain.value.yMax - (stageDomain.value.yMax - stageDomain.value.yMin) * relativeY,
+  };
+  updatePointQuery();
+};
 const handlePointQuery = async () => {
-  if (queryPoint.value.x === null || queryPoint.value.y === null || queryPoint.value.z === null) {
-    ElMessage.warning('请输入完整的X, Y, Z坐标。');
+  const x = Number(pointQuery.value.x);
+  const y = Number(pointQuery.value.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    ElMessage.warning('请输入有效的 X/Y 坐标。');
     return;
   }
   chartLoading.value.pointQuery = true;
-  pointQueryResult.value = null;
   try {
-    const result = await getPointWindSpeed(props.caseId, queryPoint.value.x, queryPoint.value.y, queryPoint.value.z);
-    if (result.speed !== null) {
-      pointQueryResult.value = `风速: ${result.speed.toFixed(3)} m/s`;
-    } else {
-      pointQueryResult.value = '查询点位于计算域之外';
-    }
-  } catch (error) {
-    const message = error?.message || '查询单点风速时出错';
-    pointQueryResult.value = message;
-    ElMessage.error(message);
+    updatePointQuery();
   } finally {
     chartLoading.value.pointQuery = false;
   }
 };
-
-// 10. mapCoordsToCanvas function (REMOVED) - Was already removed
-
-// 11. Setup Canvas Overlay (REMOVED)
-// const setupCanvasOverlay = () => { ... };
-
-// 12. Draw Turbine Overlay (REMOVED)
-// const drawTurbineOverlay = () => { ... };
-
-// 13. Handle Canvas Mouse Move (REMOVED)
-// const handleCanvasMouseMove = (event) => { ... };
-
-// 14. Handle Canvas Click (REMOVED)
-// const handleCanvasClick = (event) => { ... };
-
-// 15. Init ECharts Instances (No changes needed)
-const initChartInstances = () => {
-  nextTick(() => {
-    console.log("尝试初始化图表实例...");
-    try {
-      if (profileChart.value && (!profileInstance || profileInstance.isDisposed())) {
-        const rect = profileChart.value.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) { profileInstance = echarts.init(profileChart.value); if (profileData.value) renderProfileChart(); }
-      }
-      if (wakeChart.value && (!wakeInstance || wakeInstance.isDisposed())) {
-        const rect = wakeChart.value.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) { wakeInstance = echarts.init(wakeChart.value); if (wakeData.value) renderWakeChart(); }
-      }
-      setupResizeObserver();
-    } catch (err) { console.error("初始化 ECharts 实例时出错:", err); }
-  });
-};
-
-// 16. Render Profile Chart (No changes needed relative to overlay removal)
-const renderProfileChart = () => {
-  if (!profileChart.value || !profileData.value) { console.log("renderProfileChart: 缺少容器或 profileData。"); return; }
-  if (!profileData.value.heights || !profileData.value.speeds || profileData.value.heights.length !== profileData.value.speeds.length) {
-      console.error("renderProfileChart: profileData 结构无效或长度不匹配。", profileData.value);
-      if (profileInstance && !profileInstance.isDisposed()) {
-          profileInstance.clear();
-          profileInstance.setOption({ title: { text: '风速廓线', subtext: '数据格式错误', left: 'center', top: 'center', textStyle: { color: '#ccc' } } });
-      }
-      return;
+const exportCurrentView = () => {
+  if (!isVisualizationReady.value) return;
+  const filenameBase = `WindSim_${props.caseId}_${selectedTurbine.value || 'field'}_H${formatNumber(currentHeight.value, 0)}`;
+  if (speedFieldCanvas.value) {
+    const link = document.createElement('a');
+    link.href = speedFieldCanvas.value.toDataURL('image/png');
+    link.download = `${filenameBase}_field.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   }
-  if (!profileInstance || profileInstance.isDisposed()) { initChartInstances(); nextTick(() => { if (profileInstance && !profileInstance.isDisposed()) renderProfileChart(); }); return; }
-
+  const instance = activePanel.value === 'wake' ? wakeInstance : profileInstance;
+  if (instance && !instance.isDisposed() && activePanel.value !== 'point') {
+    const link = document.createElement('a');
+    link.href = instance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#ffffff' });
+    link.download = `${filenameBase}_${activePanel.value}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+};
+const startPrecompute = async () => {
+  if (!props.caseId || isStartingPrecompute.value) return;
   try {
-    const { heights, speeds } = profileData.value;
-    const validData = [];
-    for (let i = 0; i < heights.length; i++) { if (speeds[i] != null && !isNaN(speeds[i]) && heights[i] != null && !isNaN(heights[i])) { validData.push([speeds[i], heights[i]]); } }
-    if (validData.length === 0) { profileInstance.clear(); profileInstance.setOption({ title: { text: '风速廓线', subtext: '无有效数据', left: 'center', top: 'center', textStyle: { color: '#ccc' } } }); return; }
-
-    const option = {
-      title: { left: 'center', textStyle: { fontSize: 14, fontWeight: 'normal', color: colorScheme.text } },
-      tooltip: { trigger: 'axis', formatter: (params) => { const data = params[0]; if (!data || data.value === undefined) return ''; return `高度: ${data.value[1].toFixed(1)} m<br>风速: ${data.value[0].toFixed(2)} m/s`; }, axisPointer: { type: 'cross' } },
-      grid: { top: '10%', right: '8%', bottom: '15%', left: '15%' },
-      xAxis: { type: 'value', name: '风速 (m/s)', nameLocation: 'middle', nameGap: 25, axisLine: { lineStyle: { color: colorScheme.border } }, splitLine: { show: true, lineStyle: { color: '#eee' } } },
-      yAxis: { type: 'value', name: '高度 (m)', nameLocation: 'middle', nameGap: 45, axisLine: { lineStyle: { color: colorScheme.border } }, splitLine: { show: true, lineStyle: { color: '#eee' } } },
-      series: [ { name: '风速廓线', type: 'line', smooth: true, symbol: 'none', data: validData, itemStyle: { color: colorScheme.primary }, lineStyle: { width: 2 }, markLine: { data: [] } } ], // Initialize markLine.data
-      dataZoom: [ { type: 'inside', xAxisIndex: 0, filterMode: 'weakFilter' }, { type: 'inside', yAxisIndex: 0, filterMode: 'weakFilter' }, { type: 'slider', xAxisIndex: 0, bottom: '2%', filterMode: 'weakFilter' }, { type: 'slider', yAxisIndex: 0, right: '2%', filterMode: 'weakFilter' } ],
-    };
-
-    if (currentHeight.value != null && option.series && option.series[0] && option.series[0].markLine && option.series[0].markLine.data) {
-         option.series[0].markLine.data.push({
-            yAxis: currentHeight.value,
-            label: { formatter: `当前: ${currentHeight.value.toFixed(1)}m`, position: 'insideEndTop' },
-            lineStyle: { type: 'dashed', color: colorScheme.info }
-        });
-    }
-
-    const selectedTurbineObj = mainMetadata.value?.turbines?.find(t => t.id === selectedTurbine.value);
-    if (selectedTurbineObj?.hubHeight != null) {
-       const hubHeightIndex = findClosestIndex(heights, selectedTurbineObj.hubHeight);
-       if (hubHeightIndex !== -1 && speeds[hubHeightIndex] != null) {
-           if (option.series) {
-               option.series.push({
-                   name: '轮毂高度', type: 'scatter', symbolSize: 10, symbol: 'diamond',
-                   itemStyle: { color: colorScheme.warning, borderColor: '#fff', borderWidth: 1 },
-                   data: [[speeds[hubHeightIndex], heights[hubHeightIndex]]],
-                   tooltip: { formatter: `轮毂高度 (${heights[hubHeightIndex].toFixed(1)}m): ${speeds[hubHeightIndex].toFixed(2)} m/s` }
-               });
-           }
-       }
-    }
-    profileInstance.setOption(option, true);
-
-  } catch (err) { console.error("渲染风廓线图表时出错:", err); }
+    isStartingPrecompute.value = true;
+    await caseStore.startVisualizationPrecompute();
+    ElMessage.success('已开始预计算。');
+  } catch (error) {
+    ElMessage.error(error?.message || '预计算启动失败');
+  } finally {
+    isStartingPrecompute.value = false;
+  }
 };
-
-// 17. Render Wake Chart (No changes needed relative to overlay removal)
-const renderWakeChart = () => {
-  if (!wakeChart.value || !wakeData.value) { return; }
-   if (!wakeData.value.distances || !wakeData.value.speeds || wakeData.value.distances.length !== wakeData.value.speeds.length) {
-       console.error("renderWakeChart: wakeData 结构无效或长度不匹配。", wakeData.value);
-       if (wakeInstance && !wakeInstance.isDisposed()) {
-           wakeInstance.clear();
-           wakeInstance.setOption({ title: { text: '尾流分析', subtext: '数据格式错误', left: 'center', top: 'center', textStyle: { color: '#ccc' } } });
-       }
-       return;
-   }
-  if (!wakeInstance || wakeInstance.isDisposed()) { initChartInstances(); nextTick(() => { if (wakeInstance && !wakeInstance.isDisposed()) renderWakeChart(); }); return; }
-
+const ensureCaseLoaded = async (id) => {
+  if (!id) return false;
   try {
-    const { distances, speeds } = wakeData.value;
-    const validData = [];
-    for (let i = 0; i < distances.length; i++) { if (speeds[i] != null && !isNaN(speeds[i]) && distances[i] != null && !isNaN(distances[i])) { validData.push([distances[i], speeds[i]]); } }
-    if (validData.length === 0) { wakeInstance.clear(); wakeInstance.setOption({ title: { text: '尾流分析', subtext: '无有效数据', left: 'center', top: 'center', textStyle: { color: '#ccc' } } }); return; }
-
-    const option = {
-      title: { left: 'center', textStyle: { fontSize: 14, fontWeight: 'normal', color: colorScheme.text } },
-      tooltip: { trigger: 'axis', formatter: (params) => { const data = params[0]; if (!data || data.value === undefined) return ''; const distance = data.value[0]; const formattedDist = distance >= 0 ? `下游 ${distance.toFixed(2)} m` : `上游 ${Math.abs(distance).toFixed(2)} m`; return `${formattedDist}<br>风速: ${data.value[1].toFixed(2)} m/s`; }, axisPointer: { type: 'cross' } },
-      grid: { top: '10%', right: '8%', bottom: '15%', left: '15%' },
-      xAxis: { type: 'value', name: '下游距离 (km)', nameLocation: 'middle', nameGap: 25, axisLine: { lineStyle: { color: colorScheme.border } }, splitLine: { show: true, lineStyle: { color: '#eee' } } },
-      yAxis: { type: 'value', name: '风速 (m/s)', nameLocation: 'middle', nameGap: 45, axisLine: { lineStyle: { color: colorScheme.border } }, splitLine: { show: true, lineStyle: { color: '#eee' } } },
-      series: [ { name: '风速', type: 'line', smooth: true, symbol: 'none', data: validData, itemStyle: { color: colorScheme.success }, lineStyle: { width: 2 }, markLine: { symbol: 'none', lineStyle: { type: 'dashed', color: colorScheme.danger }, data: [{ xAxis: 0, label: { formatter: '风机位置', position: 'insideStartTop' } }] } } ],
-      dataZoom: [ { type: 'inside', xAxisIndex: 0, filterMode: 'weakFilter' }, { type: 'inside', yAxisIndex: 0, filterMode: 'weakFilter' }, { type: 'slider', xAxisIndex: 0, bottom: '2%', filterMode: 'weakFilter' } ],
-    };
-    wakeInstance.setOption(option, true);
-  } catch (err) { console.error("渲染尾流图表时出错:", err); }
-};
-
-// 18. Force Charts Render
-const forceChartsRender = () => { nextTick(() => { safeResizeCharts(); }); };
-
-// 19. Handle Resize
-const handleResize = debounce(() => {
-    scheduleSpeedFieldRender();
-    safeResizeCharts();
-}, 200);
-
-// 20. Safe Resize Charts
-const safeResizeCharts = () => { try { if (profileInstance && !profileInstance.isDisposed()) profileInstance.resize(); if (wakeInstance && !wakeInstance.isDisposed()) wakeInstance.resize(); } catch (err) { console.warn("调整图表大小时出错:", err); } };
-
-// 21. Setup Resize Observer
-const setupResizeObserver = () => {
-  const chartElements = [profileChart.value, wakeChart.value].filter(Boolean);
-  if (chartElements.length > 0 && typeof ResizeObserver !== 'undefined') {
-    if (!resizeObserver) {
-      resizeObserver = new ResizeObserver(handleResize);
-    } else {
-      resizeObserver.disconnect(); // Disconnect old observers if any
-    }
-    chartElements.forEach(el => resizeObserver.observe(el));
-    // Observe the image container as well if its size changes might affect layout
-    if (speedFieldContainer.value) { resizeObserver.observe(speedFieldContainer.value); }
-    console.log("ResizeObserver 设置成功");
-  } else {
-    console.warn("ResizeObserver 不可用或没有图表元素可观察");
+    if (caseStore.caseId !== id || caseStore.currentCaseId !== id) await caseStore.initializeCase(id);
+    else if (typeof caseStore.fetchCalculationStatus === 'function') await caseStore.fetchCalculationStatus();
+    return true;
+  } catch (error) {
+    ElMessage.error(error?.message || '初始化工况失败');
+    return false;
   }
 };
-
-
-// 22. Export Charts
-const exportCharts = () => {
-  const chartsToExport = [
-    { instance: profileInstance, name: 'WindProfile' },
-    { instance: wakeInstance, name: 'WakeAnalysis' }
-  ];
-  const filenameBase = `WindSim_${props.caseId}_${selectedTurbine.value || 'Farm'}_H${currentHeight.value}m`;
-
-  chartsToExport.forEach(chartInfo => {
-    if (chartInfo.instance && !chartInfo.instance.isDisposed()) {
-      try {
-        const dataUrl = chartInfo.instance.getDataURL({
-          type: 'png',
-          pixelRatio: 2, // Higher resolution
-          backgroundColor: '#fff'
-        });
-        const link = document.createElement('a');
-        link.href = dataUrl;
-        link.download = `${filenameBase}_${chartInfo.name}.png`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      } catch (e) {
-        console.error(`导出图表 ${chartInfo.name} 失败:`, e);
-        ElMessage.error(`导出图表 ${chartInfo.name} 失败`);
-      }
-    }
-  });
-
-  if (speedFieldCanvas.value && isSpeedFieldReady.value) {
-    try {
-      const dataUrl = speedFieldCanvas.value.toDataURL('image/png');
-      const link = document.createElement('a');
-      link.href = dataUrl;
-      link.download = `${filenameBase}_SpeedField.png`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } catch (e) {
-      console.error('导出风场图片失败:', e);
-      ElMessage.error('导出风场图片失败');
-    }
-  }
+const resetState = () => {
+  loading.value = false;
+  chartLoading.value = { speedField: false, profile: false, wake: false, pointQuery: false };
+  mainMetadata.value = null;
+  currentHeight.value = 10;
+  selectedTurbine.value = '';
+  profileData.value = null;
+  wakeData.value = null;
+  pointQuery.value = { x: null, y: null };
+  pointQueryResult.value = null;
+  clearSpeedFieldCanvas();
+  profileInstance?.clear();
+  wakeInstance?.clear();
 };
-
-// --- Watchers ---
-watch(selectedTurbine, async (newVal, oldVal) => {
-  console.log(`观察者: 选中风机从 ${oldVal || '无'} 变为 ${newVal || '无'}`);
-  if (newVal) {
-    const profilePromise = fetchProfileData(newVal);
-    const wakePromise = fetchWakeData(newVal);
-    await Promise.allSettled([profilePromise, wakePromise]);
-    // updateTurbineDetails is called inside fetchProfileData on success
-  } else {
-    profileData.value = null; wakeData.value = null; turbineDetails.value = null;
-    if (profileInstance && !profileInstance.isDisposed()) profileInstance.clear();
-    if (wakeInstance && !wakeInstance.isDisposed()) wakeInstance.clear();
-  }
-  // REMOVED: drawTurbineOverlay();
-});
-
-watch(currentHeight, (newVal, oldVal) => {
-    if (newVal !== oldVal && selectedTurbine.value) {
-        updateTurbineDetails();
-        if (profileInstance && !profileInstance.isDisposed() && profileData.value) { renderProfileChart(); }
-    }
-    if (newVal !== oldVal) {
-      scheduleSpeedFieldRender();
-    }
-});
-
-watch(() => props.caseId, (newVal, oldVal) => {
-    if (newVal && newVal !== oldVal) {
-        console.log(`观察者: 工况 ID 从 ${oldVal} 变为 ${newVal}, 重新获取所有数据...`);
-        if (oldVal) { clearClientCaseCache(oldVal); }
-        resetVisualizationState();
-        ensureCaseLoaded(newVal).then(() => fetchAllData());
-    } else if (!newVal) { resetVisualizationState(); }
-});
-
-watch(
-  () => caseStore.visualizationStatus,
-  async (status) => {
-    if (status === 'completed' && props.caseId) {
-      await fetchAllData();
-    }
-    await nextTick();
-    scrollPrecomputeLogToBottom();
-  }
-);
-
-watch(
-  () => (caseStore.visualizationMessages || []).length,
-  () => {
-    scrollPrecomputeLogToBottom();
-  }
-);
-
-// --- Lifecycle Hooks ---
-onMounted(async () => {
-  console.log(`SpeedVisualization 已挂载，工况 ID: ${props.caseId}`);
-  window.addEventListener('resize', handleResize);
-
-  await nextTick();
-  if (!props.caseId) {
-    resetVisualizationState();
+const loadPageData = async () => {
+  if (!props.caseId) return;
+  if (caseStore.calculationStatus && caseStore.calculationStatus !== 'completed') {
+    resetState();
     return;
   }
-
-  await ensureCaseLoaded(props.caseId);
-  await fetchAllData();
-});
-
-onUnmounted(() => {
-  console.log("SpeedVisualization 即将卸载");
-  window.removeEventListener('resize', handleResize);
-  if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null; }
+  loading.value = true;
+  profileData.value = null;
+  wakeData.value = null;
   clearSpeedFieldCanvas();
-  if (profileInstance && !profileInstance.isDisposed()) { try { profileInstance.dispose(); } catch(e){} profileInstance = null; }
-  if (wakeInstance && !wakeInstance.isDisposed()) { try { wakeInstance.dispose(); } catch(e){} wakeInstance = null; }
-  console.log("SpeedVisualization 已卸载并清理资源。");
+  try {
+    await fetchMetadata();
+    speedFieldVolume.value = await getVolumeData(props.caseId, mainMetadata.value);
+    if (!Number.isFinite(currentHeight.value) || currentHeight.value < minHeight.value || currentHeight.value > maxHeight.value) currentHeight.value = minHeight.value;
+    await nextTick();
+    renderSpeedField();
+    const availableTurbines = mainMetadata.value?.turbines || [];
+    const hasActiveTurbine = availableTurbines.some((turbine) => turbine.id === selectedTurbine.value);
+    if (!hasActiveTurbine) selectedTurbine.value = availableTurbines[0]?.id || '';
+    if (selectedTurbineMeta.value && !Number.isFinite(pointQuery.value.x) && !Number.isFinite(pointQuery.value.y)) {
+      pointQuery.value = { x: selectedTurbineMeta.value.x, y: selectedTurbineMeta.value.y };
+      updatePointQuery();
+    }
+    if (hasActiveTurbine && selectedTurbine.value) {
+      await Promise.allSettled([fetchProfile(selectedTurbine.value), fetchWake(selectedTurbine.value)]);
+    }
+    await nextTick();
+    initCharts();
+    setupResizeObserver();
+  } catch (error) {
+    resetState();
+    ElMessage.error(error?.message || '加载速度场分析失败');
+  } finally {
+    loading.value = false;
+  }
+};
+const retryLoad = async () => {
+  const ok = await ensureCaseLoaded(props.caseId);
+  if (ok) await loadPageData();
+};
+
+watch(selectedTurbine, async (newValue) => {
+  if (!newValue) {
+    profileData.value = null;
+    wakeData.value = null;
+    profileInstance?.clear();
+    wakeInstance?.clear();
+    return;
+  }
+  await Promise.allSettled([fetchProfile(newValue), fetchWake(newValue)]);
+});
+watch(currentHeight, () => {
+  scheduleSpeedFieldRender();
+  renderProfileChart();
+  updatePointQuery();
+});
+watch(activePanel, async () => {
+  await nextTick();
+  initCharts();
+  safeResize();
+});
+watch(() => props.caseId, async (newValue, oldValue) => {
+  if (oldValue) clearClientCaseCache(oldValue);
+  resetState();
+  if (!newValue) return;
+  const ok = await ensureCaseLoaded(newValue);
+  if (ok) await loadPageData();
+});
+watch(() => caseStore.visualizationStatus, async (status) => {
+  if (status === 'completed' && props.caseId) await loadPageData();
 });
 
+onMounted(async () => {
+  window.addEventListener('resize', handleResize);
+  await nextTick();
+  if (!props.caseId) return;
+  const ok = await ensureCaseLoaded(props.caseId);
+  if (ok) await loadPageData();
+});
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize);
+  resizeObserver?.disconnect();
+  clearSpeedFieldCanvas();
+  if (profileInstance && !profileInstance.isDisposed()) profileInstance.dispose();
+  if (wakeInstance && !wakeInstance.isDisposed()) wakeInstance.dispose();
+  profileInstance = null;
+  wakeInstance = null;
+});
 </script>
 
 <style scoped>
-/* Paste your previous CSS styles here, BUT REMOVE the .turbine-overlay-canvas style */
-.advanced-visualization-container {
-  width: 100%;
-  min-height: 720px;
-  display: flex;
-  flex-direction: column;
-}
-
-.visualization-card {
-  flex: 1;
-  background-color: #f8f9fa;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-  min-height: 720px;
-  overflow: hidden;
-}
-
-.visualization-card :deep(.el-card__body) {
-  display: flex;
-  flex-direction: column;
-  min-height: 720px;
-  padding: 0;
-}
-
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 15px; /* 调整内边距 */
-  border-bottom: 1px solid #e9ecef; /* 调整边框颜色 */
-  flex-shrink: 0; /* 防止头部被压缩 */
-}
-
-.card-header h3 {
-  margin: 0;
-  font-size: 1.1rem; /* 略微增大标题 */
-  font-weight: 600;
-  color: #343a40; /* 调整标题颜色 */
-}
-
-.viz-controls {
-  background-color: #ffffff;
-  border-radius: 6px; /* 统一圆角 */
-  padding: 10px 15px;
-  margin: 10px; /* 统一外边距 */
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.04); /* 使用内阴影 */
-  flex-shrink: 0; /* 防止控制栏被压缩 */
-}
-
-.precompute-alert {
-  margin: 10px;
-}
-
-.precompute-log {
-  margin: 0 10px 10px;
-  border-radius: 8px;
-  background: #0b1220;
-  color: #e5e7eb;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  overflow: hidden;
-}
-
-.precompute-log-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  background: rgba(15, 23, 42, 0.75);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
-}
-
-.precompute-log-title {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-}
-
-.precompute-log-content {
-  max-height: 180px;
-  overflow: auto;
-  padding: 10px 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.control-item {
-  margin-bottom: 8px; /* 减少间距 */
-  display: flex; /* 使用 Flex 布局 */
-  align-items: center; /* 垂直居中 */
-  gap: 10px; /* 增加标签和控件间距 */
-}
-
-.control-item .label {
-  /* display: block; */ /* 不再需要块级显示 */
-  margin-bottom: 0; /* 移除底部外边距 */
-  font-size: 0.85rem; /* 标准化字体大小 */
-  font-weight: 500;
-  color: #495057; /* 调整标签颜色 */
-  white-space: nowrap; /* 防止标签换行 */
-}
-
-.control-item .el-slider,
-.control-item .el-select {
-  flex: 1; /* 让控件填满剩余空间 */
-  min-width: 150px; /* 确保控件有最小宽度 */
-}
-
-/* 主内容区 */
-.viz-main-content {
-  display: flex;
-  flex: 1 1 auto;
-  min-height: 0;
-  padding: 0 10px 10px 10px;
-  gap: 15px;
-  overflow: hidden;
-}
-
-/* 左侧风速场图片部分 */
-.speed-field-section {
-  flex: 1 1 0;
-  min-width: 40%;
-  max-width: 60%;
-  background-color: #fff;
-  border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  overflow: hidden;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  min-height: 420px;
-}
-
-.visualization-wrapper {
-  position: relative;
-  width: 100%;
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 8px 8px 4px;
-}
-
-.speed-field-container {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  overflow: hidden;
-  border-radius: 4px;
-}
-
-.speed-field-canvas {
-  display: block;
-  max-width: 100%;
-  max-height: 100%;
-  border-radius: 6px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(247, 249, 252, 0.95));
-  opacity: 0;
-  transition: opacity 0.18s ease;
-}
-
-.speed-field-canvas.visible {
-  opacity: 1;
-}
-
-.speed-field-legend {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 14px 12px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
-  backdrop-filter: blur(6px);
-}
-
-.speed-field-legend-footer {
-  margin: 0 8px 8px;
-  flex-shrink: 0;
-}
-
-.legend-caption {
-  color: #0f172a;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.legend-bar {
-  width: 14px;
-  height: 160px;
-  border-radius: 999px;
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
-}
-
-.legend-bar-horizontal {
-  width: 100%;
-  height: 14px;
-}
-
-.legend-labels {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  min-width: 44px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #334155;
-}
-
-.legend-labels-horizontal {
-  flex-direction: row;
-  min-width: 0;
-  justify-content: space-between;
-}
-
-.no-image-placeholder, .turbine-details-placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  text-align: center;
-  background-color: #f8f9fa; /* 更柔和的背景 */
-  color: #6c757d; /* 更柔和的文字颜色 */
-  font-size: 0.9rem;
-  gap: 10px;
-  border-radius: 6px; /* 保持圆角一致 */
-}
-
-.no-image-placeholder .el-icon, .turbine-details-placeholder .el-icon {
-  font-size: 3rem; /* 调整图标大小 */
-  opacity: 0.6;
-}
-
-/* REMOVED: .turbine-overlay-canvas style */
-/*
-.turbine-overlay-canvas {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 1;
-  pointer-events: auto;
-}
-*/
-
-/* 右侧图表部分 */
-.charts-section {
-  flex: 1; /* 占据可用空间 */
-  display: flex;
-  flex-direction: column;
-  gap: 10px; /* 调整图表间距 */
-  min-width: 35%; /* 最小宽度比例 */
-  min-height: 0; /* 允许收缩 */
-  overflow: hidden; /* 防止内部溢出 */
-}
-
-.chart-wrapper {
-  flex: 1; /* 每个图表容器平分空间 */
-  background-color: #fff;
-  border-radius: 6px;
-  padding: 8px 12px; /* 调整内边距 */
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  display: flex;
-  flex-direction: column;
-  min-height: 220px; /* 设置合理的最小高度 */
-  overflow: hidden; /* 隐藏图表溢出 */
-  position: relative; /* 为了加载指示器定位 */
-}
-
-.chart {
-  flex: 1; /* 图表区域填满剩余空间 */
-  width: 100%;
-  min-height: 150px; /* 确保图表有最小绘图区域 */
-}
-
-.chart-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 5px; /* 减少标题下方间距 */
-  flex-shrink: 0;
-}
-
-.chart-header h4 {
-  margin: 0;
-  font-size: 0.95rem; /* 标准化字体大小 */
-  font-weight: 600;
-  color: #343a40;
-}
-
-.chart-header .subtitle {
-  font-size: 0.8rem; /* 减小副标题 */
-  color: #6c757d;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 150px; /* 限制最大宽度 */
-}
-.chart-header .subtitle-placeholder {
-    font-size: 0.8rem;
-    color: #adb5bd; /* 使用更浅的颜色 */
-    font-style: italic;
-}
-
-
-.turbine-details {
-  flex-shrink: 0; /* 不压缩详情面板 */
-  background-color: #fff;
-  border-radius: 6px;
-  padding: 10px 12px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05); /* 更轻的阴影 */
-  margin: 0;
-  max-height: 200px; /* 增加最大高度 */
-  overflow-y: auto; /* 内容多时允许滚动 */
-}
-
-.turbine-details h4 {
-  margin: 0 0 8px 0;
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: #343a40;
-}
-/* 调整详情项样式 */
-.turbine-details .el-descriptions :deep(.el-descriptions__label) {
-    font-size: 0.8rem;
-    color: #6c757d;
-}
-.turbine-details .el-descriptions :deep(.el-descriptions__content) {
-    font-size: 0.85rem;
-    color: #343a40;
-}
-
-
-/* 加载指示器 */
-.chart-loading, .image-loading-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 5; /* 确保在内容之上但在控件之下 */
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  background-color: rgba(255, 255, 255, 0.8); /* 半透明背景 */
-  color: #495057;
-  border-radius: 6px; /* 匹配容器圆角 */
-  pointer-events: none; /* 不阻挡下方元素事件 */
-}
-.chart-loading .el-icon, .image-loading-overlay .el-icon {
-    font-size: 1.5rem; /* 调整加载图标大小 */
-}
-
-.image-loading-overlay span, .chart-loading span {
-  margin-top: 8px;
-  font-size: 0.85rem;
-}
-
-/* 响应式布局优化 */
-@media (max-width: 1200px) {
-   .viz-main-content { gap: 20px; }
-   .speed-field-section { min-width: 45%; }
-   .charts-section { min-width: 40%; }
-}
-
-@media (max-width: 992px) {
-  .viz-main-content { flex-direction: column; overflow-y: auto; overflow-x: hidden; padding: 0 10px 10px 10px; }
-  .speed-field-section { max-width: 100%; min-width: 100%; height: 45vh; min-height: 350px; max-height: 500px; margin-bottom: 15px; }
-  .charts-section { max-width: 100%; min-width: 100%; flex-direction: row; flex-wrap: wrap; overflow: visible; gap: 15px; }
-  .chart-wrapper { flex-basis: calc(50% - 8px); min-width: 250px; min-height: 280px; }
-   .turbine-details { flex-basis: 100%; margin-top: 5px; }
-}
-
-@media (max-width: 768px) {
-  .card-header h3 { font-size: 1rem; }
-  .control-item .label { font-size: 0.8rem; }
-  .speed-field-section { height: 40vh; min-height: 300px; max-height: 400px; }
-  .speed-field-legend-footer { margin: 0 6px 6px; }
-  .charts-section { flex-direction: column; }
-  .chart-wrapper { flex-basis: auto; min-height: 250px; }
-  .turbine-details { flex-basis: auto; }
-}
-
-@media (max-width: 480px) {
-   .control-item { flex-direction: column; align-items: flex-start; gap: 5px; }
-   .control-item .el-slider, .control-item .el-select { width: 100%; }
-   .speed-field-section { height: 35vh; min-height: 250px; }
-   .chart-wrapper { padding: 5px 8px; min-height: 220px; }
-   .turbine-details { padding: 8px 10px; }
-}
+.speed-lab{position:relative;display:flex;min-height:100%;flex-direction:column;gap:18px;padding:20px 22px 26px;background:radial-gradient(circle at top left,rgba(22,119,255,.08),transparent 28%),linear-gradient(180deg,#f8fbff 0%,#f3f7fc 100%)}
+.page-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;border:1px solid rgba(148,163,184,.18);border-radius:18px;padding:18px 20px;background:rgba(255,255,255,.78);backdrop-filter:blur(10px)}
+.title-block h1{margin:0;font-size:2rem;font-weight:700;color:#15223b}
+.badge-row{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+.meta-pill{display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:8px 12px;background:rgba(255,255,255,.9);border:1px solid rgba(148,163,184,.2);color:#5b6b86;font-size:.86rem}
+.meta-pill strong{color:#15304d}
+.toolbar{display:flex;align-items:center;gap:10px}
+.status-alert{margin-top:-4px}
+.control-strip{display:grid;grid-template-columns:minmax(320px,1.7fr) minmax(220px,.9fr) minmax(260px,1fr);gap:16px}
+.control-block{display:flex;min-width:0;flex-direction:column;gap:12px;border-radius:18px;border:1px solid rgba(148,163,184,.16);padding:16px 18px;background:rgba(255,255,255,.88);box-shadow:0 16px 30px rgba(15,23,42,.05)}
+.control-label{font-size:.83rem;font-weight:600;letter-spacing:.04em;color:#5d6d88}
+.toolbar-select{width:100%}
+.toolbar-group{flex-wrap:wrap}
+.workspace-grid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(360px,.95fr);gap:18px;align-items:start}
+.panel{position:relative;border-radius:22px;border:1px solid rgba(148,163,184,.16);background:rgba(255,255,255,.9);box-shadow:0 22px 36px rgba(15,23,42,.06);overflow:hidden}
+.map-panel,.side-panel{padding:18px}
+.panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.panel-head h2{margin:0;font-size:1.1rem;font-weight:700;color:#15223b}
+.panel-meta{display:flex;align-items:center;gap:10px;color:#70809b;font-size:.82rem}
+.map-stage{position:relative;overflow:hidden;width:100%;border-radius:18px;background:linear-gradient(180deg,rgba(248,250,252,.7),rgba(241,245,249,.9))}
+.speed-field-canvas{display:block;width:100%;height:100%;opacity:0;transition:opacity .18s ease}
+.speed-field-canvas--visible{opacity:1}
+.speed-field-canvas--pick{cursor:crosshair}
+.empty-state,.panel-overlay,.loading-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#29405f}
+.panel-overlay,.loading-overlay{background:rgba(255,255,255,.72);z-index:8}
+.panel-overlay--surface{border-radius:16px}
+.map-marker{position:absolute;display:inline-flex;align-items:center;gap:5px;transform:translate(-50%,-50%);border:none;background:transparent;padding:0;cursor:pointer}
+.map-marker-dot{width:11px;height:11px;border-radius:999px;border:2px solid rgba(255,255,255,.95);background:#0f172a;box-shadow:0 0 0 2px rgba(15,23,42,.18)}
+.map-marker-label{font-size:.72rem;font-weight:600;color:rgba(27,47,74,.78);text-shadow:0 1px 0 rgba(255,255,255,.84);white-space:nowrap}
+.map-marker--active .map-marker-dot{background:#f97316;box-shadow:0 0 0 3px rgba(249,115,22,.24)}
+.query-marker{position:absolute;width:22px;height:22px;transform:translate(-50%,-50%);border-radius:999px;border:2px solid rgba(255,255,255,.95);box-shadow:0 0 0 2px rgba(239,68,68,.18);background:rgba(239,68,68,.18);pointer-events:none;z-index:5}
+.query-marker::after{content:'';position:absolute;inset:50% auto auto 50%;width:8px;height:8px;transform:translate(-50%,-50%);border-radius:999px;background:#ef4444}
+.legend-strip{display:flex;align-items:center;gap:12px;margin-top:14px}
+.legend-caption{min-width:28px;font-size:.76rem;font-weight:700;color:#4d5b75}
+.legend-bar{flex:1;height:14px;border-radius:999px}
+.legend-labels{display:flex;min-width:220px;justify-content:space-between;gap:10px;color:#62718b;font-size:.75rem}
+.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:14px}
+.detail-card{display:flex;min-height:80px;flex-direction:column;justify-content:space-between;gap:8px;border-radius:16px;border:1px solid rgba(148,163,184,.16);padding:14px 15px;background:linear-gradient(180deg,rgba(248,250,252,.96),rgba(241,245,249,.9))}
+.detail-card span{font-size:.8rem;color:#66758e}
+.detail-card strong{font-size:1.04rem;font-weight:700;color:#122038;line-height:1.3}
+.chart-surface{min-height:380px;border-radius:18px;background:#fff}
+.point-panel{display:flex;flex-direction:column;gap:16px}
+.point-form{display:flex;flex-wrap:wrap;align-items:end;gap:12px}
+.point-input{display:flex;min-width:120px;flex-direction:column;gap:8px}
+.point-input span{font-size:.8rem;color:#66758e}
+.point-static{display:flex;min-height:32px;align-items:center;border-radius:10px;border:1px solid rgba(148,163,184,.2);padding:0 12px;background:rgba(248,250,252,.92);color:#15223b;font-weight:600}
+.point-note{min-height:22px;color:#66758e;font-size:.84rem;font-weight:600}
+.loading-overlay{backdrop-filter:blur(6px);z-index:20}
+.loading-overlay p{margin:0}
+@media (max-width:1180px){.control-strip,.workspace-grid{grid-template-columns:1fr}}
+@media (max-width:768px){.speed-lab{padding:14px 14px 20px}.page-header{flex-direction:column;align-items:stretch}.toolbar{justify-content:flex-end}.detail-grid{grid-template-columns:1fr}.legend-strip{flex-direction:column;align-items:stretch}.legend-labels{min-width:0}.point-form{align-items:stretch}}
 </style>

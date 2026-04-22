@@ -77,7 +77,8 @@ const routes = [
         path: "speed-visualization", // Choose a path
         name: "SpeedVisualization",
         component: () => import("../components/SpeedVisualization.vue"),
-        props: true // Pass route params (caseId) as props
+        props: true, // Pass route params (caseId) as props
+        meta: { allowScroll: true },
       },
       {
         path: "flow-lab",
