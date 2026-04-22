@@ -129,7 +129,7 @@ const menuItems = computed(() => {
     { index: `/cases/${caseId.value}/speed-visualization`, icon: WindPower, title: "速度场分析" },
     { index: `/cases/${caseId.value}/flow-lab`, icon: DataLine, title: "三维风场实验" },
     { index: `/cases/${caseId.value}/wind-management`, icon: Files, title: "风机性能分析" },
-    { index: `/cases/${caseId.value}/wind-management-lab`, icon: DataLine, title: "风机性能实验" }
+    { index: `/cases/${caseId.value}/wind-management-lab`, icon: DataLine, title: "风资源评估实验" }
   ];
 }else {
       return [

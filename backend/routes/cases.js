@@ -749,6 +749,29 @@ const sumFinite = (values) => {
     return valid.reduce((sum, value) => sum + value, 0);
 };
 
+const clampNumber = (value, min, max) => {
+    if (!Number.isFinite(value)) return min;
+    if (Number.isFinite(min) && value < min) return min;
+    if (Number.isFinite(max) && value > max) return max;
+    return value;
+};
+
+const computeQuantile = (values, ratio) => {
+    const valid = values
+        .filter((value) => Number.isFinite(value))
+        .map((value) => Number(value))
+        .sort((a, b) => a - b);
+    if (valid.length === 0) return null;
+    if (valid.length === 1) return valid[0];
+    const clampedRatio = clampNumber(ratio, 0, 1);
+    const position = (valid.length - 1) * clampedRatio;
+    const lowerIndex = Math.floor(position);
+    const upperIndex = Math.ceil(position);
+    if (lowerIndex === upperIndex) return valid[lowerIndex];
+    const weight = position - lowerIndex;
+    return valid[lowerIndex] + (valid[upperIndex] - valid[lowerIndex]) * weight;
+};
+
 const computeStdDev = (values, meanValue = null) => {
     const valid = values.filter((value) => Number.isFinite(value));
     if (valid.length === 0) return null;
@@ -913,6 +936,92 @@ const computeSolverWindowMetrics = (grid, turbine, windAngleDeg, dxMeters, sampl
         windowMinSpeed: Math.min(...validSpeeds),
         windowMaxSpeed: Math.max(...validSpeeds),
         windowStdSpeed,
+    };
+};
+
+const buildWindResourcePlane = (grid, {
+    height,
+    resolution,
+    inletWindSpeed = null,
+    turbines = [],
+}) => {
+    const nx = Math.max(2, Math.trunc(Number(resolution) || 0));
+    const ny = nx;
+    const actualHeight = clampNumber(Number(height), grid.zMin, grid.zMax);
+    const xSpan = grid.xMax - grid.xMin;
+    const ySpan = grid.yMax - grid.yMin;
+    const values = new Array(nx * ny).fill(null);
+    const validSpeeds = [];
+
+    for (let iy = 0; iy < ny; iy += 1) {
+        const y = ny === 1 ? (grid.yMin + grid.yMax) / 2 : grid.yMin + (ySpan * iy) / (ny - 1);
+        for (let ix = 0; ix < nx; ix += 1) {
+            const x = nx === 1 ? (grid.xMin + grid.xMax) / 2 : grid.xMin + (xSpan * ix) / (nx - 1);
+            const speed = interpolateWindSpeedAtPoint(grid, x, y, actualHeight);
+            const index = iy * nx + ix;
+            if (Number.isFinite(speed)) {
+                values[index] = Number(speed.toFixed(4));
+                validSpeeds.push(speed);
+            }
+        }
+    }
+
+    const speedupValues = Number.isFinite(inletWindSpeed) && inletWindSpeed > 0
+        ? validSpeeds.map((speed) => speed / inletWindSpeed)
+        : [];
+
+    const sampledTurbines = turbines.map((turbine, index) => {
+        const x = Number(turbine?.x);
+        const y = Number(turbine?.y);
+        const localSpeed = Number.isFinite(x) && Number.isFinite(y)
+            ? interpolateWindSpeedAtPoint(grid, x, y, actualHeight)
+            : null;
+
+        return {
+            solverIndex: index + 1,
+            id: turbine?.id || `WT-${index + 1}`,
+            name: turbine?.name || `WT-${index + 1}`,
+            x: Number.isFinite(x) ? x : null,
+            y: Number.isFinite(y) ? y : null,
+            hubHeight: Number.isFinite(Number(turbine?.hub)) ? Number(turbine.hub) : null,
+            rotorDiameter: Number.isFinite(Number(turbine?.d)) ? Number(turbine.d) : null,
+            localSpeed: Number.isFinite(localSpeed) ? localSpeed : null,
+            localSpeedupRatio: Number.isFinite(localSpeed) && Number.isFinite(inletWindSpeed) && inletWindSpeed > 0
+                ? localSpeed / inletWindSpeed
+                : null,
+        };
+    });
+
+    return {
+        requestedHeight: Number(height),
+        actualHeight,
+        plane: {
+            nx,
+            ny,
+            xMin: grid.xMin,
+            xMax: grid.xMax,
+            yMin: grid.yMin,
+            yMax: grid.yMax,
+            values,
+            stats: {
+                sampleCount: values.length,
+                validCount: validSpeeds.length,
+                minSpeed: validSpeeds.length ? Math.min(...validSpeeds) : null,
+                maxSpeed: validSpeeds.length ? Math.max(...validSpeeds) : null,
+                meanSpeed: averageFinite(validSpeeds),
+                p05Speed: computeQuantile(validSpeeds, 0.05),
+                p50Speed: computeQuantile(validSpeeds, 0.5),
+                p95Speed: computeQuantile(validSpeeds, 0.95),
+                meanSpeedup: averageFinite(speedupValues),
+                strongSpeedupAreaRatio: speedupValues.length
+                    ? speedupValues.filter((value) => value >= 1.05).length / speedupValues.length
+                    : null,
+                deficitAreaRatio: speedupValues.length
+                    ? speedupValues.filter((value) => value <= 0.95).length / speedupValues.length
+                    : null,
+            },
+        },
+        turbines: sampledTurbines,
     };
 };
 
@@ -2997,6 +3106,85 @@ router.get('/:caseId/experimental-turbine-performance', async (req, res) => {
         return res.status(500).json({
             success: false,
             message: analysisError?.message || '实验性风机性能分析失败。',
+        });
+    }
+});
+
+router.get('/:caseId/experimental-wind-resource-map', async (req, res) => {
+    const { caseId } = req.params;
+    const querySchema = Joi.object({
+        height: Joi.number().min(0).max(1000).default(120),
+        resolution: Joi.number().integer().min(60).max(260).default(180),
+    });
+
+    const { error, value } = querySchema.validate(req.query, { convert: true });
+    if (error) {
+        return res.status(400).json({
+            success: false,
+            message: '实验性风资源评估参数无效。',
+            errors: error.details.map((detail) => detail.message),
+        });
+    }
+
+    const casePath = path.join(__dirname, '../uploads', caseId);
+    const infoPath = path.join(casePath, 'info.json');
+
+    try {
+        const infoRaw = await fsPromises.readFile(infoPath, 'utf-8');
+        const info = JSON.parse(infoRaw);
+        const turbines = Array.isArray(info?.turbines) ? info.turbines : [];
+        const grid = await loadWindSpeedGrid(caseId);
+        const inletWindSpeed = Number(info?.wind?.speed ?? null);
+        const windAngleDeg = Number(info?.wind?.angle ?? 0);
+        const availableHeights = Array.from({ length: grid.Nz }, (_, index) => grid.zMin + index * grid.zStep);
+        const nearestNativeHeight = availableHeights.reduce((closest, current) => (
+            Math.abs(current - value.height) < Math.abs(closest - value.height) ? current : closest
+        ), availableHeights[0] ?? value.height);
+        const planePayload = buildWindResourcePlane(grid, {
+            height: value.height,
+            resolution: value.resolution,
+            inletWindSpeed,
+            turbines,
+        });
+
+        return res.json({
+            success: true,
+            method: {
+                type: 'experimental_wind_resource_assessment',
+                source: 'speed.bin (terrain-following speed magnitude field)',
+                interpolation: 'trilinear interpolation on post-processing grid',
+                limitations: [
+                    '该资源图来自 speed.bin 的速度模值，不包含湍流强度、Weibull 频率或多扇区统计，只适用于当前单工况对照。',
+                    '平面图局部速度适合做高度层与机位筛查，不应直接替代正式 AEP 或 IEC 资源评估报告。',
+                    '复杂地形下的轴向有效入流仍建议结合矢量窗口 Ux 一起看，单纯速度模值会高估偏航/横向流机位。',
+                ],
+            },
+            meta: {
+                requestedHeight: value.height,
+                actualHeight: planePayload.actualHeight,
+                nearestNativeHeight,
+                availableHeights,
+                resolution: value.resolution,
+                inletWindSpeed: Number.isFinite(inletWindSpeed) ? inletWindSpeed : null,
+                windAngleDeg,
+                turbineCount: turbines.length,
+                domain: {
+                    xMin: grid.xMin,
+                    xMax: grid.xMax,
+                    yMin: grid.yMin,
+                    yMax: grid.yMax,
+                    zMin: grid.zMin,
+                    zMax: grid.zMax,
+                },
+            },
+            plane: planePayload.plane,
+            turbines: planePayload.turbines,
+        });
+    } catch (analysisError) {
+        console.error(`实验性风资源评估失败 (${caseId}):`, analysisError);
+        return res.status(500).json({
+            success: false,
+            message: analysisError?.message || '实验性风资源评估失败。',
         });
     }
 });
