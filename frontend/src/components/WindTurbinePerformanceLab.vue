@@ -324,7 +324,6 @@ import * as echarts from 'echarts';
 import { useCaseStore } from '@/store/caseStore';
 import { useRouter } from 'vue-router';
 import { getApiErrorMessage } from '@/utils/notify.js';
-import { findClosestIndex, getMetadata, getVolumeData } from '@/services/visualizationService';
 
 const props = defineProps({
   caseId: {
@@ -346,14 +345,12 @@ const softWarnings = ref([]);
 const experimentalData = ref(null);
 const vectorData = ref(null);
 const resourceMapData = ref(null);
-const sliceOverlayData = ref(null);
+const rawOverlayData = ref(null);
 const profileData = ref(null);
-const nativeVizMetadata = ref(null);
-const nativeVolumeData = ref(null);
 
 const selectedHeight = ref(120);
 const selectedTurbineId = ref('');
-const mapMetric = ref('speedup');
+const mapMetric = ref('speed');
 const rankingMode = ref('risk');
 const suppressHeightWatch = ref(false);
 
@@ -394,48 +391,7 @@ const vectorSummary = computed(() => vectorData.value?.summary || null);
 const resourceMeta = computed(() => resourceMapData.value?.meta || null);
 const resourcePlane = computed(() => resourceMapData.value?.plane || null);
 const resourceStats = computed(() => resourcePlane.value?.stats || null);
-const resourceImageDimensions = computed(() => sliceOverlayData.value?.imageDimensions || { width: 800, height: 800 });
-
-const legacySliceTransform = computed(() => {
-  const pixels = Array.isArray(sliceOverlayData.value?.turbinesPixels) ? sliceOverlayData.value.turbinesPixels : [];
-  const turbines = Array.isArray(resourceMapData.value?.turbines) ? resourceMapData.value.turbines : [];
-  if (pixels.length < 2 || turbines.length < 2) return null;
-
-  const pixelMap = new Map(pixels.map((item) => [item.id, item]));
-  const matched = turbines
-    .map((item) => {
-      const pixel = pixelMap.get(item.id);
-      if (!pixel) return null;
-      const solverX = Number(item.solverX ?? item.x);
-      const solverY = Number(item.solverY ?? item.y);
-      if (![solverX, solverY, pixel.x, pixel.y].every(Number.isFinite)) return null;
-      return { x: solverX, y: solverY, px: Number(pixel.x), py: Number(pixel.y) };
-    })
-    .filter(Boolean);
-
-  if (matched.length < 2) return null;
-
-  const fitLine = (coordKey, pixelKey) => {
-    const samples = matched.map((item) => item[coordKey]);
-    const pixelsList = matched.map((item) => item[pixelKey]);
-    const meanCoord = samples.reduce((sum, value) => sum + value, 0) / samples.length;
-    const meanPixel = pixelsList.reduce((sum, value) => sum + value, 0) / pixelsList.length;
-    const numerator = samples.reduce((sum, value, index) => sum + (value - meanCoord) * (pixelsList[index] - meanPixel), 0);
-    const denominator = samples.reduce((sum, value) => sum + (value - meanCoord) ** 2, 0);
-    const slope = denominator > 0 ? numerator / denominator : 0;
-    const intercept = meanPixel - slope * meanCoord;
-    return { slope, intercept };
-  };
-
-  const xFit = fitLine('x', 'px');
-  const yFit = fitLine('y', 'py');
-  return {
-    xSlope: xFit.slope,
-    xIntercept: xFit.intercept,
-    ySlope: yFit.slope,
-    yIntercept: yFit.intercept,
-  };
-});
+const rawOverlay = computed(() => rawOverlayData.value?.overlay || null);
 
 const availableHeights = computed(() => {
   const heights = resourceMeta.value?.availableHeights;
@@ -480,35 +436,6 @@ const warnings = computed(() => [
   ...(vectorData.value?.warnings || []),
   ...softWarnings.value,
 ]);
-
-const nativeSliceDescriptor = computed(() => {
-  const volume = nativeVolumeData.value;
-  if (!volume?.values?.length || !Array.isArray(volume?.heightLevels) || !volume.heightLevels.length) {
-    return null;
-  }
-
-  const actualHeight = Number(resourceMeta.value?.actualHeight ?? selectedHeight.value);
-  const layerIndex = findClosestIndex(volume.heightLevels, actualHeight);
-  if (layerIndex < 0) return null;
-
-  const xCoords = Array.isArray(volume.xCoords) ? volume.xCoords : [];
-  const yCoords = Array.isArray(volume.yCoords) ? volume.yCoords : [];
-  if (!xCoords.length || !yCoords.length) return null;
-
-  return {
-    layerIndex,
-    layerOffset: layerIndex * volume.layerSize,
-    width: volume.width,
-    height: volume.height,
-    xMin: Number(xCoords[0]),
-    xMax: Number(xCoords[xCoords.length - 1]),
-    yMin: Number(yCoords[0]),
-    yMax: Number(yCoords[yCoords.length - 1]),
-    xStep: xCoords.length > 1 ? Number(xCoords[1] - xCoords[0]) : 1,
-    yStep: yCoords.length > 1 ? Number(yCoords[1] - yCoords[0]) : 1,
-    inletWindSpeed: Number(resourceMeta.value?.inletWindSpeed),
-  };
-});
 
 const notes = computed(() => {
   const items = [
@@ -810,10 +737,10 @@ const rankingLabel = computed(() => {
 
 const resourceRenderRange = computed(() => {
   const inlet = Number(resourceMeta.value?.inletWindSpeed);
-  const baseMin = Number(sliceOverlayData.value?.vmin);
-  const baseMax = Number(sliceOverlayData.value?.vmax);
+  const baseMin = Number(rawOverlay.value?.stats?.minSpeed);
+  const baseMax = Number(rawOverlay.value?.stats?.maxSpeed);
 
-  if (Number.isFinite(baseMin) && Number.isFinite(baseMax)) {
+  if (Number.isFinite(baseMin) && Number.isFinite(baseMax) && baseMax > baseMin) {
     if (mapMetric.value === 'speedup' && Number.isFinite(inlet) && inlet > 0) {
       return {
         min: baseMin / inlet,
@@ -846,16 +773,23 @@ const mapLegendTicks = computed(() => {
 });
 
 const resourceMarkers = computed(() => {
-  const imageWidth = Math.max(1, Math.round(Number(resourceImageDimensions.value?.width) || 800));
-  const imageHeight = Math.max(1, Math.round(Number(resourceImageDimensions.value?.height) || 800));
-  const pixelMap = new Map((sliceOverlayData.value?.turbinesPixels || []).map((item) => [item.id, item]));
+  const plane = resourcePlane.value;
+  if (!plane) return [];
+  const xMin = Number(plane.xMin);
+  const xMax = Number(plane.xMax);
+  const yMin = Number(plane.yMin);
+  const yMax = Number(plane.yMax);
+  const xSpan = xMax - xMin;
+  const ySpan = yMax - yMin;
+  if (!(xSpan > 0) || !(ySpan > 0)) return [];
 
   return combinedRows.value
-    .filter((item) => pixelMap.has(item.id))
     .map((item) => {
-      const pixel = pixelMap.get(item.id);
-      const left = (Number(pixel.x) / imageWidth) * 100;
-      const top = (Number(pixel.y) / imageHeight) * 100;
+      const solverX = Number(item.x);
+      const solverY = Number(item.y);
+      if (![solverX, solverY].every(Number.isFinite)) return null;
+      const left = ((solverX - xMin) / xSpan) * 100;
+      const top = ((yMax - solverY) / ySpan) * 100;
       return {
         id: item.id,
         name: item.name,
@@ -866,31 +800,9 @@ const resourceMarkers = computed(() => {
           zIndex: item.id === selectedTurbineId.value ? 4 : 3,
         },
       };
-    });
+    })
+    .filter(Boolean);
 });
-
-let sliceStageImage = null;
-let sliceStageImageUrl = '';
-let sliceStageImagePromise = null;
-
-const ensureSliceStageImage = (imageUrl) => {
-  if (!imageUrl) return Promise.resolve(null);
-  if (sliceStageImage && sliceStageImageUrl === imageUrl && sliceStageImage.complete) {
-    return Promise.resolve(sliceStageImage);
-  }
-  if (sliceStageImagePromise && sliceStageImageUrl === imageUrl) {
-    return sliceStageImagePromise;
-  }
-
-  sliceStageImageUrl = imageUrl;
-  sliceStageImage = new Image();
-  sliceStageImagePromise = new Promise((resolve, reject) => {
-    sliceStageImage.onload = () => resolve(sliceStageImage);
-    sliceStageImage.onerror = () => reject(new Error('资源切片图加载失败'));
-  });
-  sliceStageImage.src = imageUrl;
-  return sliceStageImagePromise;
-};
 
 const ensureCaseLoaded = async (id) => {
   if (!id) return false;
@@ -905,15 +817,6 @@ const ensureCaseLoaded = async (id) => {
     pageError.value = getApiErrorMessage(error, '初始化工况失败');
     return false;
   }
-};
-
-const ensureNativeVolumeLoaded = async () => {
-  if (!props.caseId) return;
-  if (nativeVizMetadata.value && nativeVolumeData.value) return;
-
-  const metadata = await getMetadata(props.caseId);
-  nativeVizMetadata.value = metadata;
-  nativeVolumeData.value = await getVolumeData(props.caseId, metadata);
 };
 
 const pickDefaultTurbineId = () => {
@@ -945,22 +848,22 @@ const loadResourceLayer = async (height, { silent = false } = {}) => {
   if (!props.caseId) return;
   if (!silent) mapLoading.value = true;
   try {
-    const [resourceResponse, sliceResponse] = await Promise.all([
+    const [resourceResponse, rawOverlayResponse] = await Promise.all([
       axios.get(`/api/cases/${props.caseId}/experimental-wind-resource-map`, {
         params: { height, resolution: 180 },
       }),
-      axios.get(`/api/cases/${props.caseId}/visualization-slice`, {
-        params: { height },
+      axios.get(`/api/cases/${props.caseId}/experimental-wind-resource-raw-overlay`, {
+        params: { height, maxPoints: 180000 },
       }),
     ]);
     if (!resourceResponse.data?.success) {
       throw new Error(resourceResponse.data?.message || '风资源平面层未返回有效数据');
     }
-    if (!sliceResponse.data?.success) {
-      throw new Error(sliceResponse.data?.message || '风资源切片缓存未返回有效数据');
+    if (!rawOverlayResponse.data?.success) {
+      throw new Error(rawOverlayResponse.data?.message || '原始平面叠加未返回有效数据');
     }
     resourceMapData.value = resourceResponse.data;
-    sliceOverlayData.value = sliceResponse.data;
+    rawOverlayData.value = rawOverlayResponse.data;
 
     const heights = resourceResponse.data?.meta?.availableHeights || [];
     if (heights.length && !heights.includes(selectedHeight.value)) {
@@ -987,16 +890,15 @@ const loadPageData = async ({ preserveSelection = false } = {}) => {
     if (caseStore.hasFetchedCalculationStatus && caseStore.calculationStatus !== 'completed') return;
 
     const requestedHeight = Number.isFinite(selectedHeight.value) ? selectedHeight.value : 120;
-    const [scalarResult, vectorResult, resourceResult, sliceResult, nativeVolumeResult] = await Promise.allSettled([
+    const [scalarResult, vectorResult, resourceResult, rawOverlayResult] = await Promise.allSettled([
       axios.get(`/api/cases/${props.caseId}/experimental-turbine-performance`),
       axios.get(`/api/cases/${props.caseId}/experimental-turbine-vector-diagnostics`),
       axios.get(`/api/cases/${props.caseId}/experimental-wind-resource-map`, {
         params: { height: requestedHeight, resolution: 180 },
       }),
-      axios.get(`/api/cases/${props.caseId}/visualization-slice`, {
-        params: { height: requestedHeight },
+      axios.get(`/api/cases/${props.caseId}/experimental-wind-resource-raw-overlay`, {
+        params: { height: requestedHeight, maxPoints: 180000 },
       }),
-      ensureNativeVolumeLoaded(),
     ]);
 
     if (scalarResult.status !== 'fulfilled' || !scalarResult.value.data?.success) {
@@ -1015,8 +917,8 @@ const loadPageData = async ({ preserveSelection = false } = {}) => {
 
     experimentalData.value = scalarResult.value.data;
     resourceMapData.value = resourceResult.value.data;
-    sliceOverlayData.value = sliceResult.status === 'fulfilled' && sliceResult.value.data?.success
-      ? sliceResult.value.data
+    rawOverlayData.value = rawOverlayResult.status === 'fulfilled' && rawOverlayResult.value.data?.success
+      ? rawOverlayResult.value.data
       : null;
 
     if (vectorResult.status === 'fulfilled' && vectorResult.value.data?.success) {
@@ -1029,10 +931,12 @@ const loadPageData = async ({ preserveSelection = false } = {}) => {
       softWarnings.value.push(getApiErrorMessage(vectorResult.reason, '矢量风机诊断加载失败'));
     }
 
-    if (nativeVolumeResult.status === 'rejected') {
-      nativeVizMetadata.value = null;
-      nativeVolumeData.value = null;
-      softWarnings.value.push(getApiErrorMessage(nativeVolumeResult.reason, '原始速度体缓存加载失败'));
+    if (rawOverlayResult.status !== 'fulfilled' || !rawOverlayResult.value.data?.success) {
+      softWarnings.value.push(
+        rawOverlayResult.status === 'fulfilled'
+          ? (rawOverlayResult.value.data?.message || '原始平面叠加加载失败')
+          : getApiErrorMessage(rawOverlayResult.reason, '原始平面叠加加载失败')
+      );
     }
 
     const heights = resourceResult.value.data?.meta?.availableHeights || [];
@@ -1136,129 +1040,100 @@ const buildColorLookup = (steps = 512) => {
   return lookup;
 };
 
-const sampleNativeSliceSpeed = (descriptor, x, y) => {
-  const volume = nativeVolumeData.value;
-  if (!volume?.values || !descriptor) return null;
-
-  const xPos = (x - descriptor.xMin) / descriptor.xStep;
-  const yPos = (y - descriptor.yMin) / descriptor.yStep;
-  if (!Number.isFinite(xPos) || !Number.isFinite(yPos)) return null;
-  if (xPos < 0 || yPos < 0 || xPos > descriptor.width - 1 || yPos > descriptor.height - 1) {
-    return null;
-  }
-
-  const x0 = Math.floor(xPos);
-  const y0 = Math.floor(yPos);
-  const x1 = Math.min(descriptor.width - 1, x0 + 1);
-  const y1 = Math.min(descriptor.height - 1, y0 + 1);
-  const tx = Math.max(0, Math.min(1, xPos - x0));
-  const ty = Math.max(0, Math.min(1, yPos - y0));
-  const layerOffset = descriptor.layerOffset;
-  const rowStride = descriptor.width;
-  const values = volume.values;
-
-  const c00 = values[layerOffset + y0 * rowStride + x0];
-  const c10 = values[layerOffset + y0 * rowStride + x1];
-  const c01 = values[layerOffset + y1 * rowStride + x0];
-  const c11 = values[layerOffset + y1 * rowStride + x1];
-
-  if (![c00, c10, c01, c11].every(Number.isFinite)) return null;
-
-  const c0 = c00 + (c10 - c00) * tx;
-  const c1 = c01 + (c11 - c01) * tx;
-  return c0 + (c1 - c0) * ty;
-};
-
-const drawNativeResourceStage = (ctx, width, height) => {
-  const descriptor = nativeSliceDescriptor.value;
-  const transform = legacySliceTransform.value;
-  if (!descriptor || !transform) return false;
-
+const drawRawOverlayResourceStage = (ctx, width, height) => {
+  const overlay = rawOverlay.value;
+  const plane = resourcePlane.value;
+  const points = Array.isArray(overlay?.points) ? overlay.points : [];
+  if (!points.length || !plane) return false;
   const { min, max } = resourceRenderRange.value;
   if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return false;
 
-  const background = { r: 248, g: 250, b: 252 };
+  const xMin = Number(overlay?.domain?.xMin ?? plane.xMin);
+  const xMax = Number(overlay?.domain?.xMax ?? plane.xMax);
+  const yMin = Number(overlay?.domain?.yMin ?? plane.yMin);
+  const yMax = Number(overlay?.domain?.yMax ?? plane.yMax);
+  const xSpan = xMax - xMin;
+  const ySpan = yMax - yMin;
+  if (!(xSpan > 0) || !(ySpan > 0)) return false;
+
+  const background = { r: 255, g: 255, b: 255 };
   const colorLookup = buildColorLookup(512);
   const imageData = ctx.createImageData(width, height);
   const pixels = imageData.data;
-  const slopeX = Number(transform.xSlope);
-  const slopeY = Number(transform.ySlope);
-  if (!Number.isFinite(slopeX) || !Number.isFinite(slopeY) || Math.abs(slopeX) < 1e-9 || Math.abs(slopeY) < 1e-9) {
-    return false;
+  const inletWindSpeed = Number(resourceMeta.value?.inletWindSpeed);
+  const pointRadius = Math.max(1, Math.round(Math.min(width, height) / 360));
+
+  for (let offset = 0; offset < pixels.length; offset += 4) {
+    pixels[offset] = background.r;
+    pixels[offset + 1] = background.g;
+    pixels[offset + 2] = background.b;
+    pixels[offset + 3] = 255;
   }
 
-  const inletWindSpeed = descriptor.inletWindSpeed;
-  const xHalfStep = Math.abs(descriptor.xStep) / 2;
-  const yHalfStep = Math.abs(descriptor.yStep) / 2;
-
-  for (let py = 0; py < height; py += 1) {
-    const yCoord = (py - transform.yIntercept) / slopeY;
-    for (let px = 0; px < width; px += 1) {
-      const offset = (py * width + px) * 4;
-      pixels[offset] = background.r;
-      pixels[offset + 1] = background.g;
-      pixels[offset + 2] = background.b;
-      pixels[offset + 3] = 255;
-
-      const xCoord = (px - transform.xIntercept) / slopeX;
-      if (
-        xCoord < descriptor.xMin - xHalfStep || xCoord > descriptor.xMax + xHalfStep ||
-        yCoord < descriptor.yMin - yHalfStep || yCoord > descriptor.yMax + yHalfStep
-      ) {
-        continue;
+  const stampPoint = (px, py, colorOffset) => {
+    for (let dy = -pointRadius; dy <= pointRadius; dy += 1) {
+      const targetY = py + dy;
+      if (targetY < 0 || targetY >= height) continue;
+      for (let dx = -pointRadius; dx <= pointRadius; dx += 1) {
+        if (dx * dx + dy * dy > pointRadius * pointRadius + 0.2) continue;
+        const targetX = px + dx;
+        if (targetX < 0 || targetX >= width) continue;
+        const offset = (targetY * width + targetX) * 4;
+        pixels[offset] = colorLookup[colorOffset];
+        pixels[offset + 1] = colorLookup[colorOffset + 1];
+        pixels[offset + 2] = colorLookup[colorOffset + 2];
+        pixels[offset + 3] = 255;
       }
-
-      const speed = sampleNativeSliceSpeed(descriptor, xCoord, yCoord);
-      if (!Number.isFinite(speed)) continue;
-
-      const metricValue = mapMetric.value === 'speedup' && Number.isFinite(inletWindSpeed) && inletWindSpeed > 0
-        ? speed / inletWindSpeed
-        : speed;
-      const normalized = Math.max(0, Math.min(1, (metricValue - min) / (max - min)));
-      const colorIndex = Math.min(511, Math.max(0, Math.round(normalized * 511)));
-      const colorOffset = colorIndex * 3;
-      pixels[offset] = colorLookup[colorOffset];
-      pixels[offset + 1] = colorLookup[colorOffset + 1];
-      pixels[offset + 2] = colorLookup[colorOffset + 2];
     }
-  }
+  };
+
+  points.forEach((point) => {
+    const x = Number(point?.[0]);
+    const y = Number(point?.[1]);
+    const speed = Number(point?.[2]);
+    if (![x, y, speed].every(Number.isFinite)) return;
+
+    const metricValue = mapMetric.value === 'speedup' && Number.isFinite(inletWindSpeed) && inletWindSpeed > 0
+      ? speed / inletWindSpeed
+      : speed;
+    const normalized = Math.max(0, Math.min(1, (metricValue - min) / (max - min)));
+    const colorIndex = Math.min(511, Math.max(0, Math.round(normalized * 511)));
+    const colorOffset = colorIndex * 3;
+    const px = Math.round(((x - xMin) / xSpan) * (width - 1));
+    const py = Math.round(((yMax - y) / ySpan) * (height - 1));
+    if (px < 0 || py < 0 || px >= width || py >= height) return;
+    stampPoint(px, py, colorOffset);
+  });
 
   ctx.putImageData(imageData, 0, 0);
-
-  const borderLeft = slopeX * descriptor.xMin + transform.xIntercept - Math.abs(slopeX * descriptor.xStep) / 2;
-  const borderRight = slopeX * descriptor.xMax + transform.xIntercept + Math.abs(slopeX * descriptor.xStep) / 2;
-  const borderTop = slopeY * descriptor.yMax + transform.yIntercept - Math.abs(slopeY * descriptor.yStep) / 2;
-  const borderBottom = slopeY * descriptor.yMin + transform.yIntercept + Math.abs(slopeY * descriptor.yStep) / 2;
   ctx.strokeStyle = 'rgba(30, 41, 59, 0.55)';
   ctx.lineWidth = 1.2;
-  ctx.strokeRect(borderLeft, borderTop, borderRight - borderLeft, borderBottom - borderTop);
+  ctx.strokeRect(0.5, 0.5, width - 1, height - 1);
 
   return true;
 };
 
 const drawInterpolatedResourceStage = (ctx, width, height) => {
   const plane = resourcePlane.value;
-  const transform = legacySliceTransform.value;
-  if (!plane?.nx || !plane?.ny || !transform) return;
+  if (!plane?.nx || !plane?.ny) return;
 
   const { min, max } = resourceRenderRange.value;
   const inlet = resourceMeta.value?.inletWindSpeed;
-  const xStep = plane.nx > 1 ? (plane.xMax - plane.xMin) / (plane.nx - 1) : plane.xMax - plane.xMin;
-  const yStep = plane.ny > 1 ? (plane.yMax - plane.yMin) / (plane.ny - 1) : plane.yMax - plane.yMin;
-  const cellWidth = Math.max(1, Math.abs(transform.xSlope) * Math.abs(xStep || 1));
-  const cellHeight = Math.max(1, Math.abs(transform.ySlope) * Math.abs(yStep || 1));
+  const xSpan = Number(plane.xMax) - Number(plane.xMin);
+  const ySpan = Number(plane.yMax) - Number(plane.yMin);
+  if (!(xSpan > 0) || !(ySpan > 0)) return;
+  const cellWidth = width / Math.max(plane.nx, 1);
+  const cellHeight = height / Math.max(plane.ny, 1);
 
   for (let iy = 0; iy < plane.ny; iy += 1) {
-    const y = plane.ny === 1 ? (plane.yMin + plane.yMax) / 2 : plane.yMin + ((plane.yMax - plane.yMin) * iy) / (plane.ny - 1);
-    const py = transform.ySlope * y + transform.yIntercept;
+    const py = ((plane.ny - 1 - iy + 0.5) / plane.ny) * height;
 
     for (let ix = 0; ix < plane.nx; ix += 1) {
       const valueIndex = iy * plane.nx + ix;
       const speed = plane.values[valueIndex];
       if (!Number.isFinite(speed)) continue;
 
-      const x = plane.nx === 1 ? (plane.xMin + plane.xMax) / 2 : plane.xMin + ((plane.xMax - plane.xMin) * ix) / (plane.nx - 1);
-      const px = transform.xSlope * x + transform.xIntercept;
+      const px = ((ix + 0.5) / plane.nx) * width;
       const metricValue = mapMetric.value === 'speedup' && Number.isFinite(inlet) && inlet > 0
         ? speed / inlet
         : speed;
@@ -1268,21 +1143,16 @@ const drawInterpolatedResourceStage = (ctx, width, height) => {
     }
   }
 
-  const borderLeft = transform.xSlope * plane.xMin + transform.xIntercept - cellWidth / 2;
-  const borderRight = transform.xSlope * plane.xMax + transform.xIntercept + cellWidth / 2;
-  const borderTop = transform.ySlope * plane.yMax + transform.yIntercept - cellHeight / 2;
-  const borderBottom = transform.ySlope * plane.yMin + transform.yIntercept + cellHeight / 2;
-
   ctx.strokeStyle = 'rgba(30, 41, 59, 0.55)';
   ctx.lineWidth = 1.2;
-  ctx.strokeRect(borderLeft, borderTop, borderRight - borderLeft, borderBottom - borderTop);
+  ctx.strokeRect(0.5, 0.5, width - 1, height - 1);
 };
 
 const drawResourceStage = async () => {
   if (!resourceCanvasRef.value || !pageReady.value) return;
   const canvas = resourceCanvasRef.value;
-  const width = Math.max(1, Math.round(Number(resourceImageDimensions.value?.width) || 800));
-  const height = Math.max(1, Math.round(Number(resourceImageDimensions.value?.height) || 800));
+  const width = 800;
+  const height = 800;
 
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
@@ -1294,30 +1164,8 @@ const drawResourceStage = async () => {
   ctx.fillStyle = '#f8fafc';
   ctx.fillRect(0, 0, width, height);
 
-  if (drawNativeResourceStage(ctx, width, height)) {
+  if (drawRawOverlayResourceStage(ctx, width, height)) {
     return;
-  }
-
-  try {
-    const image = mapMetric.value === 'speed'
-      ? await ensureSliceStageImage(sliceOverlayData.value?.sliceImageUrl)
-      : null;
-    if (image) {
-      ctx.drawImage(
-        image,
-        0,
-        0,
-        width,
-        height,
-        0,
-        0,
-        width,
-        height
-      );
-      return;
-    }
-  } catch {
-    // Fall back to interpolated drawing when cached slice image is unavailable.
   }
 
   drawInterpolatedResourceStage(ctx, width, height);
@@ -1475,8 +1323,6 @@ watch(
   () => props.caseId,
   async (newValue, oldValue) => {
     if (!newValue || newValue === oldValue) return;
-    nativeVizMetadata.value = null;
-    nativeVolumeData.value = null;
     const ok = await ensureCaseLoaded(newValue);
     if (ok) await loadPageData();
   }
@@ -1510,7 +1356,7 @@ watch([mapMetric, rankingMode], async () => {
   updateAllCharts();
 });
 
-watch([resourceMapData, vectorData, experimentalData, nativeVolumeData], async () => {
+watch([resourceMapData, rawOverlayData, vectorData, experimentalData], async () => {
   await nextTick();
   updateAllCharts();
 });
@@ -1524,9 +1370,6 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', resizeCharts);
-  sliceStageImage = null;
-  sliceStageImageUrl = '';
-  sliceStageImagePromise = null;
   sectorChart?.dispose();
   profileChart?.dispose();
   sectorChart = null;

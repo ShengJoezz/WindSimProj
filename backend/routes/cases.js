@@ -30,12 +30,26 @@ const gdal = require('gdal-async');
 const runningCalculations = new Map();
 const windSpeedQueryCache = new Map();
 const MAX_WIND_SPEED_CACHE_CASES = 3;
+const rawPltOverlayCache = new Map();
+const MAX_RAW_PLT_OVERLAY_CACHE_CASES = 8;
 
 const getCalculationTimeoutMs = () => {
     const raw = process.env.CALCULATION_TIMEOUT_MS;
     if (!raw) return 0;
     const ms = Number(raw);
     return Number.isFinite(ms) && ms > 0 ? ms : 0;
+};
+
+const touchBoundedCacheEntry = (cacheMap, key, entry, maxEntries) => {
+    entry.lastAccessedAt = Date.now();
+    cacheMap.delete(key);
+    cacheMap.set(key, entry);
+    while (cacheMap.size > maxEntries) {
+        const oldestKey = cacheMap.keys().next().value;
+        if (typeof oldestKey === 'undefined') break;
+        cacheMap.delete(oldestKey);
+    }
+    return entry;
 };
 
 const resolvePythonExecutable = () => {
@@ -777,6 +791,17 @@ const averageFinite = (values) => {
     return valid.reduce((sum, value) => sum + value, 0) / valid.length;
 };
 
+const getFiniteMinMax = (values) => {
+    let min = null;
+    let max = null;
+    values.forEach((value) => {
+        if (!Number.isFinite(value)) return;
+        if (min === null || value < min) min = value;
+        if (max === null || value > max) max = value;
+    });
+    return { min, max };
+};
+
 const sumFinite = (values) => {
     const valid = values.filter((value) => Number.isFinite(value));
     if (valid.length === 0) return null;
@@ -1063,6 +1088,157 @@ const buildWindResourcePlane = (grid, {
         },
         turbines: sampledTurbines,
     };
+};
+
+const roundFinite = (value, digits = 3) => (
+    Number.isFinite(value) ? Number(Number(value).toFixed(digits)) : null
+);
+
+const resolveClosestRawPltFile = async (casePath, requestedHeight) => {
+    const candidateDirs = [
+        path.join(casePath, 'run', 'Output', 'plt'),
+        path.join(casePath, 'Output', 'plt'),
+    ];
+
+    let pltDir = null;
+    for (const candidate of candidateDirs) {
+        if (fs.existsSync(candidate)) {
+            pltDir = candidate;
+            break;
+        }
+    }
+
+    if (!pltDir) {
+        throw new Error('未找到 Output/plt 原始平面输出目录。');
+    }
+
+    const entries = await fsPromises.readdir(pltDir, { withFileTypes: true });
+    const heightFiles = entries
+        .filter((entry) => entry.isFile() || entry.isSymbolicLink())
+        .map((entry) => {
+            const heightValue = Number.parseFloat(entry.name);
+            return Number.isFinite(heightValue)
+                ? { name: entry.name, height: heightValue }
+                : null;
+        })
+        .filter(Boolean);
+
+    if (!heightFiles.length) {
+        throw new Error('Output/plt 目录中没有可用的高度平面文件。');
+    }
+
+    const targetHeight = Number(requestedHeight);
+    const nearest = heightFiles.reduce((closest, current) => (
+        Math.abs(current.height - targetHeight) < Math.abs(closest.height - targetHeight) ? current : closest
+    ), heightFiles[0]);
+
+    return {
+        directory: pltDir,
+        actualHeight: nearest.height,
+        filePath: path.join(pltDir, nearest.name),
+        fileName: nearest.name,
+    };
+};
+
+const buildRawPltOverlayPayload = async ({
+    caseId,
+    casePath,
+    requestedHeight,
+    inletWindSpeed = null,
+    maxPoints = 180000,
+}) => {
+    const infoPath = path.join(casePath, 'info.json');
+    const [infoRaw, rawPlane] = await Promise.all([
+        fsPromises.readFile(infoPath, 'utf-8'),
+        resolveClosestRawPltFile(casePath, requestedHeight),
+    ]);
+    const info = JSON.parse(infoRaw);
+    const scale = Number(info?.mesh?.scale ?? 0.001);
+    const scaleValue = Number.isFinite(scale) && scale > 0 ? scale : 0.001;
+    const ltRaw = Number(info?.domain?.lt);
+    const lt = Number.isFinite(ltRaw) && ltRaw > 0 ? ltRaw : 10000;
+
+    const snapshot = await buildFileSnapshot(rawPlane.filePath);
+    const cacheKey = `${caseId}:${rawPlane.fileName}:${maxPoints}`;
+    const cached = rawPltOverlayCache.get(cacheKey);
+    if (cached && sameFileSnapshot(cached.fileSnapshot, snapshot)) {
+        return touchBoundedCacheEntry(rawPltOverlayCache, cacheKey, cached, MAX_RAW_PLT_OVERLAY_CACHE_CASES);
+    }
+
+    const content = await fsPromises.readFile(rawPlane.filePath, 'utf-8');
+    const lines = content.split(/\r?\n/).filter((line) => line.trim());
+    const stride = Math.max(1, Math.ceil(lines.length / Math.max(1, Math.trunc(maxPoints))));
+
+    const points = [];
+    const speeds = [];
+
+    for (let index = 0; index < lines.length; index += stride) {
+        const tokens = lines[index].trim().split(/\s+/);
+        if (tokens.length < 6) continue;
+
+        const rawX = Number(tokens[0]);
+        const rawY = Number(tokens[1]);
+        const ux = Number(tokens[3]);
+        const uy = Number(tokens[4]);
+        const uz = Number(tokens[5]);
+        if (![rawX, rawY, ux, uy, uz].every(Number.isFinite)) continue;
+
+        const xMeters = rawX / scaleValue;
+        const yMeters = rawY / scaleValue;
+        const speed = Math.sqrt(ux ** 2 + uy ** 2 + uz ** 2);
+        if (![xMeters, yMeters, speed].every(Number.isFinite)) continue;
+
+        points.push([
+            roundFinite(xMeters, 2),
+            roundFinite(yMeters, 2),
+            roundFinite(speed, 4),
+        ]);
+        speeds.push(speed);
+    }
+
+    const speedupValues = Number.isFinite(inletWindSpeed) && inletWindSpeed > 0
+        ? speeds.map((speed) => speed / inletWindSpeed)
+        : [];
+    const speedMinMax = getFiniteMinMax(speeds);
+
+    const payload = {
+        actualHeight: rawPlane.actualHeight,
+        sourceFile: rawPlane.fileName,
+        fileSnapshot: snapshot,
+        overlay: {
+            pointCount: points.length,
+            sourcePointCount: lines.length,
+            sampleStride: stride,
+            domain: {
+                xMin: -lt / 2,
+                xMax: lt / 2,
+                yMin: -lt / 2,
+                yMax: lt / 2,
+            },
+            points,
+            stats: {
+                minSpeed: speedMinMax.min,
+                maxSpeed: speedMinMax.max,
+                meanSpeed: averageFinite(speeds),
+                p05Speed: computeQuantile(speeds, 0.05),
+                p50Speed: computeQuantile(speeds, 0.5),
+                p95Speed: computeQuantile(speeds, 0.95),
+                strongSpeedupAreaRatio: speedupValues.length
+                    ? speedupValues.filter((value) => value >= 1.05).length / speedupValues.length
+                    : null,
+                deficitAreaRatio: speedupValues.length
+                    ? speedupValues.filter((value) => value <= 0.95).length / speedupValues.length
+                    : null,
+            },
+        },
+    };
+
+    return touchBoundedCacheEntry(
+        rawPltOverlayCache,
+        cacheKey,
+        payload,
+        MAX_RAW_PLT_OVERLAY_CACHE_CASES,
+    );
 };
 
 // --- 辅助函数 ---
@@ -3233,6 +3409,70 @@ router.get('/:caseId/experimental-wind-resource-map', async (req, res) => {
         return res.status(500).json({
             success: false,
             message: analysisError?.message || '实验性风资源评估失败。',
+        });
+    }
+});
+
+router.get('/:caseId/experimental-wind-resource-raw-overlay', async (req, res) => {
+    const { caseId } = req.params;
+    const querySchema = Joi.object({
+        height: Joi.number().min(0).max(1000).default(120),
+        maxPoints: Joi.number().integer().min(20000).max(240000).default(180000),
+    });
+
+    const { error, value } = querySchema.validate(req.query, { convert: true });
+    if (error) {
+        return res.status(400).json({
+            success: false,
+            message: '原始平面叠加参数无效。',
+            errors: error.details.map((detail) => detail.message),
+        });
+    }
+
+    const casePath = path.join(__dirname, '../uploads', caseId);
+    const infoPath = path.join(casePath, 'info.json');
+
+    try {
+        res.setHeader('Cache-Control', 'no-store');
+
+        const infoRaw = await fsPromises.readFile(infoPath, 'utf-8');
+        const info = JSON.parse(infoRaw);
+        const inletWindSpeed = Number(info?.wind?.speed ?? null);
+        const payload = await buildRawPltOverlayPayload({
+            caseId,
+            casePath,
+            requestedHeight: value.height,
+            inletWindSpeed,
+            maxPoints: value.maxPoints,
+        });
+
+        return res.json({
+            success: true,
+            method: {
+                type: 'experimental_raw_output_plt_overlay',
+                source: 'run/Output/plt/<height>',
+                frame: 'solver_coordinates',
+                sampling: 'raw scattered plane output',
+                limitations: [
+                    '该底图直接来自 Output/plt 原始散点，不是 speed.bin 规则网格重采样，因此更适合做机位对准核查。',
+                    '散点层用于定位与尾流形态对照，统计卡片和机位筛查仍建议结合 speed.bin / internal.vtu 的后处理结果一起看。',
+                    '当前为实验性平面叠加接口，若原始散点过密会按 maxPoints 自动抽样显示。',
+                ],
+            },
+            meta: {
+                requestedHeight: value.height,
+                actualHeight: payload.actualHeight,
+                maxPoints: value.maxPoints,
+                inletWindSpeed: Number.isFinite(inletWindSpeed) ? inletWindSpeed : null,
+                sourceFile: payload.sourceFile,
+            },
+            overlay: payload.overlay,
+        });
+    } catch (analysisError) {
+        console.error(`原始 Output/plt 资源叠加失败 (${caseId}):`, analysisError);
+        return res.status(500).json({
+            success: false,
+            message: analysisError?.message || '原始 Output/plt 资源叠加失败。',
         });
     }
 });
