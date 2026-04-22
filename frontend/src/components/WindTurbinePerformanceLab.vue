@@ -94,7 +94,31 @@
           </div>
 
           <div class="map-shell">
-            <div ref="resourceMapRef" class="chart-surface map-surface"></div>
+            <div class="resource-stage-wrap">
+              <div ref="resourceStageRef" class="resource-stage">
+                <canvas ref="resourceCanvasRef" class="resource-canvas"></canvas>
+                <button
+                  v-for="marker in resourceMarkers"
+                  :key="marker.id"
+                  type="button"
+                  class="resource-marker"
+                  :class="{ 'resource-marker-active': marker.id === selectedTurbineId }"
+                  :style="marker.style"
+                  :title="marker.title"
+                  @click="selectedTurbineId = marker.id"
+                >
+                  <span class="resource-marker-dot"></span>
+                  <span class="resource-marker-label">{{ marker.name }}</span>
+                </button>
+              </div>
+            </div>
+            <div class="map-legend">
+              <div class="map-legend-title">{{ mapMetric === 'speedup' ? '加速比' : '风速' }}</div>
+              <div class="map-legend-bar" :style="mapLegendStyle"></div>
+              <div class="map-legend-ticks">
+                <span v-for="tick in mapLegendTicks" :key="tick">{{ tick }}</span>
+              </div>
+            </div>
             <div v-if="mapLoading" class="panel-overlay">
               <div class="loading-spinner"></div>
             </div>
@@ -321,6 +345,7 @@ const softWarnings = ref([]);
 const experimentalData = ref(null);
 const vectorData = ref(null);
 const resourceMapData = ref(null);
+const sliceOverlayData = ref(null);
 const profileData = ref(null);
 
 const selectedHeight = ref(120);
@@ -329,11 +354,11 @@ const mapMetric = ref('speedup');
 const rankingMode = ref('risk');
 const suppressHeightWatch = ref(false);
 
-const resourceMapRef = ref(null);
+const resourceCanvasRef = ref(null);
+const resourceStageRef = ref(null);
 const sectorChartRef = ref(null);
 const profileChartRef = ref(null);
 
-let resourceChart = null;
 let sectorChart = null;
 let profileChart = null;
 
@@ -366,11 +391,111 @@ const vectorSummary = computed(() => vectorData.value?.summary || null);
 const resourceMeta = computed(() => resourceMapData.value?.meta || null);
 const resourcePlane = computed(() => resourceMapData.value?.plane || null);
 const resourceStats = computed(() => resourcePlane.value?.stats || null);
+const resourceImageDimensions = computed(() => sliceOverlayData.value?.imageDimensions || { width: 800, height: 800 });
+const resourcePlotBounds = computed(() => {
+  const width = Math.max(1, Math.round(Number(resourceImageDimensions.value?.width) || 800));
+  const height = Math.max(1, Math.round(Number(resourceImageDimensions.value?.height) || 800));
+  const plane = resourcePlane.value;
+  const transform = legacySliceTransform.value;
+
+  if (!plane?.nx || !plane?.ny || !transform) {
+    return { left: 0, top: 0, width, height };
+  }
+
+  const xStep = plane.nx > 1 ? (plane.xMax - plane.xMin) / (plane.nx - 1) : 0;
+  const yStep = plane.ny > 1 ? (plane.yMax - plane.yMin) / (plane.ny - 1) : 0;
+  const cellWidth = Math.max(1, Math.abs(transform.xSlope) * Math.abs(xStep || 1));
+  const cellHeight = Math.max(1, Math.abs(transform.ySlope) * Math.abs(yStep || 1));
+
+  const left = Math.max(0, transform.xSlope * plane.xMin + transform.xIntercept - cellWidth / 2);
+  const right = Math.min(width, transform.xSlope * plane.xMax + transform.xIntercept + cellWidth / 2);
+  const top = Math.max(0, transform.ySlope * plane.yMax + transform.yIntercept - cellHeight / 2);
+  const bottom = Math.min(height, transform.ySlope * plane.yMin + transform.yIntercept + cellHeight / 2);
+
+  return {
+    left,
+    top,
+    width: Math.max(1, right - left),
+    height: Math.max(1, bottom - top),
+  };
+});
+
+const legacySliceTransform = computed(() => {
+  const pixels = Array.isArray(sliceOverlayData.value?.turbinesPixels) ? sliceOverlayData.value.turbinesPixels : [];
+  const turbines = Array.isArray(resourceMapData.value?.turbines) ? resourceMapData.value.turbines : [];
+  if (pixels.length < 2 || turbines.length < 2) return null;
+
+  const pixelMap = new Map(pixels.map((item) => [item.id, item]));
+  const matched = turbines
+    .map((item) => {
+      const pixel = pixelMap.get(item.id);
+      if (!pixel) return null;
+      if (![item.x, item.y, pixel.x, pixel.y].every(Number.isFinite)) return null;
+      return { x: Number(item.x), y: Number(item.y), px: Number(pixel.x), py: Number(pixel.y) };
+    })
+    .filter(Boolean);
+
+  if (matched.length < 2) return null;
+
+  const fitLine = (coordKey, pixelKey) => {
+    const samples = matched.map((item) => item[coordKey]);
+    const pixelsList = matched.map((item) => item[pixelKey]);
+    const meanCoord = samples.reduce((sum, value) => sum + value, 0) / samples.length;
+    const meanPixel = pixelsList.reduce((sum, value) => sum + value, 0) / pixelsList.length;
+    const numerator = samples.reduce((sum, value, index) => sum + (value - meanCoord) * (pixelsList[index] - meanPixel), 0);
+    const denominator = samples.reduce((sum, value) => sum + (value - meanCoord) ** 2, 0);
+    const slope = denominator > 0 ? numerator / denominator : 0;
+    const intercept = meanPixel - slope * meanCoord;
+    return { slope, intercept };
+  };
+
+  const xFit = fitLine('x', 'px');
+  const yFit = fitLine('y', 'py');
+  return {
+    xSlope: xFit.slope,
+    xIntercept: xFit.intercept,
+    ySlope: yFit.slope,
+    yIntercept: yFit.intercept,
+  };
+});
 
 const availableHeights = computed(() => {
   const heights = resourceMeta.value?.availableHeights;
   return Array.isArray(heights) && heights.length ? heights : [20, 40, 60, 80, 100, 120, 140, 160, 180, 200];
 });
+
+const resourceColorStops = ['#00007f', '#001dff', '#00a3ff', '#2dffc4', '#b1ff4a', '#ffe600', '#ff7a00', '#d50000'];
+
+const hexToRgb = (hex) => {
+  const normalized = String(hex || '').replace('#', '');
+  const value = normalized.length === 3
+    ? normalized.split('').map((char) => `${char}${char}`).join('')
+    : normalized;
+  const parsed = Number.parseInt(value, 16);
+  if (!Number.isFinite(parsed)) return { r: 0, g: 0, b: 0 };
+  return {
+    r: (parsed >> 16) & 255,
+    g: (parsed >> 8) & 255,
+    b: parsed & 255,
+  };
+};
+
+const interpolateColor = (value, min, max) => {
+  if (!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max) || max <= min) {
+    return resourceColorStops[0];
+  }
+  const clamped = Math.max(0, Math.min(1, (value - min) / (max - min)));
+  const scaled = clamped * (resourceColorStops.length - 1);
+  const lowerIndex = Math.floor(scaled);
+  const upperIndex = Math.min(resourceColorStops.length - 1, lowerIndex + 1);
+  const weight = scaled - lowerIndex;
+  const lower = hexToRgb(resourceColorStops[lowerIndex]);
+  const upper = hexToRgb(resourceColorStops[upperIndex]);
+  const r = Math.round(lower.r + (upper.r - lower.r) * weight);
+  const g = Math.round(lower.g + (upper.g - lower.g) * weight);
+  const b = Math.round(lower.b + (upper.b - lower.b) * weight);
+  return `rgb(${r}, ${g}, ${b})`;
+};
 
 const warnings = computed(() => [
   ...(experimentalData.value?.warnings || []),
@@ -674,6 +799,89 @@ const rankingLabel = computed(() => {
   return labels[rankingMode.value] || labels.risk;
 });
 
+const resourceRenderRange = computed(() => {
+  const inlet = Number(resourceMeta.value?.inletWindSpeed);
+  const baseMin = Number(sliceOverlayData.value?.vmin);
+  const baseMax = Number(sliceOverlayData.value?.vmax);
+
+  if (Number.isFinite(baseMin) && Number.isFinite(baseMax)) {
+    if (mapMetric.value === 'speedup' && Number.isFinite(inlet) && inlet > 0) {
+      return {
+        min: baseMin / inlet,
+        max: baseMax / inlet,
+      };
+    }
+    return {
+      min: baseMin,
+      max: baseMax,
+    };
+  }
+
+  const { min, max } = buildResourceHeatmap();
+  return {
+    min: Number.isFinite(min) ? min : 0,
+    max: Number.isFinite(max) ? max : 1,
+  };
+});
+
+const mapLegendStyle = computed(() => ({
+  background: `linear-gradient(to top, ${resourceColorStops.join(', ')})`,
+}));
+
+const mapLegendTicks = computed(() => {
+  const { min, max } = resourceRenderRange.value;
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return ['-', '-', '-'];
+  const mid = min + (max - min) / 2;
+  const digits = mapMetric.value === 'speedup' ? 2 : 1;
+  return [max, mid, min].map((value) => Number(value).toFixed(digits));
+});
+
+const resourceMarkers = computed(() => {
+  const bounds = resourcePlotBounds.value;
+  const pixelMap = new Map((sliceOverlayData.value?.turbinesPixels || []).map((item) => [item.id, item]));
+
+  return combinedRows.value
+    .filter((item) => pixelMap.has(item.id))
+    .map((item) => {
+      const pixel = pixelMap.get(item.id);
+      const left = ((Number(pixel.x) - bounds.left) / bounds.width) * 100;
+      const top = ((Number(pixel.y) - bounds.top) / bounds.height) * 100;
+      return {
+        id: item.id,
+        name: item.name,
+        title: `${item.name} | X ${formatNumber(item.x, 1)} m | Y ${formatNumber(item.y, 1)} m`,
+        style: {
+          left: `${Math.max(0, Math.min(100, left))}%`,
+          top: `${Math.max(0, Math.min(100, top))}%`,
+          zIndex: item.id === selectedTurbineId.value ? 4 : 3,
+        },
+      };
+    });
+});
+
+let sliceStageImage = null;
+let sliceStageImageUrl = '';
+let sliceStageImagePromise = null;
+
+const ensureSliceStageImage = (imageUrl) => {
+  if (!imageUrl) return Promise.resolve(null);
+  if (sliceStageImage && sliceStageImageUrl === imageUrl && sliceStageImage.complete) {
+    return Promise.resolve(sliceStageImage);
+  }
+  if (sliceStageImagePromise && sliceStageImageUrl === imageUrl) {
+    return sliceStageImagePromise;
+  }
+
+  sliceStageImageUrl = imageUrl;
+  sliceStageImage = new Image();
+  sliceStageImagePromise = new Promise((resolve, reject) => {
+    sliceStageImage.onload = () => resolve(sliceStageImage);
+    sliceStageImage.onerror = () => reject(new Error('资源切片图加载失败'));
+  });
+  sliceStageImage.src = imageUrl;
+  return sliceStageImagePromise;
+};
+
 const ensureCaseLoaded = async (id) => {
   if (!id) return false;
   try {
@@ -718,18 +926,27 @@ const loadResourceLayer = async (height, { silent = false } = {}) => {
   if (!props.caseId) return;
   if (!silent) mapLoading.value = true;
   try {
-    const response = await axios.get(`/api/cases/${props.caseId}/experimental-wind-resource-map`, {
-      params: { height, resolution: 180 },
-    });
-    if (!response.data?.success) {
-      throw new Error(response.data?.message || '风资源平面层未返回有效数据');
+    const [resourceResponse, sliceResponse] = await Promise.all([
+      axios.get(`/api/cases/${props.caseId}/experimental-wind-resource-map`, {
+        params: { height, resolution: 180 },
+      }),
+      axios.get(`/api/cases/${props.caseId}/visualization-slice`, {
+        params: { height },
+      }),
+    ]);
+    if (!resourceResponse.data?.success) {
+      throw new Error(resourceResponse.data?.message || '风资源平面层未返回有效数据');
     }
-    resourceMapData.value = response.data;
+    if (!sliceResponse.data?.success) {
+      throw new Error(sliceResponse.data?.message || '风资源切片缓存未返回有效数据');
+    }
+    resourceMapData.value = resourceResponse.data;
+    sliceOverlayData.value = sliceResponse.data;
 
-    const heights = response.data?.meta?.availableHeights || [];
+    const heights = resourceResponse.data?.meta?.availableHeights || [];
     if (heights.length && !heights.includes(selectedHeight.value)) {
       suppressHeightWatch.value = true;
-      selectedHeight.value = response.data.meta.nearestNativeHeight ?? heights[0];
+      selectedHeight.value = resourceResponse.data.meta.nearestNativeHeight ?? heights[0];
       suppressHeightWatch.value = false;
     }
   } catch (error) {
@@ -751,11 +968,14 @@ const loadPageData = async ({ preserveSelection = false } = {}) => {
     if (caseStore.hasFetchedCalculationStatus && caseStore.calculationStatus !== 'completed') return;
 
     const requestedHeight = Number.isFinite(selectedHeight.value) ? selectedHeight.value : 120;
-    const [scalarResult, vectorResult, resourceResult] = await Promise.allSettled([
+    const [scalarResult, vectorResult, resourceResult, sliceResult] = await Promise.allSettled([
       axios.get(`/api/cases/${props.caseId}/experimental-turbine-performance`),
       axios.get(`/api/cases/${props.caseId}/experimental-turbine-vector-diagnostics`),
       axios.get(`/api/cases/${props.caseId}/experimental-wind-resource-map`, {
         params: { height: requestedHeight, resolution: 180 },
+      }),
+      axios.get(`/api/cases/${props.caseId}/visualization-slice`, {
+        params: { height: requestedHeight },
       }),
     ]);
 
@@ -775,6 +995,9 @@ const loadPageData = async ({ preserveSelection = false } = {}) => {
 
     experimentalData.value = scalarResult.value.data;
     resourceMapData.value = resourceResult.value.data;
+    sliceOverlayData.value = sliceResult.status === 'fulfilled' && sliceResult.value.data?.success
+      ? sliceResult.value.data
+      : null;
 
     if (vectorResult.status === 'fulfilled' && vectorResult.value.data?.success) {
       vectorData.value = vectorResult.value.data;
@@ -873,177 +1096,86 @@ const buildResourceHeatmap = () => {
   };
 };
 
-const updateResourceChart = () => {
-  if (!resourceMapRef.value || !pageReady.value) return;
-  if (!resourceChart) {
-    resourceChart = echarts.init(resourceMapRef.value);
-    resourceChart.on('click', (params) => {
-      if (params?.seriesName === '机位' && params?.data?.id) {
-        selectedTurbineId.value = params.data.id;
-      }
-    });
+const drawInterpolatedResourceStage = (ctx, width, height) => {
+  const plane = resourcePlane.value;
+  const transform = legacySliceTransform.value;
+  if (!plane?.nx || !plane?.ny || !transform) return;
+
+  const { min, max } = resourceRenderRange.value;
+  const inlet = resourceMeta.value?.inletWindSpeed;
+  const xStep = plane.nx > 1 ? (plane.xMax - plane.xMin) / (plane.nx - 1) : plane.xMax - plane.xMin;
+  const yStep = plane.ny > 1 ? (plane.yMax - plane.yMin) / (plane.ny - 1) : plane.yMax - plane.yMin;
+  const cellWidth = Math.max(1, Math.abs(transform.xSlope) * Math.abs(xStep || 1));
+  const cellHeight = Math.max(1, Math.abs(transform.ySlope) * Math.abs(yStep || 1));
+
+  for (let iy = 0; iy < plane.ny; iy += 1) {
+    const y = plane.ny === 1 ? (plane.yMin + plane.yMax) / 2 : plane.yMin + ((plane.yMax - plane.yMin) * iy) / (plane.ny - 1);
+    const py = transform.ySlope * y + transform.yIntercept;
+
+    for (let ix = 0; ix < plane.nx; ix += 1) {
+      const valueIndex = iy * plane.nx + ix;
+      const speed = plane.values[valueIndex];
+      if (!Number.isFinite(speed)) continue;
+
+      const x = plane.nx === 1 ? (plane.xMin + plane.xMax) / 2 : plane.xMin + ((plane.xMax - plane.xMin) * ix) / (plane.nx - 1);
+      const px = transform.xSlope * x + transform.xIntercept;
+      const metricValue = mapMetric.value === 'speedup' && Number.isFinite(inlet) && inlet > 0
+        ? speed / inlet
+        : speed;
+
+      ctx.fillStyle = interpolateColor(metricValue, min, max);
+      ctx.fillRect(px - cellWidth / 2, py - cellHeight / 2, cellWidth + 0.8, cellHeight + 0.8);
+    }
   }
 
-  const {
-    data,
-    min,
-    max,
-    xMinKm,
-    xMaxKm,
-    yMinKm,
-    yMaxKm,
-    cellWidthKm,
-    cellHeightKm,
-  } = buildResourceHeatmap();
-  const turbines = combinedRows.value
-    .filter((item) => Number.isFinite(item.x) && Number.isFinite(item.y))
-    .map((item) => ({
-      id: item.id,
-      name: item.name,
-      xKm: item.x / 1000,
-      yKm: item.y / 1000,
-      value: [item.x / 1000, item.y / 1000, item.resourceSpeed ?? item.resourceSpeedupRatio ?? 0],
-      itemStyle: {
-        color: item.id === selectedTurbineId.value ? '#ffffff' : '#0f172a',
-        borderColor: item.id === selectedTurbineId.value ? '#f97316' : '#d7e3ff',
-        borderWidth: item.id === selectedTurbineId.value ? 2.5 : 1.5,
-      },
-      symbolSize: item.id === selectedTurbineId.value ? 14 : 10,
-    }));
+  const borderLeft = transform.xSlope * plane.xMin + transform.xIntercept - cellWidth / 2;
+  const borderRight = transform.xSlope * plane.xMax + transform.xIntercept + cellWidth / 2;
+  const borderTop = transform.ySlope * plane.yMax + transform.yIntercept - cellHeight / 2;
+  const borderBottom = transform.ySlope * plane.yMin + transform.yIntercept + cellHeight / 2;
 
-  const selectedPoint = selectedRow.value && Number.isFinite(selectedRow.value.x) && Number.isFinite(selectedRow.value.y)
-    ? [{
-        value: [selectedRow.value.x / 1000, selectedRow.value.y / 1000, 1],
-        symbolSize: 24,
-      }]
-    : [];
+  ctx.strokeStyle = 'rgba(30, 41, 59, 0.55)';
+  ctx.lineWidth = 1.2;
+  ctx.strokeRect(borderLeft, borderTop, borderRight - borderLeft, borderBottom - borderTop);
+};
 
-  resourceChart.setOption({
-    animation: false,
-    grid: { left: 70, right: 104, top: 28, bottom: 56, containLabel: false },
-    tooltip: {
-      trigger: 'item',
-      confine: true,
-      formatter: (params) => {
-        if (params.seriesName === '机位') {
-          const row = combinedRows.value.find((item) => item.id === params.data.id);
-          if (!row) return params.data.name;
-          return [
-            `<strong>${row.name}</strong>`,
-            `X/Y: ${formatNumber(params.data.xKm, 2)} / ${formatNumber(params.data.yKm, 2)} km`,
-            `层风速: ${formatNumber(row.resourceSpeed, 2)} m/s`,
-            `加速比: ${formatPercentRatio(row.resourceSpeedupRatio, 1)} %`,
-            `矢量窗口 Ux: ${formatNumber(row.vectorWindowUx, 2)} m/s`,
-            `窗口功率差: ${formatSigned(row.vectorWindowPowerGap, 1)} kW`,
-          ].join('<br/>');
-        }
-        const xKm = params.data?.[0];
-        const yKm = params.data?.[1];
-        return [
-          `${mapMetricLabel.value}: ${formatNumber(params.data?.[2], 3)}`,
-          `X/Y: ${formatNumber(xKm, 2)} / ${formatNumber(yKm, 2)} km`,
-        ].join('<br/>');
-      },
-    },
-    xAxis: {
-      type: 'value',
-      min: xMinKm,
-      max: xMaxKm,
-      name: 'X (km)',
-      nameLocation: 'middle',
-      nameGap: 40,
-      minInterval: cellWidthKm,
-      maxInterval: 0.5,
-      scale: false,
-      axisLabel: {
-        color: '#516079',
-        formatter: (value) => Number(value).toFixed(1),
-      },
-      splitLine: { lineStyle: { color: 'rgba(114, 132, 168, 0.12)' } },
-    },
-    yAxis: {
-      type: 'value',
-      min: yMinKm,
-      max: yMaxKm,
-      name: 'Y (km)',
-      nameLocation: 'middle',
-      nameGap: 52,
-      minInterval: cellHeightKm,
-      maxInterval: 0.5,
-      scale: false,
-      axisLabel: {
-        color: '#516079',
-        formatter: (value) => Number(value).toFixed(1),
-      },
-      splitLine: { lineStyle: { color: 'rgba(114, 132, 168, 0.12)' } },
-    },
-    visualMap: {
-      type: 'continuous',
-      min,
-      max,
-      calculable: true,
-      orient: 'vertical',
-      right: 12,
-      top: 'center',
-      itemHeight: 180,
-      text: [mapMetric.value === 'speedup' ? '加速比' : '风速', ''],
-      textStyle: { color: '#334155' },
-      inRange: {
-        color: ['#00007f', '#001dff', '#00a3ff', '#2dffc4', '#b1ff4a', '#ffe600', '#ff7a00', '#d50000'],
-      },
-    },
-    series: [
-      {
-        name: '资源层',
-        type: 'custom',
-        data,
-        progressive: 0,
-        encode: {
-          x: 0,
-          y: 1,
-          tooltip: 2,
-        },
-        renderItem: (params, api) => {
-          const coord = api.coord([api.value(0), api.value(1)]);
-          const size = api.size([cellWidthKm, cellHeightKm]);
-          return {
-            type: 'rect',
-            shape: {
-              x: coord[0] - size[0] / 2,
-              y: coord[1] - size[1] / 2,
-              width: Math.max(size[0], 1),
-              height: Math.max(size[1], 1),
-            },
-            style: {
-              fill: api.visual('color'),
-            },
-            silent: false,
-          };
-        },
-      },
-      {
-        name: '机位',
-        type: 'scatter',
-        data: turbines,
-        zlevel: 3,
-        label: {
-          show: true,
-          formatter: ({ data: item }) => item?.name,
-          position: 'top',
-          color: '#1e293b',
-          fontSize: 11,
-        },
-      },
-      {
-        name: '当前机位',
-        type: 'effectScatter',
-        data: selectedPoint,
-        rippleEffect: { scale: 4, brushType: 'stroke' },
-        itemStyle: { color: '#f97316' },
-        zlevel: 4,
-      },
-    ],
-  });
+const drawResourceStage = async () => {
+  if (!resourceCanvasRef.value || !pageReady.value) return;
+  const canvas = resourceCanvasRef.value;
+  const bounds = resourcePlotBounds.value;
+  const width = Math.max(1, Math.round(Number(bounds?.width) || 800));
+  const height = Math.max(1, Math.round(Number(bounds?.height) || 800));
+
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = '#f8fafc';
+  ctx.fillRect(0, 0, width, height);
+
+  try {
+    const image = await ensureSliceStageImage(sliceOverlayData.value?.sliceImageUrl);
+    if (image) {
+      ctx.drawImage(
+        image,
+        bounds.left,
+        bounds.top,
+        bounds.width,
+        bounds.height,
+        0,
+        0,
+        width,
+        height
+      );
+      return;
+    }
+  } catch {
+    // Fall back to interpolated drawing when cached slice image is unavailable.
+  }
+
+  drawInterpolatedResourceStage(ctx, width, height);
 };
 
 const buildRoseSeries = () => {
@@ -1154,13 +1286,13 @@ const updateProfileChart = () => {
 };
 
 const updateAllCharts = () => {
-  updateResourceChart();
+  drawResourceStage();
   updateSectorChart();
   updateProfileChart();
 };
 
 const resizeCharts = () => {
-  resourceChart?.resize();
+  drawResourceStage();
   sectorChart?.resize();
   profileChart?.resize();
 };
@@ -1209,7 +1341,7 @@ watch(selectedHeight, async (newValue, oldValue) => {
   try {
     await loadResourceLayer(newValue);
     await nextTick();
-    updateResourceChart();
+    drawResourceStage();
   } catch (error) {
     pageError.value = getApiErrorMessage(error, '风资源平面层加载失败');
   }
@@ -1245,10 +1377,11 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', resizeCharts);
-  resourceChart?.dispose();
+  sliceStageImage = null;
+  sliceStageImageUrl = '';
+  sliceStageImagePromise = null;
   sectorChart?.dispose();
   profileChart?.dispose();
-  resourceChart = null;
   sectorChart = null;
   profileChart = null;
 });
@@ -1410,7 +1543,10 @@ onBeforeUnmount(() => {
 }
 
 .map-shell {
-  width: min(100%, 860px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
   margin: 0 auto;
 }
 
@@ -1418,9 +1554,92 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
-.map-surface {
+.resource-stage-wrap {
+  width: min(100%, 860px);
+}
+
+.resource-stage {
+  position: relative;
+  width: 100%;
   aspect-ratio: 1 / 1;
   min-height: 560px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.resource-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.resource-marker {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.resource-marker-dot {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #1e293b;
+  border: 1.5px solid #dbeafe;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7);
+}
+
+.resource-marker-active .resource-marker-dot {
+  width: 14px;
+  height: 14px;
+  background: #ffffff;
+  border: 2px solid #f97316;
+  box-shadow: 0 0 0 6px rgba(249, 115, 22, 0.14);
+}
+
+.resource-marker-label {
+  position: absolute;
+  top: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  line-height: 1;
+  color: #334155;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.map-legend {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 56px;
+}
+
+.map-legend-title {
+  font-size: 12px;
+  color: #475569;
+}
+
+.map-legend-bar {
+  width: 18px;
+  height: 240px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+}
+
+.map-legend-ticks {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 240px;
+  font-size: 11px;
+  color: #64748b;
 }
 
 .mini-grid {
@@ -1650,6 +1869,27 @@ onBeforeUnmount(() => {
 
   .map-surface {
     min-height: 420px;
+  }
+
+  .map-shell {
+    flex-direction: column;
+  }
+
+  .map-legend {
+    flex-direction: row;
+    min-width: auto;
+  }
+
+  .map-legend-bar {
+    width: 220px;
+    height: 16px;
+    background: linear-gradient(to right, #00007f, #001dff, #00a3ff, #2dffc4, #b1ff4a, #ffe600, #ff7a00, #d50000);
+  }
+
+  .map-legend-ticks {
+    flex-direction: row;
+    width: 220px;
+    height: auto;
   }
 }
 </style>
