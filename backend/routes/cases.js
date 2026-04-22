@@ -689,6 +689,54 @@ const buildRotorDiskSampleOffsets = (sampleResolution) => {
     return points;
 };
 
+const getWindFrameAxes = (windAngleDeg) => {
+    const angleRad = (270 - Number(windAngleDeg || 0)) * Math.PI / 180;
+    return {
+        streamwiseUnit: {
+            x: Math.cos(angleRad),
+            y: Math.sin(angleRad),
+        },
+        lateralUnit: {
+            x: -Math.sin(angleRad),
+            y: Math.cos(angleRad),
+        },
+    };
+};
+
+const normalizeLc2Values = (primaryConfig, fallbackConfig = null) => {
+    const candidates = [
+        primaryConfig?.mesh?.lc2,
+        fallbackConfig?.mesh?.lc2,
+    ];
+
+    for (const candidate of candidates) {
+        if (Array.isArray(candidate)) {
+            const values = candidate
+                .map((value) => Number(value))
+                .filter((value) => Number.isFinite(value) && value > 0);
+            if (values.length > 0) return values;
+            continue;
+        }
+
+        const scalar = Number(candidate);
+        if (Number.isFinite(scalar) && scalar > 0) return [scalar];
+    }
+
+    return [];
+};
+
+const resolveTurbineDxMeters = (turbine, lc2Values) => {
+    if (!Array.isArray(lc2Values) || lc2Values.length === 0) return null;
+    const fallbackDx = lc2Values[0];
+    if (!Number.isFinite(fallbackDx) || fallbackDx <= 0) return null;
+
+    const modelIndex = Math.trunc(Number(turbine?.model));
+    if (!Number.isFinite(modelIndex) || modelIndex <= 0) return fallbackDx;
+
+    const selectedDx = lc2Values[modelIndex - 1];
+    return Number.isFinite(selectedDx) && selectedDx > 0 ? selectedDx : fallbackDx;
+};
+
 const averageFinite = (values) => {
     const valid = values.filter((value) => Number.isFinite(value));
     if (valid.length === 0) return null;
@@ -726,11 +774,7 @@ const computeRotorDiskMetrics = (grid, turbine, windAngleDeg, sampleResolution) 
     if (!(radius > 0)) return null;
 
     const hubSpeed = interpolateWindSpeedAtPoint(grid, x, y, hubHeight);
-    const angleRad = (270 - Number(windAngleDeg || 0)) * Math.PI / 180;
-    const lateralUnit = {
-        x: -Math.sin(angleRad),
-        y: Math.cos(angleRad),
-    };
+    const { lateralUnit } = getWindFrameAxes(windAngleDeg);
 
     const offsets = buildRotorDiskSampleOffsets(sampleResolution);
     const samples = [];
@@ -795,6 +839,80 @@ const computeRotorDiskMetrics = (grid, turbine, windAngleDeg, sampleResolution) 
         nonUniformityRatio: Number.isFinite(rotorStdSpeed) && Number.isFinite(rotorMeanSpeed) && rotorMeanSpeed !== 0
             ? rotorStdSpeed / rotorMeanSpeed
             : null,
+    };
+};
+
+const computeSolverWindowMetrics = (grid, turbine, windAngleDeg, dxMeters, sampleResolution) => {
+    const x = Number(turbine?.x);
+    const y = Number(turbine?.y);
+    const hubHeight = Number(turbine?.hub);
+    const rotorDiameter = Number(turbine?.d);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(hubHeight) || !Number.isFinite(rotorDiameter)) {
+        return null;
+    }
+    if (hubHeight < 0 || rotorDiameter <= 0 || !Number.isFinite(dxMeters) || dxMeters <= 0) {
+        return null;
+    }
+
+    const { streamwiseUnit, lateralUnit } = getWindFrameAxes(windAngleDeg);
+    const radialLimit = rotorDiameter * 0.25;
+    const upstreamOffset = rotorDiameter;
+    const axialHalfSpan = 3 * dxMeters;
+    const centerX = x - streamwiseUnit.x * upstreamOffset;
+    const centerY = y - streamwiseUnit.y * upstreamOffset;
+    const centerlineSpeed = interpolateWindSpeedAtPoint(grid, centerX, centerY, hubHeight);
+    const offsets = buildRotorDiskSampleOffsets(Math.max(3, Math.trunc(sampleResolution)));
+    const nominalGridStep = Math.max(grid?.xStep || 0, grid?.yStep || 0, 1);
+    const axialSampleCount = Math.max(3, Math.min(15, Math.round((2 * axialHalfSpan) / nominalGridStep) + 1));
+    const axialStep = axialSampleCount > 1 ? (2 * axialHalfSpan) / (axialSampleCount - 1) : 0;
+    const samples = [];
+
+    for (let axialIndex = 0; axialIndex < axialSampleCount; axialIndex++) {
+        const axialOffset = -axialHalfSpan + axialIndex * axialStep;
+        for (const offset of offsets) {
+            const lateralOffset = offset.lateralNorm * radialLimit;
+            const verticalOffset = offset.verticalNorm * radialLimit;
+            const sampleX = centerX + streamwiseUnit.x * axialOffset + lateralUnit.x * lateralOffset;
+            const sampleY = centerY + streamwiseUnit.y * axialOffset + lateralUnit.y * lateralOffset;
+            const sampleZ = hubHeight + verticalOffset;
+            const speed = interpolateWindSpeedAtPoint(grid, sampleX, sampleY, sampleZ);
+            samples.push({
+                speed,
+                valid: Number.isFinite(speed),
+            });
+        }
+    }
+
+    const validSpeeds = samples.filter((item) => item.valid).map((item) => item.speed);
+    if (validSpeeds.length === 0) {
+        return {
+            dxMeters,
+            centerlineSpeed: Number.isFinite(centerlineSpeed) ? centerlineSpeed : null,
+            sampleCount: samples.length,
+            validSampleCount: 0,
+            coverageRatio: 0,
+            windowMeanSpeed: null,
+            windowEquivalentSpeed: null,
+            windowMinSpeed: null,
+            windowMaxSpeed: null,
+            windowStdSpeed: null,
+        };
+    }
+
+    const windowMeanSpeed = averageFinite(validSpeeds);
+    const windowStdSpeed = computeStdDev(validSpeeds, windowMeanSpeed);
+
+    return {
+        dxMeters,
+        centerlineSpeed: Number.isFinite(centerlineSpeed) ? centerlineSpeed : null,
+        sampleCount: samples.length,
+        validSampleCount: validSpeeds.length,
+        coverageRatio: samples.length > 0 ? validSpeeds.length / samples.length : 0,
+        windowMeanSpeed,
+        windowEquivalentSpeed: Math.cbrt(validSpeeds.reduce((sum, speed) => sum + speed ** 3, 0) / validSpeeds.length),
+        windowMinSpeed: Math.min(...validSpeeds),
+        windowMaxSpeed: Math.max(...validSpeeds),
+        windowStdSpeed,
     };
 };
 
@@ -2649,13 +2767,15 @@ router.get('/:caseId/experimental-turbine-performance', async (req, res) => {
 
     const casePath = path.join(__dirname, '../uploads', caseId);
     const infoPath = path.join(casePath, 'info.json');
+    const runInputPath = path.join(casePath, 'run', 'Input', 'input.json');
     const initOutputPath = path.join(casePath, 'run', 'Output', 'Output04-U-P-Ct-fn(INIT)');
     const adjustOutputPath = path.join(casePath, 'run', 'Output', 'Output06-U-P-Ct-fn(ADJUST)');
     const realHighOutputPath = path.join(casePath, 'run', 'Output', 'Output02-realHigh');
 
     try {
-        const [infoRaw, initOutputRaw, adjustOutputRaw, realHighOutputRaw] = await Promise.all([
+        const [infoRaw, runInputRaw, initOutputRaw, adjustOutputRaw, realHighOutputRaw] = await Promise.all([
             fsPromises.readFile(infoPath, 'utf-8'),
+            readOptionalTextFile(runInputPath),
             readOptionalTextFile(initOutputPath),
             readOptionalTextFile(adjustOutputPath),
             readOptionalTextFile(realHighOutputPath),
@@ -2678,6 +2798,22 @@ router.get('/:caseId/experimental-turbine-performance', async (req, res) => {
         const inletWindSpeed = Number(info?.wind?.speed ?? null);
         const curveCache = new Map();
         const warnings = [];
+        let runInput = null;
+
+        if (runInputRaw) {
+            try {
+                runInput = JSON.parse(runInputRaw);
+            } catch (parseError) {
+                warnings.push(`run/Input/input.json 解析失败，无法精确复现求解器窗口宽度: ${parseError.message}`);
+            }
+        } else {
+            warnings.push('缺少 run/Input/input.json，求解器窗口复现将退化为不可用。');
+        }
+
+        const lc2Values = normalizeLc2Values(runInput, info);
+        if (lc2Values.length === 0) {
+            warnings.push('未找到有效的 lc2 网格尺度，无法构建求解器窗口复现口径。');
+        }
 
         const loadCurveForModel = async (modelId) => {
             const normalizedModelId = String(modelId ?? '').trim();
@@ -2708,22 +2844,37 @@ router.get('/:caseId/experimental-turbine-performance', async (req, res) => {
             const realHighRow = index < realHighRows.length ? realHighRows[index] : null;
             const curveRows = await loadCurveForModel(turbine?.model);
             const rotorMetrics = computeRotorDiskMetrics(grid, turbine, windAngleDeg, value.sampleResolution);
+            const solverWindowDx = resolveTurbineDxMeters(turbine, lc2Values);
+            const solverWindowMetrics = Number.isFinite(solverWindowDx)
+                ? computeSolverWindowMetrics(grid, turbine, windAngleDeg, solverWindowDx, value.sampleResolution)
+                : null;
 
+            const solverWindowCurve = interpolateCurveBySpeed(curveRows, solverWindowMetrics?.windowMeanSpeed);
             const hubCurve = interpolateCurveBySpeed(curveRows, rotorMetrics?.hubSpeed);
             const rotorMeanCurve = interpolateCurveBySpeed(curveRows, rotorMetrics?.rotorMeanSpeed);
             const rotorEquivalentCurve = interpolateCurveBySpeed(curveRows, rotorMetrics?.rotorEquivalentSpeed);
 
             const solverAdjustedPower = adjustRow?.power ?? null;
             const solverAdjustedSpeed = adjustRow?.speed ?? null;
+            const experimentalSolverWindowPower = solverWindowCurve.power;
             const experimentalRotorEquivalentPower = rotorEquivalentCurve.power;
             const experimentalRotorMeanPower = rotorMeanCurve.power;
             const experimentalHubPower = hubCurve.power;
 
+            const solverWindowPowerGapToSolver = Number.isFinite(solverAdjustedPower) && Number.isFinite(experimentalSolverWindowPower)
+                ? experimentalSolverWindowPower - solverAdjustedPower
+                : null;
+            const solverWindowSpeedGapToSolver = Number.isFinite(solverAdjustedSpeed) && Number.isFinite(solverWindowMetrics?.windowMeanSpeed)
+                ? solverWindowMetrics.windowMeanSpeed - solverAdjustedSpeed
+                : null;
             const powerGapToSolver = Number.isFinite(solverAdjustedPower) && Number.isFinite(experimentalRotorEquivalentPower)
                 ? experimentalRotorEquivalentPower - solverAdjustedPower
                 : null;
             const speedGapToSolver = Number.isFinite(solverAdjustedSpeed) && Number.isFinite(rotorMetrics?.rotorMeanSpeed)
                 ? rotorMetrics.rotorMeanSpeed - solverAdjustedSpeed
+                : null;
+            const rotorEquivalentSpeedGapToSolver = Number.isFinite(solverAdjustedSpeed) && Number.isFinite(rotorMetrics?.rotorEquivalentSpeed)
+                ? rotorMetrics.rotorEquivalentSpeed - solverAdjustedSpeed
                 : null;
 
             return {
@@ -2739,6 +2890,14 @@ router.get('/:caseId/experimental-turbine-performance', async (req, res) => {
                 actualHubZ: realHighRow?.actualHubZ ?? null,
                 init: initRow,
                 adjust: adjustRow,
+                solverWindowDxMeters: Number.isFinite(solverWindowDx) ? solverWindowDx : null,
+                solverWindowCenterlineSpeedFromField: solverWindowMetrics?.centerlineSpeed ?? null,
+                solverWindowMeanSpeedFromField: solverWindowMetrics?.windowMeanSpeed ?? null,
+                solverWindowEquivalentSpeedFromField: solverWindowMetrics?.windowEquivalentSpeed ?? null,
+                solverWindowStdSpeedFromField: solverWindowMetrics?.windowStdSpeed ?? null,
+                solverWindowCoverageRatio: solverWindowMetrics?.coverageRatio ?? 0,
+                solverWindowSampleCount: solverWindowMetrics?.sampleCount ?? 0,
+                solverWindowValidSampleCount: solverWindowMetrics?.validSampleCount ?? 0,
                 hubSpeedFromField: rotorMetrics?.hubSpeed ?? null,
                 rotorMeanSpeedFromField: rotorMetrics?.rotorMeanSpeed ?? null,
                 rotorEquivalentSpeedFromField: rotorMetrics?.rotorEquivalentSpeed ?? null,
@@ -2750,13 +2909,21 @@ router.get('/:caseId/experimental-turbine-performance', async (req, res) => {
                 sampleCount: rotorMetrics?.sampleCount ?? 0,
                 validSampleCount: rotorMetrics?.validSampleCount ?? 0,
                 coverageRatio: rotorMetrics?.coverageRatio ?? 0,
+                curvePowerAtSolverWindowSpeed: experimentalSolverWindowPower,
+                curveCtAtSolverWindowSpeed: solverWindowCurve.ct,
                 curvePowerAtHubSpeed: experimentalHubPower,
                 curveCtAtHubSpeed: hubCurve.ct,
                 curvePowerAtRotorMeanSpeed: experimentalRotorMeanPower,
                 curveCtAtRotorMeanSpeed: rotorMeanCurve.ct,
                 curvePowerAtRotorEquivalentSpeed: experimentalRotorEquivalentPower,
                 curveCtAtRotorEquivalentSpeed: rotorEquivalentCurve.ct,
+                solverWindowSpeedGapToSolver,
+                solverWindowPowerGapToSolver,
+                solverWindowPowerGapPercentToSolver: Number.isFinite(solverWindowPowerGapToSolver) && Number.isFinite(solverAdjustedPower) && solverAdjustedPower !== 0
+                    ? solverWindowPowerGapToSolver / solverAdjustedPower * 100
+                    : null,
                 speedGapToSolver,
+                rotorEquivalentSpeedGapToSolver,
                 powerGapToSolver,
                 powerGapPercentToSolver: Number.isFinite(powerGapToSolver) && Number.isFinite(solverAdjustedPower) && solverAdjustedPower !== 0
                     ? powerGapToSolver / solverAdjustedPower * 100
@@ -2767,32 +2934,56 @@ router.get('/:caseId/experimental-turbine-performance', async (req, res) => {
             };
         }));
 
+        const solverWindowCloserOnPowerCount = turbineResults.filter((item) => {
+            if (!Number.isFinite(item.solverWindowPowerGapToSolver) || !Number.isFinite(item.powerGapToSolver)) return false;
+            return Math.abs(item.solverWindowPowerGapToSolver) < Math.abs(item.powerGapToSolver);
+        }).length;
+        const rotorEquivalentCloserOnPowerCount = turbineResults.filter((item) => {
+            if (!Number.isFinite(item.solverWindowPowerGapToSolver) || !Number.isFinite(item.powerGapToSolver)) return false;
+            return Math.abs(item.powerGapToSolver) < Math.abs(item.solverWindowPowerGapToSolver);
+        }).length;
+
         const summary = {
             turbineCount: turbineResults.length,
             inletWindSpeed: Number.isFinite(inletWindSpeed) ? inletWindSpeed : null,
             averageSolverAdjustedSpeed: averageFinite(turbineResults.map((item) => item.adjust?.speed ?? null)),
+            averageSolverWindowMeanSpeedFromField: averageFinite(turbineResults.map((item) => item.solverWindowMeanSpeedFromField)),
             averageHubSpeedFromField: averageFinite(turbineResults.map((item) => item.hubSpeedFromField)),
             averageRotorMeanSpeedFromField: averageFinite(turbineResults.map((item) => item.rotorMeanSpeedFromField)),
             averageRotorEquivalentSpeedFromField: averageFinite(turbineResults.map((item) => item.rotorEquivalentSpeedFromField)),
             totalSolverAdjustedPower: sumFinite(turbineResults.map((item) => item.adjust?.power ?? null)),
+            totalCurvePowerAtSolverWindowSpeed: sumFinite(turbineResults.map((item) => item.curvePowerAtSolverWindowSpeed)),
             totalCurvePowerAtHubSpeed: sumFinite(turbineResults.map((item) => item.curvePowerAtHubSpeed)),
             totalCurvePowerAtRotorMeanSpeed: sumFinite(turbineResults.map((item) => item.curvePowerAtRotorMeanSpeed)),
             totalCurvePowerAtRotorEquivalentSpeed: sumFinite(turbineResults.map((item) => item.curvePowerAtRotorEquivalentSpeed)),
+            averageSolverWindowCoverageRatio: averageFinite(turbineResults.map((item) => item.solverWindowCoverageRatio)),
             averageCoverageRatio: averageFinite(turbineResults.map((item) => item.coverageRatio)),
+            averageAbsoluteSolverWindowPowerGap: averageFinite(turbineResults.map((item) => Number.isFinite(item.solverWindowPowerGapToSolver) ? Math.abs(item.solverWindowPowerGapToSolver) : null)),
             averageAbsolutePowerGap: averageFinite(turbineResults.map((item) => Number.isFinite(item.powerGapToSolver) ? Math.abs(item.powerGapToSolver) : null)),
+            averageAbsoluteSolverWindowSpeedGap: averageFinite(turbineResults.map((item) => Number.isFinite(item.solverWindowSpeedGapToSolver) ? Math.abs(item.solverWindowSpeedGapToSolver) : null)),
             averageAbsoluteSpeedGap: averageFinite(turbineResults.map((item) => Number.isFinite(item.speedGapToSolver) ? Math.abs(item.speedGapToSolver) : null)),
+            averageAbsoluteRotorEquivalentPowerGap: averageFinite(turbineResults.map((item) => Number.isFinite(item.powerGapToSolver) ? Math.abs(item.powerGapToSolver) : null)),
+            averageAbsoluteRotorEquivalentSpeedGap: averageFinite(turbineResults.map((item) => Number.isFinite(item.rotorEquivalentSpeedGapToSolver) ? Math.abs(item.rotorEquivalentSpeedGapToSolver) : null)),
+            lowSolverWindowCoverageCount: turbineResults.filter((item) => Number.isFinite(item.solverWindowCoverageRatio) && item.solverWindowCoverageRatio < 0.95).length,
             lowCoverageCount: turbineResults.filter((item) => Number.isFinite(item.coverageRatio) && item.coverageRatio < 0.95).length,
+            solverWindowCloserOnPowerCount,
+            rotorEquivalentCloserOnPowerCount,
         };
 
         return res.json({
             success: true,
             method: {
-                type: 'experimental_rotor_disk_sampling',
+                type: 'experimental_turbine_mouth_comparison',
                 sampleResolution: value.sampleResolution,
                 densityAssumption: 1.225,
                 windFieldSource: 'speed.bin (terrain-following sampled speed magnitude)',
+                solverWindow: {
+                    upstreamOffsetRotorDiameter: 1,
+                    axialHalfSpanDxMultiplier: 3,
+                    radialFractionOfRotorDiameter: 0.25,
+                },
                 limitations: [
-                    '该实验口径基于 speed.bin 的标量速度场，不是求解器内 ADM 源项回代本身。',
+                    '求解器窗口复现仅对齐 admFoam 的几何采样窗口，但变量仍来自 speed.bin 标量速度，不是求解器内部 Ux 轴向分量。',
                     '转子等效风速采用盘面立方均值近似，用于功率敏感对比，不等同于完整 IEC REWS 口径。',
                     '当前仍沿用一维 U-P-Ct 曲线，未额外引入空气密度、湍流强度或多维功率曲线修正。',
                 ],

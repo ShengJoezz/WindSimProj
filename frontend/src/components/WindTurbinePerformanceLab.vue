@@ -39,118 +39,147 @@
       </template>
     </el-alert>
 
-    <el-alert
-      v-if="!pageError && !loading"
-      type="info"
-      show-icon
-      :closable="false"
-      class="status-alert"
-    >
-      <template #title>实验口径说明</template>
-      <template #default>
-        立方等效风速指盘面采样风速先做立方平均再开三次方，因为功率对风速近似三次方敏感。
-        这一页只做实验对照，不替代原始 Output04/06 页面。
-      </template>
-    </el-alert>
-
-    <div v-if="!pageError" class="dashboard">
-      <div class="stats-card">
-        <div class="stats-label">风机数量</div>
-        <div class="stats-value">{{ summaryValue(summary?.turbineCount, 0) }}</div>
-      </div>
-      <div class="stats-card">
-        <div class="stats-label">ADJUST总功率</div>
-        <div class="stats-value">{{ summaryValue(summary?.totalSolverAdjustedPower, 0) }}</div>
-        <div class="stats-label">kW</div>
-      </div>
-      <div class="stats-card">
-        <div class="stats-label">立方等效总功率</div>
-        <div class="stats-value">{{ summaryValue(summary?.totalCurvePowerAtRotorEquivalentSpeed, 0) }}</div>
-        <div class="stats-label">kW</div>
-      </div>
-      <div class="stats-card">
-        <div class="stats-label">总功率差</div>
-        <div class="stats-value" :class="gapClass(totalPowerGap)">{{ formatSigned(totalPowerGap, 0) }}</div>
-        <div class="stats-label">kW</div>
-      </div>
-      <div class="stats-card">
-        <div class="stats-label">平均ADJUST风速</div>
-        <div class="stats-value">{{ summaryValue(summary?.averageSolverAdjustedSpeed, 2) }}</div>
-        <div class="stats-label">m/s</div>
-      </div>
-      <div class="stats-card">
-        <div class="stats-label">平均立方等效风速</div>
-        <div class="stats-value">{{ summaryValue(summary?.averageRotorEquivalentSpeedFromField, 2) }}</div>
-        <div class="stats-label">m/s</div>
-      </div>
-    </div>
-
-    <div v-if="!pageError" class="chart-container">
-      <h2>总量对照</h2>
-      <div class="comparison-strip">
-        <div class="comparison-item">
-          <span class="comparison-label">原始主口径</span>
-          <strong>{{ summaryValue(summary?.totalSolverAdjustedPower, 0) }} kW</strong>
-        </div>
-        <div class="comparison-item">
-          <span class="comparison-label">实验立方等效口径</span>
-          <strong>{{ summaryValue(summary?.totalCurvePowerAtRotorEquivalentSpeed, 0) }} kW</strong>
-        </div>
-        <div class="comparison-item">
-          <span class="comparison-label">平均绝对单机功率差</span>
-          <strong>{{ summaryValue(summary?.averageAbsolutePowerGap, 1) }} kW</strong>
-        </div>
-        <div class="comparison-item">
-          <span class="comparison-label">平均绝对单机风速差</span>
-          <strong>{{ summaryValue(summary?.averageAbsoluteSpeedGap, 2) }} m/s</strong>
+    <template v-if="!pageError">
+      <div v-if="methodBadges.length" class="badge-row">
+        <div v-for="badge in methodBadges" :key="badge.label" class="meta-pill">
+          <span>{{ badge.label }}</span>
+          <strong>{{ badge.value }}</strong>
         </div>
       </div>
-    </div>
 
-    <div v-if="rows.length" class="chart-container">
-      <h2>单机实验对照</h2>
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>风机</th>
-            <th>ADJUST风速</th>
-            <th>轮毂点风速</th>
-            <th>盘均风速</th>
-            <th>立方等效风速</th>
-            <th>ADJUST功率</th>
-            <th>立方等效功率</th>
-            <th>功率差</th>
-            <th>功率差 (%)</th>
-            <th>盘面非均匀度</th>
-            <th>上下半盘差</th>
-            <th>覆盖率</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="item in rows" :key="item.id">
-            <td>{{ item.name }}</td>
-            <td>{{ formatNumber(item.adjust?.speed, 2) }}</td>
-            <td>{{ formatNumber(item.hubSpeedFromField, 2) }}</td>
-            <td>{{ formatNumber(item.rotorMeanSpeedFromField, 2) }}</td>
-            <td>{{ formatNumber(item.rotorEquivalentSpeedFromField, 2) }}</td>
-            <td>{{ formatNumber(item.adjust?.power, 1) }}</td>
-            <td>{{ formatNumber(item.curvePowerAtRotorEquivalentSpeed, 1) }}</td>
-            <td :class="gapClass(item.powerGapToSolver)">{{ formatSigned(item.powerGapToSolver, 1) }}</td>
-            <td :class="gapClass(item.powerGapPercentToSolver)">{{ formatSigned(item.powerGapPercentToSolver, 1) }}</td>
-            <td>{{ formatNumber(item.rotorNonUniformityRatio != null ? item.rotorNonUniformityRatio * 100 : null, 1) }}</td>
-            <td>{{ formatSigned(item.rotorTopBottomDelta, 2) }}</td>
-            <td>{{ formatNumber(item.coverageRatio != null ? item.coverageRatio * 100 : null, 1) }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div v-if="warnings.length" class="chart-container">
-      <h2>注意项</h2>
-      <div class="warnings-list">
-        <div v-for="warning in warnings" :key="warning" class="warning-item">{{ warning }}</div>
+      <div class="dashboard">
+        <div
+          v-for="card in dashboardCards"
+          :key="card.label"
+          class="stats-card"
+        >
+          <div class="stats-label">{{ card.label }}</div>
+          <div class="stats-value" :class="card.tone ? gapClass(card.toneValue) : ''">
+            {{ card.value }}
+          </div>
+          <div v-if="card.unit" class="stats-label">{{ card.unit }}</div>
+        </div>
       </div>
-    </div>
+
+      <div v-if="summaryRows.length" class="chart-container">
+        <h2>口径总表</h2>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>口径</th>
+                <th>平均风速 (m/s)</th>
+                <th>总功率 (kW)</th>
+                <th>总功率差 (kW)</th>
+                <th>平均绝对风速差 (m/s)</th>
+                <th>平均绝对功率差 (kW)</th>
+                <th>平均覆盖率 (%)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in summaryRows" :key="item.id">
+                <td>{{ item.label }}</td>
+                <td>{{ formatNumber(item.averageSpeed, 2) }}</td>
+                <td>{{ formatNumber(item.totalPower, 1) }}</td>
+                <td :class="gapClass(item.totalPowerGap)">{{ formatSigned(item.totalPowerGap, 1) }}</td>
+                <td>{{ formatNumber(item.averageAbsoluteSpeedGap, 2) }}</td>
+                <td>{{ formatNumber(item.averageAbsolutePowerGap, 1) }}</td>
+                <td>{{ formatPercentRatio(item.coverageRatio, 1) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div v-if="focusRows.length" class="chart-container">
+        <h2>重点风机</h2>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>风机</th>
+                <th>ADJUST功率</th>
+                <th>窗口功率</th>
+                <th>窗口功率差</th>
+                <th>立方等效功率</th>
+                <th>立方功率差</th>
+                <th>窗口风速</th>
+                <th>立方等效风速</th>
+                <th>盘面非均匀度 (%)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in focusRows" :key="`focus-${item.id}`">
+                <td>{{ item.name }}</td>
+                <td>{{ formatNumber(item.adjust?.power, 1) }}</td>
+                <td>{{ formatNumber(item.curvePowerAtSolverWindowSpeed, 1) }}</td>
+                <td :class="gapClass(item.solverWindowPowerGapToSolver)">{{ formatSigned(item.solverWindowPowerGapToSolver, 1) }}</td>
+                <td>{{ formatNumber(item.curvePowerAtRotorEquivalentSpeed, 1) }}</td>
+                <td :class="gapClass(item.powerGapToSolver)">{{ formatSigned(item.powerGapToSolver, 1) }}</td>
+                <td>{{ formatNumber(item.solverWindowMeanSpeedFromField, 2) }}</td>
+                <td>{{ formatNumber(item.rotorEquivalentSpeedFromField, 2) }}</td>
+                <td>{{ formatPercentRatio(item.rotorNonUniformityRatio, 1) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div v-if="rows.length" class="chart-container">
+        <h2>单机对照</h2>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>风机</th>
+                <th>ADJUST风速</th>
+                <th>窗口风速</th>
+                <th>轮毂点风速</th>
+                <th>盘均风速</th>
+                <th>立方等效风速</th>
+                <th>ADJUST功率</th>
+                <th>窗口功率</th>
+                <th>立方等效功率</th>
+                <th>窗口功率差</th>
+                <th>立方功率差</th>
+                <th>窗口dx</th>
+                <th>窗口覆盖率</th>
+                <th>盘面覆盖率</th>
+                <th>盘面非均匀度</th>
+                <th>上下半盘差</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in rows" :key="item.id">
+                <td>{{ item.name }}</td>
+                <td>{{ formatNumber(item.adjust?.speed, 2) }}</td>
+                <td>{{ formatNumber(item.solverWindowMeanSpeedFromField, 2) }}</td>
+                <td>{{ formatNumber(item.hubSpeedFromField, 2) }}</td>
+                <td>{{ formatNumber(item.rotorMeanSpeedFromField, 2) }}</td>
+                <td>{{ formatNumber(item.rotorEquivalentSpeedFromField, 2) }}</td>
+                <td>{{ formatNumber(item.adjust?.power, 1) }}</td>
+                <td>{{ formatNumber(item.curvePowerAtSolverWindowSpeed, 1) }}</td>
+                <td>{{ formatNumber(item.curvePowerAtRotorEquivalentSpeed, 1) }}</td>
+                <td :class="gapClass(item.solverWindowPowerGapToSolver)">{{ formatSigned(item.solverWindowPowerGapToSolver, 1) }}</td>
+                <td :class="gapClass(item.powerGapToSolver)">{{ formatSigned(item.powerGapToSolver, 1) }}</td>
+                <td>{{ formatNumber(item.solverWindowDxMeters, 1) }}</td>
+                <td>{{ formatPercentRatio(item.solverWindowCoverageRatio, 1) }}</td>
+                <td>{{ formatPercentRatio(item.coverageRatio, 1) }}</td>
+                <td>{{ formatPercentRatio(item.rotorNonUniformityRatio, 1) }}</td>
+                <td>{{ formatSigned(item.rotorTopBottomDelta, 2) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div v-if="notes.length" class="chart-container">
+        <h2>注意项</h2>
+        <div class="warnings-list">
+          <div v-for="note in notes" :key="note" class="warning-item">{{ note }}</div>
+        </div>
+      </div>
+    </template>
 
     <div v-if="loading" class="loading-overlay">
       <div class="loading-spinner"></div>
@@ -202,22 +231,150 @@ const statusAlert = computed(() => {
   return null;
 });
 
-const rows = computed(() => {
-  const items = experimentalData.value?.turbines || [];
-  return [...items].sort((a, b) => {
-    const gapA = Math.abs(Number(a?.powerGapToSolver) || 0);
-    const gapB = Math.abs(Number(b?.powerGapToSolver) || 0);
-    return gapB - gapA;
-  });
-});
-
 const summary = computed(() => experimentalData.value?.summary || null);
 const warnings = computed(() => experimentalData.value?.warnings || []);
-const totalPowerGap = computed(() => {
-  const solver = Number(summary.value?.totalSolverAdjustedPower);
-  const cubic = Number(summary.value?.totalCurvePowerAtRotorEquivalentSpeed);
-  if (!Number.isFinite(solver) || !Number.isFinite(cubic)) return null;
-  return cubic - solver;
+const method = computed(() => experimentalData.value?.method || null);
+const notes = computed(() => {
+  const items = [
+    ...(Array.isArray(method.value?.limitations) ? method.value.limitations : []),
+    ...warnings.value,
+  ];
+  return Array.from(new Set(items.filter(Boolean)));
+});
+
+const getDominantPowerGap = (item) => {
+  const windowGap = Math.abs(Number(item?.solverWindowPowerGapToSolver) || 0);
+  const rotorGap = Math.abs(Number(item?.powerGapToSolver) || 0);
+  return Math.max(windowGap, rotorGap);
+};
+
+const rows = computed(() => {
+  const items = experimentalData.value?.turbines || [];
+  return [...items].sort((a, b) => getDominantPowerGap(b) - getDominantPowerGap(a));
+});
+
+const focusRows = computed(() => rows.value.slice(0, 10));
+
+const subtractIfFinite = (left, right) => {
+  if (!Number.isFinite(left) || !Number.isFinite(right)) return null;
+  return Number(left) - Number(right);
+};
+
+const solverWindowTotalPowerGap = computed(() =>
+  subtractIfFinite(summary.value?.totalCurvePowerAtSolverWindowSpeed, summary.value?.totalSolverAdjustedPower)
+);
+const rotorEquivalentTotalPowerGap = computed(() =>
+  subtractIfFinite(summary.value?.totalCurvePowerAtRotorEquivalentSpeed, summary.value?.totalSolverAdjustedPower)
+);
+
+const dashboardCards = computed(() => [
+  {
+    label: '风机数量',
+    value: summaryValue(summary.value?.turbineCount, 0),
+    unit: '',
+  },
+  {
+    label: 'ADJUST总功率',
+    value: summaryValue(summary.value?.totalSolverAdjustedPower, 0),
+    unit: 'kW',
+  },
+  {
+    label: '窗口复现总功率',
+    value: summaryValue(summary.value?.totalCurvePowerAtSolverWindowSpeed, 0),
+    unit: 'kW',
+  },
+  {
+    label: '立方等效总功率',
+    value: summaryValue(summary.value?.totalCurvePowerAtRotorEquivalentSpeed, 0),
+    unit: 'kW',
+  },
+  {
+    label: '窗口总功率差',
+    value: formatSigned(solverWindowTotalPowerGap.value, 0),
+    unit: 'kW',
+    tone: true,
+    toneValue: solverWindowTotalPowerGap.value,
+  },
+  {
+    label: '立方总功率差',
+    value: formatSigned(rotorEquivalentTotalPowerGap.value, 0),
+    unit: 'kW',
+    tone: true,
+    toneValue: rotorEquivalentTotalPowerGap.value,
+  },
+  {
+    label: '窗口平均绝对功率差',
+    value: summaryValue(summary.value?.averageAbsoluteSolverWindowPowerGap, 1),
+    unit: 'kW',
+  },
+  {
+    label: '立方平均绝对功率差',
+    value: summaryValue(summary.value?.averageAbsoluteRotorEquivalentPowerGap, 1),
+    unit: 'kW',
+  },
+  {
+    label: '窗口更接近台数',
+    value: summaryValue(summary.value?.solverWindowCloserOnPowerCount, 0),
+    unit: '台',
+  },
+  {
+    label: '立方更接近台数',
+    value: summaryValue(summary.value?.rotorEquivalentCloserOnPowerCount, 0),
+    unit: '台',
+  },
+]);
+
+const methodBadges = computed(() => {
+  const badges = [];
+  if (Number.isFinite(method.value?.sampleResolution)) {
+    badges.push({ label: '采样分辨率', value: String(method.value.sampleResolution) });
+  }
+  if (Number.isFinite(method.value?.solverWindow?.upstreamOffsetRotorDiameter)) {
+    badges.push({ label: '窗口中心', value: `上游 ${method.value.solverWindow.upstreamOffsetRotorDiameter}D` });
+  }
+  if (Number.isFinite(method.value?.solverWindow?.axialHalfSpanDxMultiplier)) {
+    badges.push({ label: '窗口轴向', value: `±${method.value.solverWindow.axialHalfSpanDxMultiplier}dx` });
+  }
+  if (Number.isFinite(method.value?.solverWindow?.radialFractionOfRotorDiameter)) {
+    badges.push({ label: '窗口半径', value: `${(method.value.solverWindow.radialFractionOfRotorDiameter * 100).toFixed(0)}% D` });
+  }
+  return badges;
+});
+
+const summaryRows = computed(() => {
+  if (!summary.value) return [];
+  return [
+    {
+      id: 'solver-adjust',
+      label: 'ADJUST',
+      averageSpeed: summary.value.averageSolverAdjustedSpeed,
+      totalPower: summary.value.totalSolverAdjustedPower,
+      totalPowerGap: 0,
+      averageAbsoluteSpeedGap: null,
+      averageAbsolutePowerGap: null,
+      coverageRatio: null,
+    },
+    {
+      id: 'solver-window',
+      label: '求解器窗口复现',
+      averageSpeed: summary.value.averageSolverWindowMeanSpeedFromField,
+      totalPower: summary.value.totalCurvePowerAtSolverWindowSpeed,
+      totalPowerGap: solverWindowTotalPowerGap.value,
+      averageAbsoluteSpeedGap: summary.value.averageAbsoluteSolverWindowSpeedGap,
+      averageAbsolutePowerGap: summary.value.averageAbsoluteSolverWindowPowerGap,
+      coverageRatio: summary.value.averageSolverWindowCoverageRatio,
+    },
+    {
+      id: 'rotor-equivalent',
+      label: '转子盘立方等效',
+      averageSpeed: summary.value.averageRotorEquivalentSpeedFromField,
+      totalPower: summary.value.totalCurvePowerAtRotorEquivalentSpeed,
+      totalPowerGap: rotorEquivalentTotalPowerGap.value,
+      averageAbsoluteSpeedGap: summary.value.averageAbsoluteRotorEquivalentSpeedGap,
+      averageAbsolutePowerGap: summary.value.averageAbsoluteRotorEquivalentPowerGap,
+      coverageRatio: summary.value.averageCoverageRatio,
+    },
+  ];
 });
 
 const ensureCaseLoaded = async (id) => {
@@ -273,6 +430,11 @@ const formatSigned = (value, digits = 1) => {
   return `${prefix}${normalized.toFixed(digits)}`;
 };
 
+const formatPercentRatio = (value, digits = 1) => {
+  if (!Number.isFinite(value)) return '-';
+  return (Number(value) * 100).toFixed(digits);
+};
+
 const summaryValue = (value, digits = 2) => {
   if (!Number.isFinite(value)) return '-';
   return Number(value).toFixed(digits);
@@ -307,7 +469,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .performance-lab {
-  max-width: 1380px;
+  max-width: 1500px;
   min-height: 100%;
   margin: 0 auto;
   padding: 20px;
@@ -319,7 +481,7 @@ onBeforeUnmount(() => {
 
 .header {
   text-align: center;
-  margin-bottom: 30px;
+  margin-bottom: 24px;
   padding: 24px 0;
   background: linear-gradient(135deg, #1f4f99, #0f9d58);
   color: white;
@@ -335,6 +497,25 @@ onBeforeUnmount(() => {
 
 .status-alert {
   margin: 12px 0;
+}
+
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 16px 0 20px;
+}
+
+.meta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: #edf4ff;
+  color: #174a8b;
+  border: 1px solid #cfe0fb;
+  font-size: 13px;
 }
 
 .dashboard {
@@ -365,6 +546,7 @@ onBeforeUnmount(() => {
   font-weight: 600;
   color: #1f4f99;
   margin: 10px 0;
+  text-align: center;
 }
 
 .chart-container {
@@ -373,10 +555,9 @@ onBeforeUnmount(() => {
   border-radius: 12px;
   margin-bottom: 24px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
-  overflow: hidden;
 }
 
-h2 {
+.chart-container h2 {
   color: #202124;
   margin-top: 0;
   margin-bottom: 20px;
@@ -386,29 +567,13 @@ h2 {
   font-weight: 500;
 }
 
-.comparison-strip {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
-}
-
-.comparison-item {
-  padding: 16px 18px;
-  border-radius: 10px;
-  background: #f7f9fc;
-  border: 1px solid #e4e8f0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.comparison-label {
-  font-size: 13px;
-  color: #5f6368;
+.table-scroll {
+  overflow-x: auto;
 }
 
 .data-table {
   width: 100%;
+  min-width: 980px;
   border-collapse: collapse;
   background-color: white;
 }
@@ -462,10 +627,7 @@ h2 {
 
 .loading-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   background-color: rgba(255, 255, 255, 0.7);
   display: flex;
   flex-direction: column;
@@ -490,12 +652,16 @@ h2 {
 }
 
 @media (max-width: 768px) {
+  .performance-lab {
+    padding: 14px;
+  }
+
   .stats-value {
     font-size: 24px;
   }
 
-  .comparison-strip {
-    grid-template-columns: 1fr;
+  .chart-container {
+    padding: 18px;
   }
 }
 </style>
