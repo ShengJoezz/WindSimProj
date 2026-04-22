@@ -27,10 +27,15 @@
           <el-radio-button label="speedup">加速比</el-radio-button>
         </el-radio-group>
 
+        <el-radio-group v-model="renderMode" size="small" class="toolbar-group">
+          <el-radio-button label="smooth">平滑</el-radio-button>
+          <el-radio-button label="raw">散点</el-radio-button>
+        </el-radio-group>
+
         <el-radio-group v-model="rankingMode" size="small" class="toolbar-group">
-          <el-radio-button label="risk">风险排序</el-radio-button>
-          <el-radio-button label="resource">资源排序</el-radio-button>
           <el-radio-button label="gap">功率差排序</el-radio-button>
+          <el-radio-button label="resource">层风速排序</el-radio-button>
+          <el-radio-button label="yaw">失配排序</el-radio-button>
         </el-radio-group>
 
         <el-button size="small" @click="retryLoad">刷新</el-button>
@@ -72,6 +77,11 @@
       </template>
     </el-alert>
 
+    <el-alert v-if="runtimeNotice && !pageError" type="warning" show-icon :closable="false" class="status-alert">
+      <template #title>诊断提示</template>
+      <template #default>{{ runtimeNotice }}</template>
+    </el-alert>
+
     <template v-if="pageReady">
       <div class="stats-grid">
         <div v-for="card in dashboardCards" :key="card.label" class="stats-card">
@@ -90,12 +100,13 @@
             <div class="panel-head-meta">
               <span>{{ formatNumber(selectedHeight, 0) }} m</span>
               <span>{{ mapMetricLabel }}</span>
+              <span>{{ renderModeLabel }}</span>
             </div>
           </div>
 
           <div class="map-shell">
             <div class="resource-stage-wrap">
-              <div ref="resourceStageRef" class="resource-stage">
+              <div class="resource-stage">
                 <canvas ref="resourceCanvasRef" class="resource-canvas"></canvas>
                 <button
                   v-for="marker in resourceMarkers"
@@ -124,24 +135,6 @@
             </div>
           </div>
 
-          <div class="quick-band">
-            <div class="quick-item">
-              <span>层平均</span>
-              <strong>{{ formatNumber(resourceStats?.meanSpeed, 2) }}</strong>
-            </div>
-            <div class="quick-item">
-              <span>P95</span>
-              <strong>{{ formatNumber(resourceStats?.p95Speed, 2) }}</strong>
-            </div>
-            <div class="quick-item">
-              <span>加速区</span>
-              <strong>{{ formatPercentRatio(resourceStats?.strongSpeedupAreaRatio, 1) }}</strong>
-            </div>
-            <div class="quick-item">
-              <span>低速区</span>
-              <strong>{{ formatPercentRatio(resourceStats?.deficitAreaRatio, 1) }}</strong>
-            </div>
-          </div>
         </section>
 
         <section class="panel focus-panel">
@@ -161,18 +154,10 @@
 
           <div class="mini-grid">
             <div class="mini-panel">
-              <div class="mini-title">入流扇区</div>
-              <div ref="sectorChartRef" class="chart-surface mini-surface"></div>
-            </div>
-            <div class="mini-panel">
               <div class="mini-title">垂向风廓线</div>
               <div ref="profileChartRef" class="chart-surface mini-surface"></div>
               <div v-if="profileError" class="mini-note">{{ profileError }}</div>
             </div>
-          </div>
-
-          <div v-if="selectedFlags.length" class="flag-row">
-            <span v-for="flag in selectedFlags" :key="flag" class="flag-pill">{{ flag }}</span>
           </div>
         </section>
       </div>
@@ -198,7 +183,6 @@
                   <th>窗口功率差</th>
                   <th>失配角</th>
                   <th>上下半盘差</th>
-                  <th>风险分</th>
                 </tr>
               </thead>
               <tbody>
@@ -216,7 +200,6 @@
                   <td :class="gapClass(row.vectorWindowPowerGap)">{{ formatSigned(row.vectorWindowPowerGap, 1) }}</td>
                   <td>{{ formatNumber(row.vectorWindowMisalignment, 1) }}</td>
                   <td>{{ formatSigned(row.diskTopBottomUxDelta, 2) }}</td>
-                  <td>{{ formatNumber(row.combinedRisk, 2) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -238,7 +221,6 @@
                   <th>总功率差</th>
                   <th>平均绝对风速差</th>
                   <th>平均绝对功率差</th>
-                  <th>平均覆盖率</th>
                 </tr>
               </thead>
               <tbody>
@@ -249,7 +231,6 @@
                   <td :class="gapClass(item.totalPowerGap)">{{ formatSigned(item.totalPowerGap, 1) }}</td>
                   <td>{{ formatNumber(item.averageAbsoluteSpeedGap, 2) }}</td>
                   <td>{{ formatNumber(item.averageAbsolutePowerGap, 1) }}</td>
-                  <td>{{ formatPercentRatio(item.coverageRatio, 1) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -257,10 +238,13 @@
         </section>
       </div>
 
-      <div class="detail-grid">
+      <div class="detail-grid detail-grid-single">
         <section class="panel table-panel" v-if="vectorFocusRows.length">
           <div class="panel-head">
-            <h2>风向失配台账</h2>
+            <h2>入流失配</h2>
+            <div class="panel-head-meta">
+              <span>失配角降序</span>
+            </div>
           </div>
 
           <div class="table-scroll">
@@ -295,16 +279,6 @@
                 </tr>
               </tbody>
             </table>
-          </div>
-        </section>
-
-        <section class="panel table-panel" v-if="notes.length">
-          <div class="panel-head">
-            <h2>注意项</h2>
-          </div>
-
-          <div class="warnings-list">
-            <div v-for="note in notes" :key="note" class="warning-item">{{ note }}</div>
           </div>
         </section>
       </div>
@@ -351,15 +325,13 @@ const profileData = ref(null);
 const selectedHeight = ref(120);
 const selectedTurbineId = ref('');
 const mapMetric = ref('speed');
-const rankingMode = ref('risk');
+const renderMode = ref('smooth');
+const rankingMode = ref('gap');
 const suppressHeightWatch = ref(false);
 
 const resourceCanvasRef = ref(null);
-const resourceStageRef = ref(null);
-const sectorChartRef = ref(null);
 const profileChartRef = ref(null);
 
-let sectorChart = null;
 let profileChart = null;
 
 const goToCalculation = () => {
@@ -436,29 +408,11 @@ const warnings = computed(() => [
   ...(vectorData.value?.warnings || []),
   ...softWarnings.value,
 ]);
-
-const notes = computed(() => {
-  const items = [
-    ...(Array.isArray(experimentalData.value?.method?.limitations) ? experimentalData.value.method.limitations : []),
-    ...(Array.isArray(vectorData.value?.method?.limitations) ? vectorData.value.method.limitations : []),
-    ...(Array.isArray(resourceMapData.value?.method?.limitations) ? resourceMapData.value.method.limitations : []),
-    ...warnings.value,
-  ];
-  return Array.from(new Set(items.filter(Boolean)));
-});
+const runtimeNotice = computed(() => warnings.value.find(Boolean) || '');
 
 const scalarMap = computed(() => new Map((experimentalData.value?.turbines || []).map((item) => [item.id, item])));
 const vectorMap = computed(() => new Map((vectorData.value?.turbines || []).map((item) => [item.id, item])));
 const resourceTurbineMap = computed(() => new Map((resourceMapData.value?.turbines || []).map((item) => [item.id, item])));
-
-const computeCombinedRisk = (row) => {
-  const powerGap = Math.abs(Number(row.vectorWindowPowerGap) || Number(row.scalarWindowPowerGap) || 0);
-  const misalignment = Math.abs(Number(row.vectorWindowMisalignment) || 0);
-  const topBottom = Math.abs(Number(row.diskTopBottomUxDelta) || 0);
-  const reverseFlow = Math.abs(Number(row.windowReverseFlowRatio) || 0);
-  const localPenalty = Number.isFinite(row.resourceSpeedupRatio) ? Math.max(0, 1 - row.resourceSpeedupRatio) * 30 : 0;
-  return powerGap / 400 + misalignment / 5 + topBottom * 2 + reverseFlow * 40 + localPenalty;
-};
 
 const combinedRows = computed(() => {
   const ids = new Set([
@@ -495,19 +449,17 @@ const combinedRows = computed(() => {
       actualHubZ: vector?.actualHubZ_m ?? scalar?.actualHubZ ?? null,
       terrainZ: vector?.terrainZ_m ?? scalar?.terrainZ ?? null,
     };
-
-    row.combinedRisk = computeCombinedRisk(row);
     return row;
   });
 
   const sorters = {
-    risk: (a, b) => b.combinedRisk - a.combinedRisk,
-    resource: (a, b) => (Number(b.resourceSpeedupRatio) || -Infinity) - (Number(a.resourceSpeedupRatio) || -Infinity),
+    resource: (a, b) => (Number(b.resourceSpeed) || -Infinity) - (Number(a.resourceSpeed) || -Infinity),
     gap: (a, b) => Math.abs(Number(b.vectorWindowPowerGap) || Number(b.scalarWindowPowerGap) || 0)
       - Math.abs(Number(a.vectorWindowPowerGap) || Number(a.scalarWindowPowerGap) || 0),
+    yaw: (a, b) => Math.abs(Number(b.vectorWindowMisalignment) || 0) - Math.abs(Number(a.vectorWindowMisalignment) || 0),
   };
 
-  return rows.sort(sorters[rankingMode.value] || sorters.risk);
+  return rows.sort(sorters[rankingMode.value] || sorters.gap);
 });
 
 const rankingRows = computed(() => combinedRows.value.slice(0, 16));
@@ -519,18 +471,14 @@ const selectedRow = computed(() => {
 
 const vectorRows = computed(() => vectorData.value?.turbines || []);
 
-const getVectorRiskScore = (item) => {
-  const speedMinusUx = Math.max(Number(item?.windowSpeedMinusUx) || 0, Number(item?.diskSpeedMinusUx) || 0);
-  const misalignment = Math.max(Number(item?.windowMisalignmentDeg) || 0, Number(item?.diskMisalignmentDeg) || 0);
-  const reverseFlow = Math.max(Number(item?.windowReverseFlowRatio) || 0, Number(item?.diskReverseFlowRatio) || 0);
-  const verticalDelta = Math.abs(Number(item?.diskTopBottomUxDelta) || 0);
-  return speedMinusUx + misalignment / 8 + reverseFlow * 20 + verticalDelta / 2;
-};
-
 const vectorFocusRows = computed(() => {
   if (!vectorRows.value.length) return [];
   return [...vectorRows.value]
-    .sort((a, b) => getVectorRiskScore(b) - getVectorRiskScore(a))
+    .sort((a, b) => {
+      const misalignmentGap = Math.abs(Number(b.windowMisalignmentDeg) || 0) - Math.abs(Number(a.windowMisalignmentDeg) || 0);
+      if (misalignmentGap !== 0) return misalignmentGap;
+      return Math.abs(Number(b.windowSpeedMinusUx) || 0) - Math.abs(Number(a.windowSpeedMinusUx) || 0);
+    })
     .slice(0, 10);
 });
 
@@ -548,20 +496,8 @@ const averageAbsoluteGap = (items, getter) => {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 };
 
-const averageValue = (items, getter) => {
-  const values = items
-    .map(getter)
-    .filter((value) => Number.isFinite(value))
-    .map((value) => Number(value));
-  if (!values.length) return null;
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
-};
-
 const solverWindowTotalPowerGap = computed(() =>
   subtractIfFinite(summary.value?.totalCurvePowerAtSolverWindowSpeed, summary.value?.totalSolverAdjustedPower)
-);
-const rotorEquivalentTotalPowerGap = computed(() =>
-  subtractIfFinite(summary.value?.totalCurvePowerAtRotorEquivalentSpeed, summary.value?.totalSolverAdjustedPower)
 );
 const vectorWindowTotalPowerGap = computed(() =>
   subtractIfFinite(vectorSummary.value?.totalCurvePowerAtWindowUx, summary.value?.totalSolverAdjustedPower)
@@ -574,12 +510,6 @@ const vectorWindowAverageAbsoluteSpeedGap = computed(() =>
 );
 const vectorDiskAverageAbsoluteSpeedGap = computed(() =>
   averageAbsoluteGap(vectorRows.value, (item) => subtractIfFinite(item.diskEquivalentUx, item.adjust?.speed))
-);
-const vectorWindowCoverageRatio = computed(() =>
-  averageValue(vectorRows.value, (item) => item.windowCoverageRatio)
-);
-const vectorDiskCoverageRatio = computed(() =>
-  averageValue(vectorRows.value, (item) => item.diskCoverageRatio)
 );
 
 const summaryRows = computed(() => {
@@ -603,17 +533,6 @@ const summaryRows = computed(() => {
       totalPowerGap: solverWindowTotalPowerGap.value,
       averageAbsoluteSpeedGap: summary.value.averageAbsoluteSolverWindowSpeedGap,
       averageAbsolutePowerGap: summary.value.averageAbsoluteSolverWindowPowerGap,
-      coverageRatio: summary.value.averageSolverWindowCoverageRatio,
-    },
-    {
-      id: 'scalar-disk',
-      label: '标量盘面立方等效',
-      averageSpeed: summary.value.averageRotorEquivalentSpeedFromField,
-      totalPower: summary.value.totalCurvePowerAtRotorEquivalentSpeed,
-      totalPowerGap: rotorEquivalentTotalPowerGap.value,
-      averageAbsoluteSpeedGap: summary.value.averageAbsoluteRotorEquivalentSpeedGap,
-      averageAbsolutePowerGap: summary.value.averageAbsoluteRotorEquivalentPowerGap,
-      coverageRatio: summary.value.averageCoverageRatio,
     },
   ];
 
@@ -627,7 +546,6 @@ const summaryRows = computed(() => {
         totalPowerGap: vectorWindowTotalPowerGap.value,
         averageAbsoluteSpeedGap: vectorWindowAverageAbsoluteSpeedGap.value,
         averageAbsolutePowerGap: vectorSummary.value.averageAbsoluteWindowPowerGap,
-        coverageRatio: vectorWindowCoverageRatio.value,
       },
       {
         id: 'vector-disk',
@@ -637,7 +555,6 @@ const summaryRows = computed(() => {
         totalPowerGap: vectorDiskTotalPowerGap.value,
         averageAbsoluteSpeedGap: vectorDiskAverageAbsoluteSpeedGap.value,
         averageAbsolutePowerGap: vectorSummary.value.averageAbsoluteDiskPowerGap,
-        coverageRatio: vectorDiskCoverageRatio.value,
       }
     );
   }
@@ -664,16 +581,6 @@ const dashboardCards = computed(() => [
     unit: 'm/s',
   },
   {
-    label: '加速区面积',
-    value: formatPercentRatio(resourceStats.value?.strongSpeedupAreaRatio, 1),
-    unit: '%',
-  },
-  {
-    label: '低速区面积',
-    value: formatPercentRatio(resourceStats.value?.deficitAreaRatio, 1),
-    unit: '%',
-  },
-  {
     label: 'ADJUST总功率',
     value: summaryValue(summary.value?.totalSolverAdjustedPower, 0),
     unit: 'kW',
@@ -689,9 +596,9 @@ const dashboardCards = computed(() => [
     unit: 'deg',
   },
   {
-    label: '选中机位层风速',
-    value: summaryValue(selectedRow.value?.resourceSpeed, 2),
-    unit: 'm/s',
+    label: '平均功率差',
+    value: summaryValue(vectorSummary.value?.averageAbsoluteWindowPowerGap, 1),
+    unit: 'kW',
   },
 ]);
 
@@ -699,7 +606,7 @@ const selectedMetrics = computed(() => {
   if (!selectedRow.value) return [];
   return [
     { label: '层风速', value: `${formatNumber(selectedRow.value.resourceSpeed, 2)} m/s` },
-    { label: '加速比', value: `${formatPercentRatio(selectedRow.value.resourceSpeedupRatio, 1)} %` },
+    { label: '矢量窗口 Ux', value: `${formatNumber(selectedRow.value.vectorWindowUx, 2)} m/s` },
     { label: 'ADJUST功率', value: `${formatNumber(selectedRow.value.adjustPower, 1)} kW` },
     {
       label: '矢量窗口功率差',
@@ -707,38 +614,32 @@ const selectedMetrics = computed(() => {
       tone: true,
       toneValue: selectedRow.value.vectorWindowPowerGap,
     },
-    { label: '矢量窗口 Ux', value: `${formatNumber(selectedRow.value.vectorWindowUx, 2)} m/s` },
     { label: '失配角', value: `${formatNumber(selectedRow.value.vectorWindowMisalignment, 1)} deg` },
     { label: '上下半盘差', value: `${formatSigned(selectedRow.value.diskTopBottomUxDelta, 2)} m/s` },
-    { label: '风险分', value: formatNumber(selectedRow.value.combinedRisk, 2) },
+    { label: '加速比', value: `${formatPercentRatio(selectedRow.value.resourceSpeedupRatio, 1)} %` },
   ];
 });
 
-const selectedFlags = computed(() => {
-  if (!selectedRow.value) return [];
-  const flags = [];
-  if (Number.isFinite(selectedRow.value.resourceSpeedupRatio) && selectedRow.value.resourceSpeedupRatio >= 1.05) flags.push('加速区');
-  if (Number.isFinite(selectedRow.value.resourceSpeedupRatio) && selectedRow.value.resourceSpeedupRatio <= 0.95) flags.push('低速区');
-  if (Number.isFinite(selectedRow.value.vectorWindowMisalignment) && selectedRow.value.vectorWindowMisalignment >= 10) flags.push('横向流显著');
-  if (Number.isFinite(selectedRow.value.diskTopBottomUxDelta) && Math.abs(selectedRow.value.diskTopBottomUxDelta) >= 1) flags.push('垂向剪切强');
-  if (Number.isFinite(selectedRow.value.vectorWindowPowerGap) && Math.abs(selectedRow.value.vectorWindowPowerGap) >= 150) flags.push('功率口径偏差大');
-  return flags;
-});
-
 const mapMetricLabel = computed(() => (mapMetric.value === 'speedup' ? '加速比' : '风速'));
+const renderModeLabel = computed(() => (renderMode.value === 'raw' ? '散点' : '平滑'));
 const rankingLabel = computed(() => {
   const labels = {
-    risk: '风险分降序',
-    resource: '加速比降序',
     gap: '窗口功率差降序',
+    resource: '层风速降序',
+    yaw: '失配角降序',
   };
-  return labels[rankingMode.value] || labels.risk;
+  return labels[rankingMode.value] || labels.gap;
 });
 
 const resourceRenderRange = computed(() => {
   const inlet = Number(resourceMeta.value?.inletWindSpeed);
-  const baseMin = Number(rawOverlay.value?.stats?.minSpeed);
-  const baseMax = Number(rawOverlay.value?.stats?.maxSpeed);
+  const useRawRange = renderMode.value === 'raw';
+  const baseMin = useRawRange
+    ? Number(rawOverlay.value?.stats?.minSpeed)
+    : Number(resourceStats.value?.minSpeed);
+  const baseMax = useRawRange
+    ? Number(rawOverlay.value?.stats?.maxSpeed)
+    : Number(resourceStats.value?.maxSpeed);
 
   if (Number.isFinite(baseMin) && Number.isFinite(baseMax) && baseMax > baseMin) {
     if (mapMetric.value === 'speedup' && Number.isFinite(inlet) && inlet > 0) {
@@ -820,7 +721,10 @@ const ensureCaseLoaded = async (id) => {
 };
 
 const pickDefaultTurbineId = () => {
-  const rows = [...combinedRows.value].sort((a, b) => b.combinedRisk - a.combinedRisk);
+  const rows = [...combinedRows.value].sort((a, b) =>
+    Math.abs(Number(b.vectorWindowPowerGap) || Number(b.scalarWindowPowerGap) || 0)
+    - Math.abs(Number(a.vectorWindowPowerGap) || Number(a.scalarWindowPowerGap) || 0)
+  );
   return rows[0]?.id || '';
 };
 
@@ -1164,62 +1068,15 @@ const drawResourceStage = async () => {
   ctx.fillStyle = '#f8fafc';
   ctx.fillRect(0, 0, width, height);
 
-  if (drawRawOverlayResourceStage(ctx, width, height)) {
+  if (renderMode.value === 'raw') {
+    if (drawRawOverlayResourceStage(ctx, width, height)) {
+      return;
+    }
+    drawInterpolatedResourceStage(ctx, width, height);
     return;
   }
 
   drawInterpolatedResourceStage(ctx, width, height);
-};
-
-const buildRoseSeries = () => {
-  const sectorCount = 16;
-  const activeAngle = Number(resourceMeta.value?.windAngleDeg ?? 0);
-  const activeIndex = ((Math.round(activeAngle / (360 / sectorCount)) % sectorCount) + sectorCount) % sectorCount;
-  const activeValue = Number.isFinite(selectedRow.value?.vectorWindowUx)
-    ? Math.max(1, selectedRow.value.vectorWindowUx)
-    : Number(resourceMeta.value?.inletWindSpeed ?? 1);
-
-  return Array.from({ length: sectorCount }, (_, index) => ({
-    value: index === activeIndex ? activeValue : 0.35,
-    name: `${index * 22.5}°`,
-    itemStyle: {
-      color: index === activeIndex ? '#2563eb' : '#d7e3ff',
-    },
-  }));
-};
-
-const updateSectorChart = () => {
-  if (!sectorChartRef.value || !pageReady.value) return;
-  if (!sectorChart) {
-    sectorChart = echarts.init(sectorChartRef.value);
-  }
-
-  sectorChart.setOption({
-    animation: false,
-    tooltip: { trigger: 'item' },
-    polar: {},
-    angleAxis: {
-      type: 'category',
-      data: Array.from({ length: 16 }, (_, index) => `${index * 22.5}°`),
-      boundaryGap: false,
-      axisLabel: { color: '#64748b', fontSize: 10 },
-      axisLine: { lineStyle: { color: '#cbd5e1' } },
-    },
-    radiusAxis: {
-      min: 0,
-      axisLabel: { show: false },
-      splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.18)' } },
-    },
-    series: [
-      {
-        type: 'bar',
-        coordinateSystem: 'polar',
-        roundCap: true,
-        data: buildRoseSeries(),
-        barWidth: '68%',
-      },
-    ],
-  });
 };
 
 const updateProfileChart = () => {
@@ -1280,13 +1137,11 @@ const updateProfileChart = () => {
 
 const updateAllCharts = () => {
   drawResourceStage();
-  updateSectorChart();
   updateProfileChart();
 };
 
 const resizeCharts = () => {
   drawResourceStage();
-  sectorChart?.resize();
   profileChart?.resize();
 };
 
@@ -1351,7 +1206,7 @@ watch(selectedTurbineId, async (newValue, oldValue) => {
   updateAllCharts();
 });
 
-watch([mapMetric, rankingMode], async () => {
+watch([mapMetric, renderMode, rankingMode], async () => {
   await nextTick();
   updateAllCharts();
 });
@@ -1370,9 +1225,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', resizeCharts);
-  sectorChart?.dispose();
   profileChart?.dispose();
-  sectorChart = null;
   profileChart = null;
 });
 </script>
