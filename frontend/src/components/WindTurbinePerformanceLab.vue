@@ -406,8 +406,10 @@ const legacySliceTransform = computed(() => {
     .map((item) => {
       const pixel = pixelMap.get(item.id);
       if (!pixel) return null;
-      if (![item.x, item.y, pixel.x, pixel.y].every(Number.isFinite)) return null;
-      return { x: Number(item.x), y: Number(item.y), px: Number(pixel.x), py: Number(pixel.y) };
+      const solverX = Number(item.solverX ?? item.x);
+      const solverY = Number(item.solverY ?? item.y);
+      if (![solverX, solverY, pixel.x, pixel.y].every(Number.isFinite)) return null;
+      return { x: solverX, y: solverY, px: Number(pixel.x), py: Number(pixel.y) };
     })
     .filter(Boolean);
 
@@ -546,8 +548,10 @@ const combinedRows = computed(() => {
     const row = {
       id,
       name: scalar?.name || vector?.name || resource?.name || id,
-      x: scalar?.x ?? resource?.x ?? null,
-      y: scalar?.y ?? resource?.y ?? null,
+      x: vector?.solverX_m ?? scalar?.solverX ?? resource?.solverX ?? scalar?.x ?? resource?.x ?? null,
+      y: vector?.solverY_m ?? scalar?.solverY ?? resource?.solverY ?? scalar?.y ?? resource?.y ?? null,
+      originalX: scalar?.originalX ?? resource?.originalX ?? null,
+      originalY: scalar?.originalY ?? resource?.originalY ?? null,
       adjustPower: scalar?.adjust?.power ?? vector?.adjust?.power ?? null,
       adjustSpeed: scalar?.adjust?.speed ?? vector?.adjust?.speed ?? null,
       resourceSpeed: resource?.localSpeed ?? null,

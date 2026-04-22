@@ -703,6 +703,40 @@ const getWindFrameAxes = (windAngleDeg) => {
     };
 };
 
+const SOLVER_FRAME_AXES = Object.freeze({
+    streamwiseUnit: Object.freeze({ x: 1, y: 0 }),
+    lateralUnit: Object.freeze({ x: 0, y: 1 }),
+});
+
+const rotatePointToSolverFrame = (x, y, windAngleDeg) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        return {
+            solverX: null,
+            solverY: null,
+        };
+    }
+
+    const angleRad = -(Number(windAngleDeg || 0) + 90) * Math.PI / 180;
+    const cosValue = Math.cos(angleRad);
+    const sinValue = Math.sin(angleRad);
+    return {
+        solverX: x * cosValue + y * sinValue,
+        solverY: -x * sinValue + y * cosValue,
+    };
+};
+
+const getTurbinePlanarCoordinatesInSolverFrame = (turbine, windAngleDeg) => {
+    const originalX = Number(turbine?.x);
+    const originalY = Number(turbine?.y);
+    const { solverX, solverY } = rotatePointToSolverFrame(originalX, originalY, windAngleDeg);
+    return {
+        originalX: Number.isFinite(originalX) ? originalX : null,
+        originalY: Number.isFinite(originalY) ? originalY : null,
+        solverX: Number.isFinite(solverX) ? solverX : null,
+        solverY: Number.isFinite(solverY) ? solverY : null,
+    };
+};
+
 const normalizeLc2Values = (primaryConfig, fallbackConfig = null) => {
     const candidates = [
         primaryConfig?.mesh?.lc2,
@@ -782,8 +816,9 @@ const computeStdDev = (values, meanValue = null) => {
 };
 
 const computeRotorDiskMetrics = (grid, turbine, windAngleDeg, sampleResolution) => {
-    const x = Number(turbine?.x);
-    const y = Number(turbine?.y);
+    const coords = getTurbinePlanarCoordinatesInSolverFrame(turbine, windAngleDeg);
+    const x = coords.solverX;
+    const y = coords.solverY;
     const hubHeight = Number(turbine?.hub);
     const rotorDiameter = Number(turbine?.d);
     if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(hubHeight) || !Number.isFinite(rotorDiameter)) {
@@ -797,7 +832,7 @@ const computeRotorDiskMetrics = (grid, turbine, windAngleDeg, sampleResolution) 
     if (!(radius > 0)) return null;
 
     const hubSpeed = interpolateWindSpeedAtPoint(grid, x, y, hubHeight);
-    const { lateralUnit } = getWindFrameAxes(windAngleDeg);
+    const { lateralUnit } = SOLVER_FRAME_AXES;
 
     const offsets = buildRotorDiskSampleOffsets(sampleResolution);
     const samples = [];
@@ -866,8 +901,9 @@ const computeRotorDiskMetrics = (grid, turbine, windAngleDeg, sampleResolution) 
 };
 
 const computeSolverWindowMetrics = (grid, turbine, windAngleDeg, dxMeters, sampleResolution) => {
-    const x = Number(turbine?.x);
-    const y = Number(turbine?.y);
+    const coords = getTurbinePlanarCoordinatesInSolverFrame(turbine, windAngleDeg);
+    const x = coords.solverX;
+    const y = coords.solverY;
     const hubHeight = Number(turbine?.hub);
     const rotorDiameter = Number(turbine?.d);
     if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(hubHeight) || !Number.isFinite(rotorDiameter)) {
@@ -877,7 +913,7 @@ const computeSolverWindowMetrics = (grid, turbine, windAngleDeg, dxMeters, sampl
         return null;
     }
 
-    const { streamwiseUnit, lateralUnit } = getWindFrameAxes(windAngleDeg);
+    const { streamwiseUnit, lateralUnit } = SOLVER_FRAME_AXES;
     const radialLimit = rotorDiameter * 0.25;
     const upstreamOffset = rotorDiameter;
     const axialHalfSpan = 3 * dxMeters;
@@ -943,6 +979,7 @@ const buildWindResourcePlane = (grid, {
     height,
     resolution,
     inletWindSpeed = null,
+    windAngleDeg = 0,
     turbines = [],
 }) => {
     const nx = Math.max(2, Math.trunc(Number(resolution) || 0));
@@ -971,18 +1008,21 @@ const buildWindResourcePlane = (grid, {
         : [];
 
     const sampledTurbines = turbines.map((turbine, index) => {
-        const x = Number(turbine?.x);
-        const y = Number(turbine?.y);
-        const localSpeed = Number.isFinite(x) && Number.isFinite(y)
-            ? interpolateWindSpeedAtPoint(grid, x, y, actualHeight)
+        const coords = getTurbinePlanarCoordinatesInSolverFrame(turbine, windAngleDeg);
+        const localSpeed = Number.isFinite(coords.solverX) && Number.isFinite(coords.solverY)
+            ? interpolateWindSpeedAtPoint(grid, coords.solverX, coords.solverY, actualHeight)
             : null;
 
         return {
             solverIndex: index + 1,
             id: turbine?.id || `WT-${index + 1}`,
             name: turbine?.name || `WT-${index + 1}`,
-            x: Number.isFinite(x) ? x : null,
-            y: Number.isFinite(y) ? y : null,
+            originalX: coords.originalX,
+            originalY: coords.originalY,
+            solverX: coords.solverX,
+            solverY: coords.solverY,
+            x: coords.solverX,
+            y: coords.solverY,
             hubHeight: Number.isFinite(Number(turbine?.hub)) ? Number(turbine.hub) : null,
             rotorDiameter: Number.isFinite(Number(turbine?.d)) ? Number(turbine.d) : null,
             localSpeed: Number.isFinite(localSpeed) ? localSpeed : null,
@@ -2882,6 +2922,7 @@ router.get('/:caseId/experimental-turbine-performance', async (req, res) => {
     const realHighOutputPath = path.join(casePath, 'run', 'Output', 'Output02-realHigh');
 
     try {
+        res.setHeader('Cache-Control', 'no-store');
         const [infoRaw, runInputRaw, initOutputRaw, adjustOutputRaw, realHighOutputRaw] = await Promise.all([
             fsPromises.readFile(infoPath, 'utf-8'),
             readOptionalTextFile(runInputPath),
@@ -2952,6 +2993,7 @@ router.get('/:caseId/experimental-turbine-performance', async (req, res) => {
             const adjustRow = index < adjustRows.length ? adjustRows[index] : null;
             const realHighRow = index < realHighRows.length ? realHighRows[index] : null;
             const curveRows = await loadCurveForModel(turbine?.model);
+            const coords = getTurbinePlanarCoordinatesInSolverFrame(turbine, windAngleDeg);
             const rotorMetrics = computeRotorDiskMetrics(grid, turbine, windAngleDeg, value.sampleResolution);
             const solverWindowDx = resolveTurbineDxMeters(turbine, lc2Values);
             const solverWindowMetrics = Number.isFinite(solverWindowDx)
@@ -2991,8 +3033,12 @@ router.get('/:caseId/experimental-turbine-performance', async (req, res) => {
                 id: turbine?.id || `WT-${index + 1}`,
                 name: turbine?.name || `WT-${index + 1}`,
                 modelId: turbine?.model ?? null,
-                x: Number.isFinite(Number(turbine?.x)) ? Number(turbine.x) : null,
-                y: Number.isFinite(Number(turbine?.y)) ? Number(turbine.y) : null,
+                originalX: coords.originalX,
+                originalY: coords.originalY,
+                solverX: coords.solverX,
+                solverY: coords.solverY,
+                x: coords.solverX,
+                y: coords.solverY,
                 hubHeight: Number.isFinite(Number(turbine?.hub)) ? Number(turbine.hub) : null,
                 rotorDiameter: Number.isFinite(Number(turbine?.d)) ? Number(turbine.d) : null,
                 terrainZ: realHighRow?.terrainZ ?? null,
@@ -3130,6 +3176,7 @@ router.get('/:caseId/experimental-wind-resource-map', async (req, res) => {
     const infoPath = path.join(casePath, 'info.json');
 
     try {
+        res.setHeader('Cache-Control', 'no-store');
         const infoRaw = await fsPromises.readFile(infoPath, 'utf-8');
         const info = JSON.parse(infoRaw);
         const turbines = Array.isArray(info?.turbines) ? info.turbines : [];
@@ -3144,6 +3191,7 @@ router.get('/:caseId/experimental-wind-resource-map', async (req, res) => {
             height: value.height,
             resolution: value.resolution,
             inletWindSpeed,
+            windAngleDeg,
             turbines,
         });
 
