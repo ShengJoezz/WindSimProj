@@ -48,11 +48,7 @@
       </div>
 
       <div class="dashboard">
-        <div
-          v-for="card in dashboardCards"
-          :key="card.label"
-          class="stats-card"
-        >
+        <div v-for="card in dashboardCards" :key="card.label" class="stats-card">
           <div class="stats-label">{{ card.label }}</div>
           <div class="stats-value" :class="card.tone ? gapClass(card.toneValue) : ''">
             {{ card.value }}
@@ -92,7 +88,7 @@
       </div>
 
       <div v-if="focusRows.length" class="chart-container">
-        <h2>重点风机</h2>
+        <h2>标量重点风机</h2>
         <div class="table-scroll">
           <table class="data-table">
             <thead>
@@ -119,6 +115,46 @@
                 <td>{{ formatNumber(item.solverWindowMeanSpeedFromField, 2) }}</td>
                 <td>{{ formatNumber(item.rotorEquivalentSpeedFromField, 2) }}</td>
                 <td>{{ formatPercentRatio(item.rotorNonUniformityRatio, 1) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div v-if="vectorFocusRows.length" class="chart-container">
+        <h2>矢量诊断</h2>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>风机</th>
+                <th>ADJUST风速</th>
+                <th>窗口 Ux</th>
+                <th>窗口 |U|</th>
+                <th>|U|-Ux</th>
+                <th>窗口失配角 (deg)</th>
+                <th>窗口逆流 (%)</th>
+                <th>盘面等效 Ux</th>
+                <th>盘面 |U|</th>
+                <th>盘面失配角 (deg)</th>
+                <th>上下半盘 Ux差</th>
+                <th>窗口功率差</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in vectorFocusRows" :key="`vector-${item.id}`">
+                <td>{{ item.name }}</td>
+                <td>{{ formatNumber(item.adjust?.speed, 2) }}</td>
+                <td>{{ formatNumber(item.windowMeanUx, 2) }}</td>
+                <td>{{ formatNumber(item.windowMeanSpeedMag, 2) }}</td>
+                <td>{{ formatNumber(item.windowSpeedMinusUx, 2) }}</td>
+                <td>{{ formatNumber(item.windowMisalignmentDeg, 1) }}</td>
+                <td>{{ formatPercentRatio(item.windowReverseFlowRatio, 1) }}</td>
+                <td>{{ formatNumber(item.diskEquivalentUx, 2) }}</td>
+                <td>{{ formatNumber(item.diskMeanSpeedMag, 2) }}</td>
+                <td>{{ formatNumber(item.diskMisalignmentDeg, 1) }}</td>
+                <td>{{ formatSigned(item.diskTopBottomUxDelta, 2) }}</td>
+                <td :class="gapClass(item.vectorWindowPowerGapToSolver)">{{ formatSigned(item.vectorWindowPowerGapToSolver, 1) }}</td>
               </tr>
             </tbody>
           </table>
@@ -208,6 +244,8 @@ const router = useRouter();
 const loading = ref(true);
 const pageError = ref('');
 const experimentalData = ref(null);
+const vectorData = ref(null);
+const softWarnings = ref([]);
 
 const goToCalculation = () => {
   if (!props.caseId) return;
@@ -232,11 +270,20 @@ const statusAlert = computed(() => {
 });
 
 const summary = computed(() => experimentalData.value?.summary || null);
-const warnings = computed(() => experimentalData.value?.warnings || []);
 const method = computed(() => experimentalData.value?.method || null);
+const vectorSummary = computed(() => vectorData.value?.summary || null);
+const vectorMethod = computed(() => vectorData.value?.method || null);
+
+const warnings = computed(() => [
+  ...(experimentalData.value?.warnings || []),
+  ...(vectorData.value?.warnings || []),
+  ...softWarnings.value,
+]);
+
 const notes = computed(() => {
   const items = [
     ...(Array.isArray(method.value?.limitations) ? method.value.limitations : []),
+    ...(Array.isArray(vectorMethod.value?.limitations) ? vectorMethod.value.limitations : []),
     ...warnings.value,
   ];
   return Array.from(new Set(items.filter(Boolean)));
@@ -254,10 +301,44 @@ const rows = computed(() => {
 });
 
 const focusRows = computed(() => rows.value.slice(0, 10));
+const vectorRows = computed(() => vectorData.value?.turbines || []);
+
+const getVectorRiskScore = (item) => {
+  const speedMinusUx = Math.max(Number(item?.windowSpeedMinusUx) || 0, Number(item?.diskSpeedMinusUx) || 0);
+  const misalignment = Math.max(Number(item?.windowMisalignmentDeg) || 0, Number(item?.diskMisalignmentDeg) || 0);
+  const reverseFlow = Math.max(Number(item?.windowReverseFlowRatio) || 0, Number(item?.diskReverseFlowRatio) || 0);
+  const verticalDelta = Math.abs(Number(item?.diskTopBottomUxDelta) || 0);
+  return speedMinusUx + misalignment / 8 + reverseFlow * 20 + verticalDelta / 2;
+};
+
+const vectorFocusRows = computed(() => {
+  if (!vectorRows.value.length) return [];
+  return [...vectorRows.value]
+    .sort((a, b) => getVectorRiskScore(b) - getVectorRiskScore(a))
+    .slice(0, 10);
+});
 
 const subtractIfFinite = (left, right) => {
   if (!Number.isFinite(left) || !Number.isFinite(right)) return null;
   return Number(left) - Number(right);
+};
+
+const averageAbsoluteGap = (items, getter) => {
+  const values = items
+    .map(getter)
+    .filter((value) => Number.isFinite(value))
+    .map((value) => Math.abs(Number(value)));
+  if (!values.length) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+};
+
+const averageValue = (items, getter) => {
+  const values = items
+    .map(getter)
+    .filter((value) => Number.isFinite(value))
+    .map((value) => Number(value));
+  if (!values.length) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
 };
 
 const solverWindowTotalPowerGap = computed(() =>
@@ -265,6 +346,24 @@ const solverWindowTotalPowerGap = computed(() =>
 );
 const rotorEquivalentTotalPowerGap = computed(() =>
   subtractIfFinite(summary.value?.totalCurvePowerAtRotorEquivalentSpeed, summary.value?.totalSolverAdjustedPower)
+);
+const vectorWindowTotalPowerGap = computed(() =>
+  subtractIfFinite(vectorSummary.value?.totalCurvePowerAtWindowUx, summary.value?.totalSolverAdjustedPower)
+);
+const vectorDiskTotalPowerGap = computed(() =>
+  subtractIfFinite(vectorSummary.value?.totalCurvePowerAtDiskEquivalentUx, summary.value?.totalSolverAdjustedPower)
+);
+const vectorWindowAverageAbsoluteSpeedGap = computed(() =>
+  averageAbsoluteGap(vectorRows.value, (item) => subtractIfFinite(item.windowMeanUx, item.adjust?.speed))
+);
+const vectorDiskAverageAbsoluteSpeedGap = computed(() =>
+  averageAbsoluteGap(vectorRows.value, (item) => subtractIfFinite(item.diskEquivalentUx, item.adjust?.speed))
+);
+const vectorWindowCoverageRatio = computed(() =>
+  averageValue(vectorRows.value, (item) => item.windowCoverageRatio)
+);
+const vectorDiskCoverageRatio = computed(() =>
+  averageValue(vectorRows.value, (item) => item.diskCoverageRatio)
 );
 
 const dashboardCards = computed(() => [
@@ -279,47 +378,57 @@ const dashboardCards = computed(() => [
     unit: 'kW',
   },
   {
-    label: '窗口复现总功率',
+    label: '标量窗口总功率',
     value: summaryValue(summary.value?.totalCurvePowerAtSolverWindowSpeed, 0),
     unit: 'kW',
   },
   {
-    label: '立方等效总功率',
+    label: '矢量窗口总功率',
+    value: summaryValue(vectorSummary.value?.totalCurvePowerAtWindowUx, 0),
+    unit: 'kW',
+  },
+  {
+    label: '标量立方总功率',
     value: summaryValue(summary.value?.totalCurvePowerAtRotorEquivalentSpeed, 0),
     unit: 'kW',
   },
   {
-    label: '窗口总功率差',
+    label: '矢量盘面总功率',
+    value: summaryValue(vectorSummary.value?.totalCurvePowerAtDiskEquivalentUx, 0),
+    unit: 'kW',
+  },
+  {
+    label: '标量窗口总功率差',
     value: formatSigned(solverWindowTotalPowerGap.value, 0),
     unit: 'kW',
     tone: true,
     toneValue: solverWindowTotalPowerGap.value,
   },
   {
-    label: '立方总功率差',
-    value: formatSigned(rotorEquivalentTotalPowerGap.value, 0),
+    label: '矢量窗口总功率差',
+    value: formatSigned(vectorWindowTotalPowerGap.value, 0),
     unit: 'kW',
     tone: true,
-    toneValue: rotorEquivalentTotalPowerGap.value,
+    toneValue: vectorWindowTotalPowerGap.value,
   },
   {
-    label: '窗口平均绝对功率差',
+    label: '标量窗口平均绝对功率差',
     value: summaryValue(summary.value?.averageAbsoluteSolverWindowPowerGap, 1),
     unit: 'kW',
   },
   {
-    label: '立方平均绝对功率差',
-    value: summaryValue(summary.value?.averageAbsoluteRotorEquivalentPowerGap, 1),
+    label: '矢量窗口平均绝对功率差',
+    value: summaryValue(vectorSummary.value?.averageAbsoluteWindowPowerGap, 1),
     unit: 'kW',
   },
   {
-    label: '窗口更接近台数',
+    label: '标量窗口更接近台数',
     value: summaryValue(summary.value?.solverWindowCloserOnPowerCount, 0),
     unit: '台',
   },
   {
-    label: '立方更接近台数',
-    value: summaryValue(summary.value?.rotorEquivalentCloserOnPowerCount, 0),
+    label: '矢量窗口更接近台数',
+    value: summaryValue(vectorSummary.value?.windowCloserOnPowerCount, 0),
     unit: '台',
   },
 ]);
@@ -327,23 +436,26 @@ const dashboardCards = computed(() => [
 const methodBadges = computed(() => {
   const badges = [];
   if (Number.isFinite(method.value?.sampleResolution)) {
-    badges.push({ label: '采样分辨率', value: String(method.value.sampleResolution) });
+    badges.push({ label: '标量采样', value: String(method.value.sampleResolution) });
   }
   if (Number.isFinite(method.value?.solverWindow?.upstreamOffsetRotorDiameter)) {
-    badges.push({ label: '窗口中心', value: `上游 ${method.value.solverWindow.upstreamOffsetRotorDiameter}D` });
+    badges.push({ label: '标量窗口中心', value: `上游 ${method.value.solverWindow.upstreamOffsetRotorDiameter}D` });
   }
   if (Number.isFinite(method.value?.solverWindow?.axialHalfSpanDxMultiplier)) {
-    badges.push({ label: '窗口轴向', value: `±${method.value.solverWindow.axialHalfSpanDxMultiplier}dx` });
+    badges.push({ label: '标量窗口轴向', value: `±${method.value.solverWindow.axialHalfSpanDxMultiplier}dx` });
   }
-  if (Number.isFinite(method.value?.solverWindow?.radialFractionOfRotorDiameter)) {
-    badges.push({ label: '窗口半径', value: `${(method.value.solverWindow.radialFractionOfRotorDiameter * 100).toFixed(0)}% D` });
+  if (vectorMethod.value?.sourceKind) {
+    badges.push({ label: '矢量源', value: String(vectorMethod.value.sourceKind) });
+  }
+  if (vectorMethod.value?.sourceFrame) {
+    badges.push({ label: '矢量坐标', value: '求解器坐标系' });
   }
   return badges;
 });
 
 const summaryRows = computed(() => {
   if (!summary.value) return [];
-  return [
+  const rowsList = [
     {
       id: 'solver-adjust',
       label: 'ADJUST',
@@ -356,7 +468,7 @@ const summaryRows = computed(() => {
     },
     {
       id: 'solver-window',
-      label: '求解器窗口复现',
+      label: '标量窗口复现',
       averageSpeed: summary.value.averageSolverWindowMeanSpeedFromField,
       totalPower: summary.value.totalCurvePowerAtSolverWindowSpeed,
       totalPowerGap: solverWindowTotalPowerGap.value,
@@ -366,7 +478,7 @@ const summaryRows = computed(() => {
     },
     {
       id: 'rotor-equivalent',
-      label: '转子盘立方等效',
+      label: '标量盘面立方等效',
       averageSpeed: summary.value.averageRotorEquivalentSpeedFromField,
       totalPower: summary.value.totalCurvePowerAtRotorEquivalentSpeed,
       totalPowerGap: rotorEquivalentTotalPowerGap.value,
@@ -375,6 +487,33 @@ const summaryRows = computed(() => {
       coverageRatio: summary.value.averageCoverageRatio,
     },
   ];
+
+  if (vectorSummary.value) {
+    rowsList.push(
+      {
+        id: 'vector-window',
+        label: '矢量窗口 Ux',
+        averageSpeed: vectorSummary.value.averageWindowMeanUx,
+        totalPower: vectorSummary.value.totalCurvePowerAtWindowUx,
+        totalPowerGap: vectorWindowTotalPowerGap.value,
+        averageAbsoluteSpeedGap: vectorWindowAverageAbsoluteSpeedGap.value,
+        averageAbsolutePowerGap: vectorSummary.value.averageAbsoluteWindowPowerGap,
+        coverageRatio: vectorWindowCoverageRatio.value,
+      },
+      {
+        id: 'vector-disk',
+        label: '矢量盘面立方 Ux',
+        averageSpeed: vectorSummary.value.averageDiskEquivalentUx,
+        totalPower: vectorSummary.value.totalCurvePowerAtDiskEquivalentUx,
+        totalPowerGap: vectorDiskTotalPowerGap.value,
+        averageAbsoluteSpeedGap: vectorDiskAverageAbsoluteSpeedGap.value,
+        averageAbsolutePowerGap: vectorSummary.value.averageAbsoluteDiskPowerGap,
+        coverageRatio: vectorDiskCoverageRatio.value,
+      }
+    );
+  }
+
+  return rowsList;
 });
 
 const ensureCaseLoaded = async (id) => {
@@ -395,16 +534,34 @@ const ensureCaseLoaded = async (id) => {
 const loadData = async () => {
   pageError.value = '';
   experimentalData.value = null;
+  vectorData.value = null;
+  softWarnings.value = [];
   loading.value = true;
   try {
     if (caseStore.hasFetchedCalculationStatus && caseStore.calculationStatus !== 'completed') {
       return;
     }
-    const response = await axios.get(`/api/cases/${props.caseId}/experimental-turbine-performance`);
-    if (!response.data?.success) {
-      throw new Error(response.data?.message || '实验分析接口未返回有效数据');
+
+    const [scalarResult, vectorResult] = await Promise.allSettled([
+      axios.get(`/api/cases/${props.caseId}/experimental-turbine-performance`),
+      axios.get(`/api/cases/${props.caseId}/experimental-turbine-vector-diagnostics`),
+    ]);
+
+    if (scalarResult.status !== 'fulfilled' || !scalarResult.value.data?.success) {
+      const reason = scalarResult.status === 'fulfilled'
+        ? new Error(scalarResult.value.data?.message || '实验分析接口未返回有效数据')
+        : scalarResult.reason;
+      throw reason;
     }
-    experimentalData.value = response.data;
+    experimentalData.value = scalarResult.value.data;
+
+    if (vectorResult.status === 'fulfilled' && vectorResult.value.data?.success) {
+      vectorData.value = vectorResult.value.data;
+    } else if (vectorResult.status === 'fulfilled') {
+      softWarnings.value.push(vectorResult.value.data?.message || '矢量风机诊断未返回有效数据。');
+    } else {
+      softWarnings.value.push(getApiErrorMessage(vectorResult.reason, '矢量风机诊断加载失败'));
+    }
   } catch (error) {
     pageError.value = getApiErrorMessage(error, '加载实验分析失败');
   } finally {
@@ -469,7 +626,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .performance-lab {
-  max-width: 1500px;
+  max-width: 1520px;
   min-height: 100%;
   margin: 0 auto;
   padding: 20px;
@@ -573,7 +730,7 @@ onBeforeUnmount(() => {
 
 .data-table {
   width: 100%;
-  min-width: 980px;
+  min-width: 1100px;
   border-collapse: collapse;
   background-color: white;
 }

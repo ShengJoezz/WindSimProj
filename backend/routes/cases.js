@@ -3001,6 +3001,76 @@ router.get('/:caseId/experimental-turbine-performance', async (req, res) => {
     }
 });
 
+router.get('/:caseId/experimental-turbine-vector-diagnostics', async (req, res) => {
+    const { caseId } = req.params;
+    const querySchema = Joi.object({
+        sampleResolution: Joi.number().integer().min(3).max(30).default(11),
+        targetCells: Joi.number().integer().min(250000).max(2500000).default(1500000),
+        forceRebuild: Joi.boolean().truthy('true').truthy('1').falsy('false').falsy('0').default(false),
+    });
+
+    const { error, value } = querySchema.validate(req.query, { convert: true });
+    if (error) {
+        return res.status(400).json({
+            success: false,
+            message: '实验性矢量风机诊断参数无效。',
+            errors: error.details.map((detail) => detail.message),
+        });
+    }
+
+    const casePath = path.join(__dirname, '../uploads', caseId);
+    if (!fs.existsSync(casePath)) {
+        return res.status(404).json({ success: false, message: '工况目录不存在。' });
+    }
+
+    if (!fs.existsSync(EXPERIMENTAL_CFD_SCRIPT)) {
+        return res.status(500).json({ success: false, message: '实验性 CFD 脚本不存在。' });
+    }
+
+    try {
+        res.setHeader('Cache-Control', 'no-store');
+        const { payload, stderr } = await runPythonJsonScript({
+            scriptPath: EXPERIMENTAL_CFD_SCRIPT,
+            args: [
+                'turbines',
+                '--case-dir', casePath,
+                '--target-cells', String(value.targetCells),
+                '--sample-resolution', String(value.sampleResolution),
+                ...(value.forceRebuild ? ['--force-rebuild'] : []),
+            ],
+            timeoutMs: 300000,
+        });
+
+        return res.json({
+            success: true,
+            method: {
+                type: 'experimental_vector_turbine_diagnostics',
+                sampleResolution: value.sampleResolution,
+                targetCells: value.targetCells,
+                sourceFrame: payload?.sourceFrame || 'solver_coordinates_from_internal_vtu',
+                sourceKind: payload?.sourceKind || null,
+                sourcePath: payload?.sourcePath || null,
+                limitations: [
+                    '该诊断基于 internal.vtu 重采样后的矢量体缓存，口径比 speed.bin 更接近求解器，但仍是体缓存插值结果。',
+                    '窗口轴向量使用求解器坐标系中的 Ux，与 admFoam 的窗口几何一致；功率映射仍沿用一维 U-P-Ct 曲线。',
+                    '若体缓存分辨率不足或局部有效率偏低，单机诊断会保留覆盖率提示，不直接替代正式结果。',
+                ],
+            },
+            stderr: stderr || null,
+            summary: payload?.summary || null,
+            warnings: payload?.warnings || [],
+            turbines: payload?.turbines || [],
+        });
+    } catch (analysisError) {
+        console.error(`实验性矢量风机诊断失败 (${caseId}):`, analysisError);
+        return res.status(500).json({
+            success: false,
+            message: analysisError?.payload?.error || analysisError?.message || '实验性矢量风机诊断失败。',
+            details: analysisError?.stderr || null,
+        });
+    }
+});
+
 // --- 5. 手动触发预计算 API ---
 router.post('/:caseId/precompute-visualization', async (req, res) => {
     const { caseId } = req.params;
