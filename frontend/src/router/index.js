@@ -68,6 +68,12 @@ const routes = [
         meta: { allowScroll: true },
       },
       {
+        path: "wind-management-lab",
+        name: "WindManagementLab",
+        component: () => import("../components/WindTurbinePerformanceLab.vue"),
+        meta: { allowScroll: true },
+      },
+      {
         path: "speed-visualization", // Choose a path
         name: "SpeedVisualization",
         component: () => import("../components/SpeedVisualization.vue"),

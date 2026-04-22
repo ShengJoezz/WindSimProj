@@ -50,19 +50,6 @@
       </template>
     </el-alert>
 
-    <el-alert
-      v-if="experimentalLoadError"
-      type="warning"
-      show-icon
-      :closable="false"
-      class="status-alert"
-    >
-      <template #title>实验性转子盘性能分析未完全加载</template>
-      <template #default>
-        {{ experimentalLoadError }}
-      </template>
-    </el-alert>
-
     <div class="tab-container">
       <div class="tab-buttons">
         <button class="tab-button" :class="{ active: activeTab === 'overview' }" @click="switchTab('overview')">总览</button>
@@ -91,16 +78,6 @@
           <div class="stats-card">
             <div class="stats-label">平均推力系数</div>
             <div class="stats-value">{{ avgCt }}</div>
-          </div>
-          <div v-if="hasExperimentalMetrics" class="stats-card">
-            <div class="stats-label">平均转子盘均风速</div>
-            <div class="stats-value">{{ avgRotorMeanSpeed }}</div>
-            <div class="stats-label">m/s</div>
-          </div>
-          <div v-if="hasExperimentalMetrics" class="stats-card">
-            <div class="stats-label">实验总功率（立方等效）</div>
-            <div class="stats-value">{{ totalRotorEquivalentPower }}</div>
-            <div class="stats-label">kW</div>
           </div>
         </div>
         <div class="chart-row">
@@ -252,37 +229,6 @@
             </tbody>
           </table>
         </div>
-        <div v-if="hasExperimentalMetrics" class="chart-container">
-          <h2>实验口径对照</h2>
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>风机名称</th>
-                <th>ADJUST风速 (m/s)</th>
-                <th>轮毂点风速 (m/s)</th>
-                <th>盘均风速 (m/s)</th>
-                <th>立方等效风速 (m/s)</th>
-                <th>ADJUST功率 (kW)</th>
-                <th>立方等效映射功率 (kW)</th>
-                <th>功率差 (kW)</th>
-                <th>覆盖率 (%)</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in combinedData" :key="`exp-${item.id}`">
-                <td>{{ item.displayName }}</td>
-                <td>{{ formatOptionalNumber(item.adjSpeed, 2) }}</td>
-                <td>{{ formatOptionalNumber(item.hubSampleSpeed, 2) }}</td>
-                <td>{{ formatOptionalNumber(item.rotorMeanSpeed, 2) }}</td>
-                <td>{{ formatOptionalNumber(item.rotorEquivalentSpeed, 2) }}</td>
-                <td>{{ formatOptionalNumber(item.adjPower, 1) }}</td>
-                <td>{{ formatOptionalNumber(item.rotorEquivalentPower, 1) }}</td>
-                <td>{{ formatOptionalNumber(item.rotorEquivalentPowerGap, 1) }}</td>
-                <td>{{ formatOptionalNumber(item.coverageRatio != null ? item.coverageRatio * 100 : null, 1) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
       </div>
     </div>
 
@@ -323,8 +269,6 @@ const realHighData = ref([]);
 const initPerfData = ref([]);
 const adjPerfData = ref([]);
 const caseInfo = ref(null);
-const experimentalPerformance = ref(null);
-const experimentalLoadError = ref('');
 
 // 图表引用
 const speedComparisonOverviewChart = ref(null);
@@ -652,32 +596,12 @@ function parsePerformance(content, sourceName) {
   });
 }
 
-const experimentalPerformanceMap = computed(() => {
-  const map = new Map();
-  const rows = experimentalPerformance.value?.turbines || [];
-  rows.forEach((item, index) => {
-    if (item?.id) {
-      map.set(`id:${item.id}`, item);
-    }
-    const solverIndex = Number(item?.solverIndex);
-    if (Number.isFinite(solverIndex)) {
-      map.set(`solver:${solverIndex}`, item);
-    } else {
-      map.set(`solver:${index + 1}`, item);
-    }
-  });
-  return map;
-});
-
 // 计算组合数据（仅在三组数据严格对齐时使用）
 const combinedData = computed(() => {
   if (realHighData.value.length && initPerfData.value.length && adjPerfData.value.length) {
     return realHighData.value.map((item, i) => {
       const init = i < initPerfData.value.length ? initPerfData.value[i] : { speed: 0, power: 0, ct: 0, fn: 0 };
       const adj = i < adjPerfData.value.length ? adjPerfData.value[i] : { speed: 0, power: 0, ct: 0, fn: 0 };
-      const experimental = experimentalPerformanceMap.value.get(`id:${item.infoId}`)
-        ?? experimentalPerformanceMap.value.get(`solver:${i + 1}`)
-        ?? null;
 
       return {
         ...item,
@@ -694,13 +618,7 @@ const combinedData = computed(() => {
         speedChange: init.speed ? ((adj.speed - init.speed) / init.speed * 100) : 0,
         powerChange: init.power ? ((adj.power - init.power) / init.power * 100) : 0,
         ctChange: init.ct ? ((adj.ct - init.ct) / init.ct * 100) : 0,
-        fnChange: init.fn ? ((adj.fn - init.fn) / init.fn * 100) : 0,
-        hubSampleSpeed: experimental?.hubSpeedFromField ?? null,
-        rotorMeanSpeed: experimental?.rotorMeanSpeedFromField ?? null,
-        rotorEquivalentSpeed: experimental?.rotorEquivalentSpeedFromField ?? null,
-        rotorEquivalentPower: experimental?.curvePowerAtRotorEquivalentSpeed ?? null,
-        rotorEquivalentPowerGap: experimental?.powerGapToSolver ?? null,
-        coverageRatio: experimental?.coverageRatio ?? null,
+        fnChange: init.fn ? ((adj.fn - init.fn) / init.fn * 100) : 0
       };
     });
   }
@@ -723,21 +641,6 @@ const avgCt = computed(() => {
   const sum = combinedData.value.reduce((acc, cur) => acc + cur.adjCt, 0);
   return (sum / combinedData.value.length).toFixed(3);
 });
-const hasExperimentalMetrics = computed(() => combinedData.value.some((item) => Number.isFinite(item.rotorEquivalentSpeed)));
-const avgRotorMeanSpeed = computed(() => {
-  const valid = combinedData.value
-    .map((item) => item.rotorMeanSpeed)
-    .filter((value) => Number.isFinite(value));
-  if (!valid.length) return "-";
-  return (valid.reduce((sum, value) => sum + value, 0) / valid.length).toFixed(2);
-});
-const totalRotorEquivalentPower = computed(() => {
-  const valid = combinedData.value
-    .map((item) => item.rotorEquivalentPower)
-    .filter((value) => Number.isFinite(value));
-  if (!valid.length) return "-";
-  return valid.reduce((sum, value) => sum + value, 0).toFixed(0);
-});
 
 const getChartLabels = () => combinedData.value.map((item) => item.displayName || item.id);
 
@@ -759,8 +662,6 @@ const buildAxisBounds = (values, fallbackMin = 0, fallbackMax = 1) => {
 // 调用API获取数据
 async function fetchData() {
   pageError.value = '';
-  experimentalLoadError.value = '';
-  experimentalPerformance.value = null;
   loading.value = true;
   try {
     // 如果主计算未完成，则不请求 Output 文件（避免空白+控制台错误）
@@ -840,18 +741,6 @@ async function fetchData() {
       adjPerfData.value = [];
       pageError.value = '输出文件行数不一致，无法安全对齐风机性能数据。请重新计算，并检查 Output02/04/06 是否完整生成。';
       return;
-    }
-
-    try {
-      const experimentalResponse = await axios.get(`/api/cases/${props.caseId}/experimental-turbine-performance`);
-      if (experimentalResponse.data?.success) {
-        experimentalPerformance.value = experimentalResponse.data;
-      } else {
-        experimentalLoadError.value = experimentalResponse.data?.message || '实验性转子盘分析未返回有效数据。';
-      }
-    } catch (experimentalError) {
-      console.warn('实验性转子盘性能分析加载失败:', experimentalError);
-      experimentalLoadError.value = getApiErrorMessage(experimentalError, '实验性转子盘分析加载失败');
     }
 
     await nextTick();
