@@ -324,6 +324,7 @@ import * as echarts from 'echarts';
 import { useCaseStore } from '@/store/caseStore';
 import { useRouter } from 'vue-router';
 import { getApiErrorMessage } from '@/utils/notify.js';
+import { findClosestIndex, getMetadata, getVolumeData } from '@/services/visualizationService';
 
 const props = defineProps({
   caseId: {
@@ -347,6 +348,8 @@ const vectorData = ref(null);
 const resourceMapData = ref(null);
 const sliceOverlayData = ref(null);
 const profileData = ref(null);
+const nativeVizMetadata = ref(null);
+const nativeVolumeData = ref(null);
 
 const selectedHeight = ref(120);
 const selectedTurbineId = ref('');
@@ -475,6 +478,35 @@ const warnings = computed(() => [
   ...(vectorData.value?.warnings || []),
   ...softWarnings.value,
 ]);
+
+const nativeSliceDescriptor = computed(() => {
+  const volume = nativeVolumeData.value;
+  if (!volume?.values?.length || !Array.isArray(volume?.heightLevels) || !volume.heightLevels.length) {
+    return null;
+  }
+
+  const actualHeight = Number(resourceMeta.value?.actualHeight ?? selectedHeight.value);
+  const layerIndex = findClosestIndex(volume.heightLevels, actualHeight);
+  if (layerIndex < 0) return null;
+
+  const xCoords = Array.isArray(volume.xCoords) ? volume.xCoords : [];
+  const yCoords = Array.isArray(volume.yCoords) ? volume.yCoords : [];
+  if (!xCoords.length || !yCoords.length) return null;
+
+  return {
+    layerIndex,
+    layerOffset: layerIndex * volume.layerSize,
+    width: volume.width,
+    height: volume.height,
+    xMin: Number(xCoords[0]),
+    xMax: Number(xCoords[xCoords.length - 1]),
+    yMin: Number(yCoords[0]),
+    yMax: Number(yCoords[yCoords.length - 1]),
+    xStep: xCoords.length > 1 ? Number(xCoords[1] - xCoords[0]) : 1,
+    yStep: yCoords.length > 1 ? Number(yCoords[1] - yCoords[0]) : 1,
+    inletWindSpeed: Number(resourceMeta.value?.inletWindSpeed),
+  };
+});
 
 const notes = computed(() => {
   const items = [
@@ -871,6 +903,15 @@ const ensureCaseLoaded = async (id) => {
   }
 };
 
+const ensureNativeVolumeLoaded = async () => {
+  if (!props.caseId) return;
+  if (nativeVizMetadata.value && nativeVolumeData.value) return;
+
+  const metadata = await getMetadata(props.caseId);
+  nativeVizMetadata.value = metadata;
+  nativeVolumeData.value = await getVolumeData(props.caseId, metadata);
+};
+
 const pickDefaultTurbineId = () => {
   const rows = [...combinedRows.value].sort((a, b) => b.combinedRisk - a.combinedRisk);
   return rows[0]?.id || '';
@@ -942,7 +983,7 @@ const loadPageData = async ({ preserveSelection = false } = {}) => {
     if (caseStore.hasFetchedCalculationStatus && caseStore.calculationStatus !== 'completed') return;
 
     const requestedHeight = Number.isFinite(selectedHeight.value) ? selectedHeight.value : 120;
-    const [scalarResult, vectorResult, resourceResult, sliceResult] = await Promise.allSettled([
+    const [scalarResult, vectorResult, resourceResult, sliceResult, nativeVolumeResult] = await Promise.allSettled([
       axios.get(`/api/cases/${props.caseId}/experimental-turbine-performance`),
       axios.get(`/api/cases/${props.caseId}/experimental-turbine-vector-diagnostics`),
       axios.get(`/api/cases/${props.caseId}/experimental-wind-resource-map`, {
@@ -951,6 +992,7 @@ const loadPageData = async ({ preserveSelection = false } = {}) => {
       axios.get(`/api/cases/${props.caseId}/visualization-slice`, {
         params: { height: requestedHeight },
       }),
+      ensureNativeVolumeLoaded(),
     ]);
 
     if (scalarResult.status !== 'fulfilled' || !scalarResult.value.data?.success) {
@@ -981,6 +1023,12 @@ const loadPageData = async ({ preserveSelection = false } = {}) => {
     } else {
       vectorData.value = null;
       softWarnings.value.push(getApiErrorMessage(vectorResult.reason, '矢量风机诊断加载失败'));
+    }
+
+    if (nativeVolumeResult.status === 'rejected') {
+      nativeVizMetadata.value = null;
+      nativeVolumeData.value = null;
+      softWarnings.value.push(getApiErrorMessage(nativeVolumeResult.reason, '原始速度体缓存加载失败'));
     }
 
     const heights = resourceResult.value.data?.meta?.availableHeights || [];
@@ -1070,6 +1118,120 @@ const buildResourceHeatmap = () => {
   };
 };
 
+const buildColorLookup = (steps = 512) => {
+  const lookup = new Uint8ClampedArray(Math.max(2, steps) * 3);
+  const maxIndex = Math.max(1, steps - 1);
+  for (let index = 0; index < steps; index += 1) {
+    const color = interpolateColor(index / maxIndex, 0, 1);
+    const match = color.match(/^rgb\((\d+), (\d+), (\d+)\)$/);
+    const baseOffset = index * 3;
+    lookup[baseOffset] = Number(match?.[1] ?? 0);
+    lookup[baseOffset + 1] = Number(match?.[2] ?? 0);
+    lookup[baseOffset + 2] = Number(match?.[3] ?? 0);
+  }
+  return lookup;
+};
+
+const sampleNativeSliceSpeed = (descriptor, x, y) => {
+  const volume = nativeVolumeData.value;
+  if (!volume?.values || !descriptor) return null;
+
+  const xPos = (x - descriptor.xMin) / descriptor.xStep;
+  const yPos = (y - descriptor.yMin) / descriptor.yStep;
+  if (!Number.isFinite(xPos) || !Number.isFinite(yPos)) return null;
+  if (xPos < 0 || yPos < 0 || xPos > descriptor.width - 1 || yPos > descriptor.height - 1) {
+    return null;
+  }
+
+  const x0 = Math.floor(xPos);
+  const y0 = Math.floor(yPos);
+  const x1 = Math.min(descriptor.width - 1, x0 + 1);
+  const y1 = Math.min(descriptor.height - 1, y0 + 1);
+  const tx = Math.max(0, Math.min(1, xPos - x0));
+  const ty = Math.max(0, Math.min(1, yPos - y0));
+  const layerOffset = descriptor.layerOffset;
+  const rowStride = descriptor.width;
+  const values = volume.values;
+
+  const c00 = values[layerOffset + y0 * rowStride + x0];
+  const c10 = values[layerOffset + y0 * rowStride + x1];
+  const c01 = values[layerOffset + y1 * rowStride + x0];
+  const c11 = values[layerOffset + y1 * rowStride + x1];
+
+  if (![c00, c10, c01, c11].every(Number.isFinite)) return null;
+
+  const c0 = c00 + (c10 - c00) * tx;
+  const c1 = c01 + (c11 - c01) * tx;
+  return c0 + (c1 - c0) * ty;
+};
+
+const drawNativeResourceStage = (ctx, width, height) => {
+  const descriptor = nativeSliceDescriptor.value;
+  const transform = legacySliceTransform.value;
+  if (!descriptor || !transform) return false;
+
+  const { min, max } = resourceRenderRange.value;
+  if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return false;
+
+  const background = { r: 248, g: 250, b: 252 };
+  const colorLookup = buildColorLookup(512);
+  const imageData = ctx.createImageData(width, height);
+  const pixels = imageData.data;
+  const slopeX = Number(transform.xSlope);
+  const slopeY = Number(transform.ySlope);
+  if (!Number.isFinite(slopeX) || !Number.isFinite(slopeY) || Math.abs(slopeX) < 1e-9 || Math.abs(slopeY) < 1e-9) {
+    return false;
+  }
+
+  const inletWindSpeed = descriptor.inletWindSpeed;
+  const xHalfStep = Math.abs(descriptor.xStep) / 2;
+  const yHalfStep = Math.abs(descriptor.yStep) / 2;
+
+  for (let py = 0; py < height; py += 1) {
+    const yCoord = (py - transform.yIntercept) / slopeY;
+    for (let px = 0; px < width; px += 1) {
+      const offset = (py * width + px) * 4;
+      pixels[offset] = background.r;
+      pixels[offset + 1] = background.g;
+      pixels[offset + 2] = background.b;
+      pixels[offset + 3] = 255;
+
+      const xCoord = (px - transform.xIntercept) / slopeX;
+      if (
+        xCoord < descriptor.xMin - xHalfStep || xCoord > descriptor.xMax + xHalfStep ||
+        yCoord < descriptor.yMin - yHalfStep || yCoord > descriptor.yMax + yHalfStep
+      ) {
+        continue;
+      }
+
+      const speed = sampleNativeSliceSpeed(descriptor, xCoord, yCoord);
+      if (!Number.isFinite(speed)) continue;
+
+      const metricValue = mapMetric.value === 'speedup' && Number.isFinite(inletWindSpeed) && inletWindSpeed > 0
+        ? speed / inletWindSpeed
+        : speed;
+      const normalized = Math.max(0, Math.min(1, (metricValue - min) / (max - min)));
+      const colorIndex = Math.min(511, Math.max(0, Math.round(normalized * 511)));
+      const colorOffset = colorIndex * 3;
+      pixels[offset] = colorLookup[colorOffset];
+      pixels[offset + 1] = colorLookup[colorOffset + 1];
+      pixels[offset + 2] = colorLookup[colorOffset + 2];
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+
+  const borderLeft = slopeX * descriptor.xMin + transform.xIntercept - Math.abs(slopeX * descriptor.xStep) / 2;
+  const borderRight = slopeX * descriptor.xMax + transform.xIntercept + Math.abs(slopeX * descriptor.xStep) / 2;
+  const borderTop = slopeY * descriptor.yMax + transform.yIntercept - Math.abs(slopeY * descriptor.yStep) / 2;
+  const borderBottom = slopeY * descriptor.yMin + transform.yIntercept + Math.abs(slopeY * descriptor.yStep) / 2;
+  ctx.strokeStyle = 'rgba(30, 41, 59, 0.55)';
+  ctx.lineWidth = 1.2;
+  ctx.strokeRect(borderLeft, borderTop, borderRight - borderLeft, borderBottom - borderTop);
+
+  return true;
+};
+
 const drawInterpolatedResourceStage = (ctx, width, height) => {
   const plane = resourcePlane.value;
   const transform = legacySliceTransform.value;
@@ -1127,6 +1289,10 @@ const drawResourceStage = async () => {
   ctx.clearRect(0, 0, width, height);
   ctx.fillStyle = '#f8fafc';
   ctx.fillRect(0, 0, width, height);
+
+  if (drawNativeResourceStage(ctx, width, height)) {
+    return;
+  }
 
   try {
     const image = mapMetric.value === 'speed'
@@ -1305,6 +1471,8 @@ watch(
   () => props.caseId,
   async (newValue, oldValue) => {
     if (!newValue || newValue === oldValue) return;
+    nativeVizMetadata.value = null;
+    nativeVolumeData.value = null;
     const ok = await ensureCaseLoaded(newValue);
     if (ok) await loadPageData();
   }
@@ -1338,7 +1506,7 @@ watch([mapMetric, rankingMode], async () => {
   updateAllCharts();
 });
 
-watch([resourceMapData, vectorData, experimentalData], async () => {
+watch([resourceMapData, vectorData, experimentalData, nativeVolumeData], async () => {
   await nextTick();
   updateAllCharts();
 });
