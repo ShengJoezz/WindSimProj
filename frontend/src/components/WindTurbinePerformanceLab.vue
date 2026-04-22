@@ -392,33 +392,6 @@ const resourceMeta = computed(() => resourceMapData.value?.meta || null);
 const resourcePlane = computed(() => resourceMapData.value?.plane || null);
 const resourceStats = computed(() => resourcePlane.value?.stats || null);
 const resourceImageDimensions = computed(() => sliceOverlayData.value?.imageDimensions || { width: 800, height: 800 });
-const resourcePlotBounds = computed(() => {
-  const width = Math.max(1, Math.round(Number(resourceImageDimensions.value?.width) || 800));
-  const height = Math.max(1, Math.round(Number(resourceImageDimensions.value?.height) || 800));
-  const plane = resourcePlane.value;
-  const transform = legacySliceTransform.value;
-
-  if (!plane?.nx || !plane?.ny || !transform) {
-    return { left: 0, top: 0, width, height };
-  }
-
-  const xStep = plane.nx > 1 ? (plane.xMax - plane.xMin) / (plane.nx - 1) : 0;
-  const yStep = plane.ny > 1 ? (plane.yMax - plane.yMin) / (plane.ny - 1) : 0;
-  const cellWidth = Math.max(1, Math.abs(transform.xSlope) * Math.abs(xStep || 1));
-  const cellHeight = Math.max(1, Math.abs(transform.ySlope) * Math.abs(yStep || 1));
-
-  const left = Math.max(0, transform.xSlope * plane.xMin + transform.xIntercept - cellWidth / 2);
-  const right = Math.min(width, transform.xSlope * plane.xMax + transform.xIntercept + cellWidth / 2);
-  const top = Math.max(0, transform.ySlope * plane.yMax + transform.yIntercept - cellHeight / 2);
-  const bottom = Math.min(height, transform.ySlope * plane.yMin + transform.yIntercept + cellHeight / 2);
-
-  return {
-    left,
-    top,
-    width: Math.max(1, right - left),
-    height: Math.max(1, bottom - top),
-  };
-});
 
 const legacySliceTransform = computed(() => {
   const pixels = Array.isArray(sliceOverlayData.value?.turbinesPixels) ? sliceOverlayData.value.turbinesPixels : [];
@@ -837,15 +810,16 @@ const mapLegendTicks = computed(() => {
 });
 
 const resourceMarkers = computed(() => {
-  const bounds = resourcePlotBounds.value;
+  const imageWidth = Math.max(1, Math.round(Number(resourceImageDimensions.value?.width) || 800));
+  const imageHeight = Math.max(1, Math.round(Number(resourceImageDimensions.value?.height) || 800));
   const pixelMap = new Map((sliceOverlayData.value?.turbinesPixels || []).map((item) => [item.id, item]));
 
   return combinedRows.value
     .filter((item) => pixelMap.has(item.id))
     .map((item) => {
       const pixel = pixelMap.get(item.id);
-      const left = ((Number(pixel.x) - bounds.left) / bounds.width) * 100;
-      const top = ((Number(pixel.y) - bounds.top) / bounds.height) * 100;
+      const left = (Number(pixel.x) / imageWidth) * 100;
+      const top = (Number(pixel.y) / imageHeight) * 100;
       return {
         id: item.id,
         name: item.name,
@@ -1141,9 +1115,8 @@ const drawInterpolatedResourceStage = (ctx, width, height) => {
 const drawResourceStage = async () => {
   if (!resourceCanvasRef.value || !pageReady.value) return;
   const canvas = resourceCanvasRef.value;
-  const bounds = resourcePlotBounds.value;
-  const width = Math.max(1, Math.round(Number(bounds?.width) || 800));
-  const height = Math.max(1, Math.round(Number(bounds?.height) || 800));
+  const width = Math.max(1, Math.round(Number(resourceImageDimensions.value?.width) || 800));
+  const height = Math.max(1, Math.round(Number(resourceImageDimensions.value?.height) || 800));
 
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
@@ -1156,14 +1129,16 @@ const drawResourceStage = async () => {
   ctx.fillRect(0, 0, width, height);
 
   try {
-    const image = await ensureSliceStageImage(sliceOverlayData.value?.sliceImageUrl);
+    const image = mapMetric.value === 'speed'
+      ? await ensureSliceStageImage(sliceOverlayData.value?.sliceImageUrl)
+      : null;
     if (image) {
       ctx.drawImage(
         image,
-        bounds.left,
-        bounds.top,
-        bounds.width,
-        bounds.height,
+        0,
+        0,
+        width,
+        height,
         0,
         0,
         width,
