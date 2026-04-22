@@ -817,7 +817,19 @@ const buildResourceHeatmap = () => {
   const plane = resourcePlane.value;
   const inlet = resourceMeta.value?.inletWindSpeed;
   if (!plane?.nx || !plane?.ny || !Array.isArray(plane.values)) {
-    return { data: [], min: 0, max: 1, xCoords: [], yCoords: [] };
+    return {
+      data: [],
+      min: 0,
+      max: 1,
+      xCoords: [],
+      yCoords: [],
+      xMinKm: -1,
+      xMaxKm: 1,
+      yMinKm: -1,
+      yMaxKm: 1,
+      cellWidthKm: 0.02,
+      cellHeightKm: 0.02,
+    };
   }
 
   const data = [];
@@ -840,13 +852,25 @@ const buildResourceHeatmap = () => {
         ? speed / inlet
         : speed;
       metricValues.push(metricValue);
-      data.push([ix, iy, metricValue]);
+      data.push([xCoords[ix], yCoords[iy], metricValue]);
     }
   }
 
   const min = metricValues.length ? Math.min(...metricValues) : 0;
   const max = metricValues.length ? Math.max(...metricValues) : 1;
-  return { data, min, max, xCoords, yCoords };
+  return {
+    data,
+    min,
+    max,
+    xCoords,
+    yCoords,
+    xMinKm: xCoords[0] ?? plane.xMin / 1000,
+    xMaxKm: xCoords[xCoords.length - 1] ?? plane.xMax / 1000,
+    yMinKm: yCoords[0] ?? plane.yMin / 1000,
+    yMaxKm: yCoords[yCoords.length - 1] ?? plane.yMax / 1000,
+    cellWidthKm: xCoords.length > 1 ? Math.abs(xCoords[1] - xCoords[0]) : Math.abs((plane.xMax - plane.xMin) / 1000) || 0.02,
+    cellHeightKm: yCoords.length > 1 ? Math.abs(yCoords[1] - yCoords[0]) : Math.abs((plane.yMax - plane.yMin) / 1000) || 0.02,
+  };
 };
 
 const updateResourceChart = () => {
@@ -860,16 +884,17 @@ const updateResourceChart = () => {
     });
   }
 
-  const { data, min, max, xCoords, yCoords } = buildResourceHeatmap();
-  const plane = resourcePlane.value;
-  const xIndexFor = (x) => {
-    if (!plane?.nx || !Number.isFinite(x)) return 0;
-    return Math.max(0, Math.min(plane.nx - 1, Math.round(((x - plane.xMin) / (plane.xMax - plane.xMin)) * (plane.nx - 1))));
-  };
-  const yIndexFor = (y) => {
-    if (!plane?.ny || !Number.isFinite(y)) return 0;
-    return Math.max(0, Math.min(plane.ny - 1, Math.round(((y - plane.yMin) / (plane.yMax - plane.yMin)) * (plane.ny - 1))));
-  };
+  const {
+    data,
+    min,
+    max,
+    xMinKm,
+    xMaxKm,
+    yMinKm,
+    yMaxKm,
+    cellWidthKm,
+    cellHeightKm,
+  } = buildResourceHeatmap();
   const turbines = combinedRows.value
     .filter((item) => Number.isFinite(item.x) && Number.isFinite(item.y))
     .map((item) => ({
@@ -877,7 +902,7 @@ const updateResourceChart = () => {
       name: item.name,
       xKm: item.x / 1000,
       yKm: item.y / 1000,
-      value: [xIndexFor(item.x), yIndexFor(item.y), item.resourceSpeed ?? item.resourceSpeedupRatio ?? 0],
+      value: [item.x / 1000, item.y / 1000, item.resourceSpeed ?? item.resourceSpeedupRatio ?? 0],
       itemStyle: {
         color: item.id === selectedTurbineId.value ? '#ffffff' : '#0f172a',
         borderColor: item.id === selectedTurbineId.value ? '#f97316' : '#d7e3ff',
@@ -888,14 +913,14 @@ const updateResourceChart = () => {
 
   const selectedPoint = selectedRow.value && Number.isFinite(selectedRow.value.x) && Number.isFinite(selectedRow.value.y)
     ? [{
-        value: [xIndexFor(selectedRow.value.x), yIndexFor(selectedRow.value.y), 1],
+        value: [selectedRow.value.x / 1000, selectedRow.value.y / 1000, 1],
         symbolSize: 24,
       }]
     : [];
 
   resourceChart.setOption({
     animation: false,
-    grid: { left: 56, right: 96, top: 36, bottom: 48 },
+    grid: { left: 70, right: 104, top: 28, bottom: 56, containLabel: false },
     tooltip: {
       trigger: 'item',
       confine: true,
@@ -912,10 +937,8 @@ const updateResourceChart = () => {
             `窗口功率差: ${formatSigned(row.vectorWindowPowerGap, 1)} kW`,
           ].join('<br/>');
         }
-        const ix = params.data?.[0];
-        const iy = params.data?.[1];
-        const xKm = Number.isFinite(ix) ? xCoords[ix] : null;
-        const yKm = Number.isFinite(iy) ? yCoords[iy] : null;
+        const xKm = params.data?.[0];
+        const yKm = params.data?.[1];
         return [
           `${mapMetricLabel.value}: ${formatNumber(params.data?.[2], 3)}`,
           `X/Y: ${formatNumber(xKm, 2)} / ${formatNumber(yKm, 2)} km`,
@@ -923,26 +946,34 @@ const updateResourceChart = () => {
       },
     },
     xAxis: {
-      type: 'category',
-      data: xCoords,
+      type: 'value',
+      min: xMinKm,
+      max: xMaxKm,
       name: 'X (km)',
       nameLocation: 'middle',
-      nameGap: 30,
+      nameGap: 40,
+      minInterval: cellWidthKm,
+      maxInterval: 0.5,
+      scale: false,
       axisLabel: {
         color: '#516079',
-        formatter: (value, index) => (index % 30 === 0 ? Number(value).toFixed(1) : ''),
+        formatter: (value) => Number(value).toFixed(1),
       },
       splitLine: { lineStyle: { color: 'rgba(114, 132, 168, 0.12)' } },
     },
     yAxis: {
-      type: 'category',
-      data: yCoords,
+      type: 'value',
+      min: yMinKm,
+      max: yMaxKm,
       name: 'Y (km)',
       nameLocation: 'middle',
-      nameGap: 38,
+      nameGap: 52,
+      minInterval: cellHeightKm,
+      maxInterval: 0.5,
+      scale: false,
       axisLabel: {
         color: '#516079',
-        formatter: (value, index) => (index % 30 === 0 ? Number(value).toFixed(1) : ''),
+        formatter: (value) => Number(value).toFixed(1),
       },
       splitLine: { lineStyle: { color: 'rgba(114, 132, 168, 0.12)' } },
     },
@@ -964,9 +995,31 @@ const updateResourceChart = () => {
     series: [
       {
         name: '资源层',
-        type: 'heatmap',
+        type: 'custom',
         data,
         progressive: 0,
+        encode: {
+          x: 0,
+          y: 1,
+          tooltip: 2,
+        },
+        renderItem: (params, api) => {
+          const coord = api.coord([api.value(0), api.value(1)]);
+          const size = api.size([cellWidthKm, cellHeightKm]);
+          return {
+            type: 'rect',
+            shape: {
+              x: coord[0] - size[0] / 2,
+              y: coord[1] - size[1] / 2,
+              width: Math.max(size[0], 1),
+              height: Math.max(size[1], 1),
+            },
+            style: {
+              fill: api.visual('color'),
+            },
+            silent: false,
+          };
+        },
       },
       {
         name: '机位',
@@ -1356,12 +1409,18 @@ onBeforeUnmount(() => {
   position: relative;
 }
 
+.map-shell {
+  width: min(100%, 860px);
+  margin: 0 auto;
+}
+
 .chart-surface {
   width: 100%;
 }
 
 .map-surface {
-  height: 560px;
+  aspect-ratio: 1 / 1;
+  min-height: 560px;
 }
 
 .mini-grid {
@@ -1590,7 +1649,7 @@ onBeforeUnmount(() => {
   }
 
   .map-surface {
-    height: 420px;
+    min-height: 420px;
   }
 }
 </style>
