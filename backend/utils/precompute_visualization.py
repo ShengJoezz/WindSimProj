@@ -38,6 +38,15 @@ def numpy_to_python(obj):
         return bool(obj)
     return obj  # Python 原生类型
 
+
+def rotate_point_to_solver_frame(x_value, y_value, wind_angle_deg):
+    angle_rad = -(float(wind_angle_deg) + 90.0) * math.pi / 180.0
+    cos_value = math.cos(angle_rad)
+    sin_value = math.sin(angle_rad)
+    solver_x = float(x_value) * cos_value + float(y_value) * sin_value
+    solver_y = -float(x_value) * sin_value + float(y_value) * cos_value
+    return solver_x, solver_y
+
 # ------------------------------------------------------------------
 # 读取 speed.bin 并 reshape 成 (layers, Ny, Nx)
 # ------------------------------------------------------------------
@@ -140,8 +149,10 @@ def precompute_all_data(case_id: str) -> bool:
         print("Interpolator ready. extent (m):", extent_m)
 
         # --------- 4. 处理风机坐标 ---------------------------------
-        math_angle = np.deg2rad(270 - wind_angle)
-        wind_vec   = [float(np.cos(math_angle)), float(np.sin(math_angle))]
+        # `speed.bin` / OpenFOAM 求解域使用的是 makeGmsh.py 旋转后的 solver 坐标。
+        # 这里必须把 info.json 中的原始风机平面坐标转到同一坐标系，
+        # 否则切片、廓线、尾流和前端点位都会整体错位。
+        solver_streamwise_vec = [1.0, 0.0]
 
         frontend_turbines = []
         if turbines:
@@ -151,20 +162,18 @@ def precompute_all_data(case_id: str) -> bool:
                     print(f"Warning: turbine #{i} missing coords, skipped.", file=sys.stderr)
                     continue
 
-                # --- FIX 2 START: Use turbine coordinates directly. ---
-                # The coordinates from `info.json` are in meters, which matches our corrected domain scale.
-                # Do not multiply by `scale_factor`.
-                # 旧代码:
-                # tx = float(rx) * scale_factor
-                # ty = float(ry) * scale_factor
-                tx = float(rx)
-                ty = float(ry)
-                # --- FIX 2 END ---
+                original_x = float(rx)
+                original_y = float(ry)
+                solver_x, solver_y = rotate_point_to_solver_frame(original_x, original_y, wind_angle)
 
                 frontend_turbines.append({
                     "id":  t.get("id") or f"WT{i+1}",
-                    "x":   tx,
-                    "y":   ty,
+                    "originalX": original_x,
+                    "originalY": original_y,
+                    "solverX": solver_x,
+                    "solverY": solver_y,
+                    "x": solver_x,
+                    "y": solver_y,
                     "hubHeight":     float(t.get("hub", 90)),
                     "rotorDiameter": float(t.get("d",   120)),
                     "name": t.get("name", f"WT{i+1}")
@@ -173,7 +182,14 @@ def precompute_all_data(case_id: str) -> bool:
             print("Warning: No turbines defined.", file=sys.stderr)
 
         if frontend_turbines:
-            print("First turbine xy (m):", frontend_turbines[0]["x"], frontend_turbines[0]["y"])
+            print(
+                "First turbine solver xy (m):",
+                frontend_turbines[0]["x"],
+                frontend_turbines[0]["y"],
+                "from original:",
+                frontend_turbines[0]["originalX"],
+                frontend_turbines[0]["originalY"],
+            )
 
         # --------- 5. 风廓线 ---------------------------------------
         print(f"Computing wind profiles for {len(frontend_turbines)} turbines …")
@@ -199,9 +215,9 @@ def precompute_all_data(case_id: str) -> bool:
             R = t["rotorDiameter"]
             s_vals = np.linspace(-2*R, 10*R, 100)           # upstream & downstream (m)
             
-            # This calculation now correctly adds meters (s_vals) to meters (t["x"], t["y"]).
-            xp = t["x"] + s_vals * wind_vec[0]
-            yp = t["y"] + s_vals * wind_vec[1]
+            # solver frame 中下游方向固定为 +X，尾流沿 streamwise 方向取样。
+            xp = t["x"] + s_vals * solver_streamwise_vec[0]
+            yp = t["y"] + s_vals * solver_streamwise_vec[1]
 
             # ---- ① 仅保留在网格内的点 ----
             inside = (xp >= xmin) & (xp <= xmax) & (yp >= ymin) & (yp <= ymax)
@@ -318,7 +334,8 @@ def precompute_all_data(case_id: str) -> bool:
             "turbines": frontend_turbines,
             "vmin": vmin, "vmax": vmax,
             "windAngle": float(wind_angle),
-            "windDirectionVector": wind_vec,
+            "windDirectionVector": solver_streamwise_vec,
+            "turbineCoordinateFrame": "solver",
             "scaleFactor": float(scale_factor),
             "xCoords_m": x_coords.tolist(),
             "yCoords_m": y_coords.tolist(),

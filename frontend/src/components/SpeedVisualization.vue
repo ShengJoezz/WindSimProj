@@ -291,6 +291,20 @@ let speedFieldXMap = null;
 let speedFieldYMap = null;
 
 const formatNumber = (value, digits = 2) => (Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : '-');
+const rotatePointToSolverFrame = (x, y, windAngleDeg) => {
+  const numericX = Number(x);
+  const numericY = Number(y);
+  if (!Number.isFinite(numericX) || !Number.isFinite(numericY)) {
+    return { x: null, y: null };
+  }
+  const angleRad = -(Number(windAngleDeg || 0) + 90) * Math.PI / 180;
+  const cosValue = Math.cos(angleRad);
+  const sinValue = Math.sin(angleRad);
+  return {
+    x: numericX * cosValue + numericY * sinValue,
+    y: -numericX * sinValue + numericY * cosValue,
+  };
+};
 
 const minHeight = computed(() => mainMetadata.value?.heightLevels?.[0] ?? 10);
 const maxHeight = computed(() => {
@@ -302,7 +316,31 @@ const heightSliderStep = computed(() => {
   return Number.isFinite(range) && range > 500 ? 0.5 : 0.1;
 });
 const isVisualizationReady = computed(() => Boolean(mainMetadata.value && isSpeedFieldReady.value));
-const selectedTurbineMeta = computed(() => mainMetadata.value?.turbines?.find((item) => item.id === selectedTurbine.value) || null);
+const resolvedTurbines = computed(() => {
+  const turbines = mainMetadata.value?.turbines || [];
+  const windAngle = Number(mainMetadata.value?.windAngle ?? 0);
+  const coordinateFrame = String(mainMetadata.value?.turbineCoordinateFrame || '').toLowerCase();
+
+  return turbines.map((turbine) => {
+    const solverX = Number(turbine?.solverX);
+    const solverY = Number(turbine?.solverY);
+    const originalX = Number.isFinite(Number(turbine?.originalX)) ? Number(turbine.originalX) : Number(turbine?.x);
+    const originalY = Number.isFinite(Number(turbine?.originalY)) ? Number(turbine.originalY) : Number(turbine?.y);
+    const rotated = coordinateFrame === 'solver'
+      ? { x: Number(turbine?.x), y: Number(turbine?.y) }
+      : rotatePointToSolverFrame(originalX, originalY, windAngle);
+    const plotX = Number.isFinite(solverX) ? solverX : rotated.x;
+    const plotY = Number.isFinite(solverY) ? solverY : rotated.y;
+    return {
+      ...turbine,
+      originalX,
+      originalY,
+      plotX,
+      plotY,
+    };
+  });
+});
+const selectedTurbineMeta = computed(() => resolvedTurbines.value.find((item) => item.id === selectedTurbine.value) || null);
 const headerBadges = computed(() => [
   { label: '工况', value: props.caseId || '-' },
   { label: '高度', value: `${formatNumber(currentHeight.value, 0)} m` },
@@ -316,12 +354,24 @@ const speedFieldLegendTicks = computed(() => {
   return Array.from({ length: 5 }, (_, index) => (vmin + ((vmax - vmin) * index) / 4).toFixed(1));
 });
 const speedFieldLegendBarStyle = computed(() => ({ background: buildCssGradient(SIMULATION_JET_STOPS) }));
-const stageDomain = computed(() => speedFieldVolume.value?.xCoords?.length && speedFieldVolume.value?.yCoords?.length ? {
-  xMin: speedFieldVolume.value.xCoords[0],
-  xMax: speedFieldVolume.value.xCoords[speedFieldVolume.value.xCoords.length - 1],
-  yMin: speedFieldVolume.value.yCoords[0],
-  yMax: speedFieldVolume.value.yCoords[speedFieldVolume.value.yCoords.length - 1],
-} : null);
+const stageDomain = computed(() => {
+  const extent = speedFieldVolume.value?.extent;
+  if (Array.isArray(extent) && extent.length === 4 && extent.every((value) => Number.isFinite(Number(value)))) {
+    return {
+      xMin: Number(extent[0]),
+      xMax: Number(extent[1]),
+      yMin: Number(extent[2]),
+      yMax: Number(extent[3]),
+    };
+  }
+  if (!speedFieldVolume.value?.xCoords?.length || !speedFieldVolume.value?.yCoords?.length) return null;
+  return {
+    xMin: speedFieldVolume.value.xCoords[0],
+    xMax: speedFieldVolume.value.xCoords[speedFieldVolume.value.xCoords.length - 1],
+    yMin: speedFieldVolume.value.yCoords[0],
+    yMax: speedFieldVolume.value.yCoords[speedFieldVolume.value.yCoords.length - 1],
+  };
+});
 const mapStageStyle = computed(() => {
   const domain = stageDomain.value;
   if (!domain) return { aspectRatio: '1 / 1' };
@@ -331,20 +381,22 @@ const mapStageStyle = computed(() => {
 });
 const markerItems = computed(() => {
   const domain = stageDomain.value;
-  const turbines = mainMetadata.value?.turbines || [];
+  const turbines = resolvedTurbines.value;
   if (!domain || !turbines.length) return [];
   const xSpan = domain.xMax - domain.xMin;
   const ySpan = domain.yMax - domain.yMin;
-  return turbines.map((turbine) => ({
-    id: turbine.id,
-    name: turbine.name || turbine.id,
-    title: `${turbine.name || turbine.id} | X ${formatNumber(turbine.x, 1)} m | Y ${formatNumber(turbine.y, 1)} m`,
-    style: {
-      left: `${((turbine.x - domain.xMin) / xSpan) * 100}%`,
-      top: `${((domain.yMax - turbine.y) / ySpan) * 100}%`,
-      zIndex: turbine.id === selectedTurbine.value ? 4 : 3,
-    },
-  }));
+  return turbines
+    .filter((turbine) => Number.isFinite(turbine.plotX) && Number.isFinite(turbine.plotY))
+    .map((turbine) => ({
+      id: turbine.id,
+      name: turbine.name || turbine.id,
+      title: `${turbine.name || turbine.id} | X ${formatNumber(turbine.plotX, 1)} m | Y ${formatNumber(turbine.plotY, 1)} m`,
+      style: {
+        left: `${((turbine.plotX - domain.xMin) / xSpan) * 100}%`,
+        top: `${((domain.yMax - turbine.plotY) / ySpan) * 100}%`,
+        zIndex: turbine.id === selectedTurbine.value ? 4 : 3,
+      },
+    }));
 });
 const queryMarkerStyle = computed(() => {
   const domain = stageDomain.value;
@@ -370,15 +422,15 @@ const selectedDetailItems = computed(() => {
       { label: '坐标', value: '-' },
     ];
   }
-  const currentSpeed = sampleSpeedFieldAtPoint(turbine.x, turbine.y, currentHeight.value);
-  const hubSpeed = sampleSpeedFieldAtPoint(turbine.x, turbine.y, turbine.hubHeight);
+  const currentSpeed = sampleSpeedFieldAtPoint(turbine.plotX, turbine.plotY, currentHeight.value);
+  const hubSpeed = sampleSpeedFieldAtPoint(turbine.plotX, turbine.plotY, turbine.hubHeight);
   return [
     { label: '风机', value: turbine.name || turbine.id },
     { label: '当前高度风速', value: Number.isFinite(currentSpeed) ? `${formatNumber(currentSpeed, 2)} m/s` : '-' },
     { label: '轮毂高度风速', value: Number.isFinite(hubSpeed) ? `${formatNumber(hubSpeed, 2)} m/s` : '-' },
     { label: '轮毂高度', value: `${formatNumber(turbine.hubHeight, 1)} m` },
     { label: '叶轮直径', value: `${formatNumber(turbine.rotorDiameter, 1)} m` },
-    { label: '坐标', value: `${formatNumber(turbine.x, 1)}, ${formatNumber(turbine.y, 1)}` },
+    { label: '坐标', value: `${formatNumber(turbine.plotX, 1)}, ${formatNumber(turbine.plotY, 1)}` },
   ];
 });
 const pointQueryMessage = computed(() => {
@@ -814,7 +866,7 @@ const loadPageData = async () => {
     const hasActiveTurbine = availableTurbines.some((turbine) => turbine.id === selectedTurbine.value);
     if (!hasActiveTurbine) selectedTurbine.value = availableTurbines[0]?.id || '';
     if (selectedTurbineMeta.value && !Number.isFinite(pointQuery.value.x) && !Number.isFinite(pointQuery.value.y)) {
-      pointQuery.value = { x: selectedTurbineMeta.value.x, y: selectedTurbineMeta.value.y };
+      pointQuery.value = { x: selectedTurbineMeta.value.plotX, y: selectedTurbineMeta.value.plotY };
       updatePointQuery();
     }
     if (hasActiveTurbine && selectedTurbine.value) {
