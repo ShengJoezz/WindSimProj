@@ -73,15 +73,6 @@
             />
           </el-select>
         </div>
-
-        <div class="control-block">
-          <span class="control-label">组件</span>
-          <el-radio-group v-model="activePanel" size="small" class="toolbar-group">
-            <el-radio-button value="profile">风速廓线</el-radio-button>
-            <el-radio-button value="wake">尾流分析</el-radio-button>
-            <el-radio-button value="point">单点查询</el-radio-button>
-          </el-radio-group>
-        </div>
       </section>
 
       <div class="workspace-grid">
@@ -91,7 +82,6 @@
             <div class="panel-meta">
               <span>{{ formatNumber(currentHeight, 0) }} m</span>
               <span>JET</span>
-              <span v-if="activePanel === 'point'">点选</span>
             </div>
           </div>
 
@@ -99,7 +89,6 @@
             ref="speedFieldContainer"
             class="map-stage"
             :style="mapStageStyle"
-            @click="handleStageClick"
           >
             <div v-if="!isSpeedFieldReady && !chartLoading.speedField" class="empty-state">
               <el-icon><Picture /></el-icon>
@@ -111,7 +100,6 @@
               class="speed-field-canvas"
               :class="{
                 'speed-field-canvas--visible': isSpeedFieldReady,
-                'speed-field-canvas--pick': activePanel === 'point',
               }"
             />
 
@@ -128,8 +116,6 @@
               <span class="map-marker-dot"></span>
               <span class="map-marker-label">{{ marker.name }}</span>
             </button>
-
-            <div v-if="queryMarkerStyle" class="query-marker" :style="queryMarkerStyle"></div>
 
             <div v-if="chartLoading.speedField" class="panel-overlay">
               <el-icon class="is-loading"><Loading /></el-icon>
@@ -148,83 +134,39 @@
 
         <section class="panel side-panel">
           <div class="panel-head">
-            <h2>{{ panelTitle }}</h2>
+            <h2>风机剖面与尾流</h2>
             <div class="panel-meta">
-              <span v-if="activePanel === 'point'">{{ formatNumber(currentHeight, 0) }} m</span>
-              <span v-else>{{ selectedTurbineMeta?.name || '-' }}</span>
+              <span>{{ selectedTurbineMeta?.name || '-' }}</span>
             </div>
           </div>
 
-          <template v-if="activePanel !== 'point'">
-            <div class="detail-grid">
-              <div v-for="item in selectedDetailItems" :key="item.label" class="detail-card">
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
-              </div>
+          <div class="detail-strip">
+            <div v-for="item in selectedDetailItems" :key="item.label" class="detail-chip">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
             </div>
-
-            <div v-show="activePanel === 'profile'" ref="profileChartRef" class="chart-surface"></div>
-            <div v-show="activePanel === 'wake'" ref="wakeChartRef" class="chart-surface"></div>
-          </template>
-
-          <div v-else class="point-panel">
-            <div class="point-form">
-              <div class="point-input">
-                <span>X (m)</span>
-                <el-input-number
-                  v-model="pointQuery.x"
-                  :step="10"
-                  :precision="1"
-                  :min="stageDomain?.xMin"
-                  :max="stageDomain?.xMax"
-                  controls-position="right"
-                />
-              </div>
-              <div class="point-input">
-                <span>Y (m)</span>
-                <el-input-number
-                  v-model="pointQuery.y"
-                  :step="10"
-                  :precision="1"
-                  :min="stageDomain?.yMin"
-                  :max="stageDomain?.yMax"
-                  controls-position="right"
-                />
-              </div>
-              <div class="point-input">
-                <span>Z (m)</span>
-                <div class="point-static">{{ formatNumber(currentHeight, 1) }}</div>
-              </div>
-              <el-button type="primary" :loading="chartLoading.pointQuery" @click="handlePointQuery">查询</el-button>
-            </div>
-
-            <div class="detail-grid">
-              <div class="detail-card">
-                <span>X</span>
-                <strong>{{ pointCard('x') }}</strong>
-              </div>
-              <div class="detail-card">
-                <span>Y</span>
-                <strong>{{ pointCard('y') }}</strong>
-              </div>
-              <div class="detail-card">
-                <span>Z</span>
-                <strong>{{ pointCard('z') }}</strong>
-              </div>
-              <div class="detail-card">
-                <span>风速</span>
-                <strong>{{ pointCard('speed') }}</strong>
-              </div>
-            </div>
-
-            <div class="point-note">{{ pointQueryMessage }}</div>
           </div>
 
-          <div v-if="activePanel === 'profile' && chartLoading.profile" class="panel-overlay panel-overlay--surface">
-            <el-icon class="is-loading"><Loading /></el-icon>
-          </div>
-          <div v-if="activePanel === 'wake' && chartLoading.wake" class="panel-overlay panel-overlay--surface">
-            <el-icon class="is-loading"><Loading /></el-icon>
+          <div class="chart-stack">
+            <section class="chart-block">
+              <div class="chart-head">
+                <h3>风速廓线</h3>
+              </div>
+              <div ref="profileChartRef" class="chart-surface"></div>
+              <div v-if="chartLoading.profile" class="panel-overlay panel-overlay--surface">
+                <el-icon class="is-loading"><Loading /></el-icon>
+              </div>
+            </section>
+
+            <section class="chart-block">
+              <div class="chart-head">
+                <h3>尾流分析</h3>
+              </div>
+              <div ref="wakeChartRef" class="chart-surface"></div>
+              <div v-if="chartLoading.wake" class="panel-overlay panel-overlay--surface">
+                <el-icon class="is-loading"><Loading /></el-icon>
+              </div>
+            </section>
           </div>
         </section>
       </div>
@@ -263,15 +205,12 @@ const MAX_SPEED_FIELD_PIXELS = 950000;
 const speedFieldColorLut = buildColorLookupTable(SIMULATION_JET_STOPS);
 
 const loading = ref(false);
-const chartLoading = ref({ speedField: false, profile: false, wake: false, pointQuery: false });
+const chartLoading = ref({ speedField: false, profile: false, wake: false });
 const mainMetadata = ref(null);
 const currentHeight = ref(10);
 const selectedTurbine = ref('');
-const activePanel = ref('profile');
 const profileData = ref(null);
 const wakeData = ref(null);
-const pointQuery = ref({ x: null, y: null });
-const pointQueryResult = ref(null);
 const isStartingPrecompute = ref(false);
 const isSpeedFieldReady = ref(false);
 
@@ -346,7 +285,6 @@ const headerBadges = computed(() => [
   { label: '高度', value: `${formatNumber(currentHeight.value, 0)} m` },
   { label: '风机', value: selectedTurbineMeta.value?.name || '-' },
 ]);
-const panelTitle = computed(() => (activePanel.value === 'wake' ? '尾流分析' : activePanel.value === 'point' ? '单点查询' : '风速廓线'));
 const speedFieldLegendTicks = computed(() => {
   const vmin = Number(mainMetadata.value?.vmin ?? speedFieldVolume.value?.vmin ?? 0);
   const vmax = Number(mainMetadata.value?.vmax ?? speedFieldVolume.value?.vmax ?? 0);
@@ -398,51 +336,23 @@ const markerItems = computed(() => {
       },
     }));
 });
-const queryMarkerStyle = computed(() => {
-  const domain = stageDomain.value;
-  const x = Number(pointQuery.value.x);
-  const y = Number(pointQuery.value.y);
-  if (!domain || !Number.isFinite(x) || !Number.isFinite(y)) return null;
-  const xSpan = domain.xMax - domain.xMin;
-  const ySpan = domain.yMax - domain.yMin;
-  return {
-    left: `${((x - domain.xMin) / xSpan) * 100}%`,
-    top: `${((domain.yMax - y) / ySpan) * 100}%`,
-  };
-});
 const selectedDetailItems = computed(() => {
   const turbine = selectedTurbineMeta.value;
   if (!turbine) {
     return [
-      { label: '风机', value: '-' },
       { label: '当前高度风速', value: '-' },
       { label: '轮毂高度风速', value: '-' },
       { label: '轮毂高度', value: '-' },
-      { label: '叶轮直径', value: '-' },
-      { label: '坐标', value: '-' },
     ];
   }
   const currentSpeed = sampleSpeedFieldAtPoint(turbine.plotX, turbine.plotY, currentHeight.value);
   const hubSpeed = sampleSpeedFieldAtPoint(turbine.plotX, turbine.plotY, turbine.hubHeight);
   return [
-    { label: '风机', value: turbine.name || turbine.id },
     { label: '当前高度风速', value: Number.isFinite(currentSpeed) ? `${formatNumber(currentSpeed, 2)} m/s` : '-' },
     { label: '轮毂高度风速', value: Number.isFinite(hubSpeed) ? `${formatNumber(hubSpeed, 2)} m/s` : '-' },
     { label: '轮毂高度', value: `${formatNumber(turbine.hubHeight, 1)} m` },
-    { label: '叶轮直径', value: `${formatNumber(turbine.rotorDiameter, 1)} m` },
-    { label: '坐标', value: `${formatNumber(turbine.plotX, 1)}, ${formatNumber(turbine.plotY, 1)}` },
   ];
 });
-const pointQueryMessage = computed(() => {
-  if (!pointQueryResult.value) return '未查询';
-  return pointQueryResult.value.speed == null ? '计算域外' : '体插值结果';
-});
-const pointCard = (key) => {
-  if (!pointQueryResult.value) return '-';
-  if (key === 'speed') return pointQueryResult.value.speed == null ? '计算域外' : `${formatNumber(pointQueryResult.value.speed, 3)} m/s`;
-  if (key === 'z') return `${formatNumber(pointQueryResult.value.z, 1)} m`;
-  return `${formatNumber(pointQueryResult.value[key], 1)} m`;
-};
 const blockingAlert = computed(() => {
   if (!props.caseId) return null;
   if (!caseStore.hasFetchedCalculationStatus) return { type: 'info', title: '加载中', message: '正在加载工况状态与速度场缓存...', actionText: '', loading: false, action: () => {} };
@@ -628,15 +538,6 @@ const clearSpeedFieldCanvas = () => {
   speedFieldYMap = null;
   isSpeedFieldReady.value = false;
 };
-const updatePointQuery = () => {
-  const x = Number(pointQuery.value.x);
-  const y = Number(pointQuery.value.y);
-  if (!Number.isFinite(x) || !Number.isFinite(y)) {
-    pointQueryResult.value = null;
-    return;
-  }
-  pointQueryResult.value = { x, y, z: currentHeight.value, speed: sampleSpeedFieldAtPoint(x, y, currentHeight.value) };
-};
 const fetchMetadata = async () => {
   chartLoading.value.speedField = true;
   mainMetadata.value = await getMetadata(props.caseId);
@@ -762,32 +663,6 @@ const setupResizeObserver = () => {
   else resizeObserver.disconnect();
   elements.forEach((element) => resizeObserver.observe(element));
 };
-const handleStageClick = (event) => {
-  if (activePanel.value !== 'point' || !stageDomain.value || !speedFieldContainer.value) return;
-  const rect = speedFieldContainer.value.getBoundingClientRect();
-  const relativeX = (event.clientX - rect.left) / rect.width;
-  const relativeY = (event.clientY - rect.top) / rect.height;
-  if (relativeX < 0 || relativeX > 1 || relativeY < 0 || relativeY > 1) return;
-  pointQuery.value = {
-    x: stageDomain.value.xMin + (stageDomain.value.xMax - stageDomain.value.xMin) * relativeX,
-    y: stageDomain.value.yMax - (stageDomain.value.yMax - stageDomain.value.yMin) * relativeY,
-  };
-  updatePointQuery();
-};
-const handlePointQuery = async () => {
-  const x = Number(pointQuery.value.x);
-  const y = Number(pointQuery.value.y);
-  if (!Number.isFinite(x) || !Number.isFinite(y)) {
-    ElMessage.warning('请输入有效的 X/Y 坐标。');
-    return;
-  }
-  chartLoading.value.pointQuery = true;
-  try {
-    updatePointQuery();
-  } finally {
-    chartLoading.value.pointQuery = false;
-  }
-};
 const exportCurrentView = () => {
   if (!isVisualizationReady.value) return;
   const filenameBase = `WindSim_${props.caseId}_${selectedTurbine.value || 'field'}_H${formatNumber(currentHeight.value, 0)}`;
@@ -799,15 +674,19 @@ const exportCurrentView = () => {
     link.click();
     document.body.removeChild(link);
   }
-  const instance = activePanel.value === 'wake' ? wakeInstance : profileInstance;
-  if (instance && !instance.isDisposed() && activePanel.value !== 'point') {
+  const chartExports = [
+    { instance: profileInstance, suffix: 'profile' },
+    { instance: wakeInstance, suffix: 'wake' },
+  ];
+  chartExports.forEach(({ instance, suffix }) => {
+    if (!instance || instance.isDisposed()) return;
     const link = document.createElement('a');
     link.href = instance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#ffffff' });
-    link.download = `${filenameBase}_${activePanel.value}.png`;
+    link.download = `${filenameBase}_${suffix}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }
+  });
 };
 const startPrecompute = async () => {
   if (!props.caseId || isStartingPrecompute.value) return;
@@ -834,14 +713,12 @@ const ensureCaseLoaded = async (id) => {
 };
 const resetState = () => {
   loading.value = false;
-  chartLoading.value = { speedField: false, profile: false, wake: false, pointQuery: false };
+  chartLoading.value = { speedField: false, profile: false, wake: false };
   mainMetadata.value = null;
   currentHeight.value = 10;
   selectedTurbine.value = '';
   profileData.value = null;
   wakeData.value = null;
-  pointQuery.value = { x: null, y: null };
-  pointQueryResult.value = null;
   clearSpeedFieldCanvas();
   profileInstance?.clear();
   wakeInstance?.clear();
@@ -865,10 +742,6 @@ const loadPageData = async () => {
     const availableTurbines = mainMetadata.value?.turbines || [];
     const hasActiveTurbine = availableTurbines.some((turbine) => turbine.id === selectedTurbine.value);
     if (!hasActiveTurbine) selectedTurbine.value = availableTurbines[0]?.id || '';
-    if (selectedTurbineMeta.value && !Number.isFinite(pointQuery.value.x) && !Number.isFinite(pointQuery.value.y)) {
-      pointQuery.value = { x: selectedTurbineMeta.value.plotX, y: selectedTurbineMeta.value.plotY };
-      updatePointQuery();
-    }
     if (hasActiveTurbine && selectedTurbine.value) {
       await Promise.allSettled([fetchProfile(selectedTurbine.value), fetchWake(selectedTurbine.value)]);
     }
@@ -900,12 +773,6 @@ watch(selectedTurbine, async (newValue) => {
 watch(currentHeight, () => {
   scheduleSpeedFieldRender();
   renderProfileChart();
-  updatePointQuery();
-});
-watch(activePanel, async () => {
-  await nextTick();
-  initCharts();
-  safeResize();
 });
 watch(() => props.caseId, async (newValue, oldValue) => {
   if (oldValue) clearClientCaseCache(oldValue);
@@ -945,11 +812,10 @@ onUnmounted(() => {
 .meta-pill strong{color:#15304d}
 .toolbar{display:flex;align-items:center;gap:10px}
 .status-alert{margin-top:-4px}
-.control-strip{display:grid;grid-template-columns:minmax(320px,1.7fr) minmax(220px,.9fr) minmax(260px,1fr);gap:16px}
+.control-strip{display:grid;grid-template-columns:minmax(320px,1.8fr) minmax(220px,.9fr);gap:16px}
 .control-block{display:flex;min-width:0;flex-direction:column;gap:12px;border-radius:18px;border:1px solid rgba(148,163,184,.16);padding:16px 18px;background:rgba(255,255,255,.88);box-shadow:0 16px 30px rgba(15,23,42,.05)}
 .control-label{font-size:.83rem;font-weight:600;letter-spacing:.04em;color:#5d6d88}
 .toolbar-select{width:100%}
-.toolbar-group{flex-wrap:wrap}
 .workspace-grid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(360px,.95fr);gap:18px;align-items:start}
 .panel{position:relative;border-radius:22px;border:1px solid rgba(148,163,184,.16);background:rgba(255,255,255,.9);box-shadow:0 22px 36px rgba(15,23,42,.06);overflow:hidden}
 .map-panel,.side-panel{padding:18px}
@@ -959,7 +825,6 @@ onUnmounted(() => {
 .map-stage{position:relative;overflow:hidden;width:100%;border-radius:18px;background:linear-gradient(180deg,rgba(248,250,252,.7),rgba(241,245,249,.9))}
 .speed-field-canvas{display:block;width:100%;height:100%;opacity:0;transition:opacity .18s ease}
 .speed-field-canvas--visible{opacity:1}
-.speed-field-canvas--pick{cursor:crosshair}
 .empty-state,.panel-overlay,.loading-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#29405f}
 .panel-overlay,.loading-overlay{background:rgba(255,255,255,.72);z-index:8}
 .panel-overlay--surface{border-radius:16px}
@@ -967,25 +832,21 @@ onUnmounted(() => {
 .map-marker-dot{width:11px;height:11px;border-radius:999px;border:2px solid rgba(255,255,255,.95);background:#0f172a;box-shadow:0 0 0 2px rgba(15,23,42,.18)}
 .map-marker-label{font-size:.72rem;font-weight:600;color:rgba(27,47,74,.78);text-shadow:0 1px 0 rgba(255,255,255,.84);white-space:nowrap}
 .map-marker--active .map-marker-dot{background:#f97316;box-shadow:0 0 0 3px rgba(249,115,22,.24)}
-.query-marker{position:absolute;width:22px;height:22px;transform:translate(-50%,-50%);border-radius:999px;border:2px solid rgba(255,255,255,.95);box-shadow:0 0 0 2px rgba(239,68,68,.18);background:rgba(239,68,68,.18);pointer-events:none;z-index:5}
-.query-marker::after{content:'';position:absolute;inset:50% auto auto 50%;width:8px;height:8px;transform:translate(-50%,-50%);border-radius:999px;background:#ef4444}
 .legend-strip{display:flex;align-items:center;gap:12px;margin-top:14px}
 .legend-caption{min-width:28px;font-size:.76rem;font-weight:700;color:#4d5b75}
 .legend-bar{flex:1;height:14px;border-radius:999px}
 .legend-labels{display:flex;min-width:220px;justify-content:space-between;gap:10px;color:#62718b;font-size:.75rem}
-.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:14px}
-.detail-card{display:flex;min-height:80px;flex-direction:column;justify-content:space-between;gap:8px;border-radius:16px;border:1px solid rgba(148,163,184,.16);padding:14px 15px;background:linear-gradient(180deg,rgba(248,250,252,.96),rgba(241,245,249,.9))}
-.detail-card span{font-size:.8rem;color:#66758e}
-.detail-card strong{font-size:1.04rem;font-weight:700;color:#122038;line-height:1.3}
-.chart-surface{min-height:380px;border-radius:18px;background:#fff}
-.point-panel{display:flex;flex-direction:column;gap:16px}
-.point-form{display:flex;flex-wrap:wrap;align-items:end;gap:12px}
-.point-input{display:flex;min-width:120px;flex-direction:column;gap:8px}
-.point-input span{font-size:.8rem;color:#66758e}
-.point-static{display:flex;min-height:32px;align-items:center;border-radius:10px;border:1px solid rgba(148,163,184,.2);padding:0 12px;background:rgba(248,250,252,.92);color:#15223b;font-weight:600}
-.point-note{min-height:22px;color:#66758e;font-size:.84rem;font-weight:600}
+.detail-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:16px}
+.detail-chip{display:flex;min-height:74px;flex-direction:column;justify-content:space-between;gap:8px;border-radius:16px;border:1px solid rgba(148,163,184,.16);padding:14px 15px;background:linear-gradient(180deg,rgba(248,250,252,.96),rgba(241,245,249,.9))}
+.detail-chip span{font-size:.78rem;color:#66758e}
+.detail-chip strong{font-size:1rem;font-weight:700;color:#122038;line-height:1.35}
+.chart-stack{display:grid;gap:16px}
+.chart-block{position:relative;border-radius:18px;border:1px solid rgba(148,163,184,.16);background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(248,250,252,.92));padding:14px}
+.chart-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.chart-head h3{margin:0;font-size:.95rem;font-weight:700;color:#15223b}
+.chart-surface{min-height:260px;border-radius:14px;background:#fff}
 .loading-overlay{backdrop-filter:blur(6px);z-index:20}
 .loading-overlay p{margin:0}
 @media (max-width:1180px){.control-strip,.workspace-grid{grid-template-columns:1fr}}
-@media (max-width:768px){.speed-lab{padding:14px 14px 20px}.page-header{flex-direction:column;align-items:stretch}.toolbar{justify-content:flex-end}.detail-grid{grid-template-columns:1fr}.legend-strip{flex-direction:column;align-items:stretch}.legend-labels{min-width:0}.point-form{align-items:stretch}}
+@media (max-width:768px){.speed-lab{padding:14px 14px 20px}.page-header{flex-direction:column;align-items:stretch}.toolbar{justify-content:flex-end}.detail-strip{grid-template-columns:1fr}.legend-strip{flex-direction:column;align-items:stretch}.legend-labels{min-width:0}.chart-surface{min-height:220px}}
 </style>
