@@ -1,5 +1,5 @@
 <template>
-  <div class="speed-lab">
+  <div ref="speedLabRoot" class="speed-lab">
     <el-alert
       v-if="blockingAlert"
       :type="blockingAlert.type"
@@ -72,7 +72,6 @@
             <h2>平面风速场</h2>
             <div class="panel-meta">
               <span>{{ formatNumber(currentHeight, 0) }} m</span>
-              <span>JET</span>
             </div>
           </div>
 
@@ -119,9 +118,12 @@
 
           <div class="map-footer">
             <div v-if="isSpeedFieldReady" class="legend-strip">
-              <span class="legend-caption">JET</span>
+              <div class="legend-head">
+                <span>风速</span>
+                <strong>m/s</strong>
+              </div>
               <div class="legend-bar" :style="speedFieldLegendBarStyle"></div>
-              <div class="legend-labels">
+              <div class="legend-scale">
                 <span v-for="tick in speedFieldLegendTicks" :key="tick">{{ tick }}</span>
               </div>
             </div>
@@ -144,32 +146,51 @@
           </div>
 
           <div class="point-strip point-strip--side">
-            <span class="point-strip-title">单点查询</span>
-            <el-input-number
-              v-model="pointQuery.x"
-              :step="10"
-              :precision="1"
-              :min="stageDomain?.xMin"
-              :max="stageDomain?.xMax"
-              controls-position="right"
-            />
-            <el-input-number
-              v-model="pointQuery.y"
-              :step="10"
-              :precision="1"
-              :min="stageDomain?.yMin"
-              :max="stageDomain?.yMax"
-              controls-position="right"
-            />
-            <div class="point-chip">
-              <span>Z</span>
-              <strong>{{ formatNumber(currentHeight, 1) }} m</strong>
+            <div class="point-strip-head">
+              <span class="point-strip-title">单点查询</span>
             </div>
-            <div class="point-chip">
-              <span>风速</span>
-              <strong>{{ pointSpeedLabel }}</strong>
+            <div class="point-grid">
+              <label class="point-field">
+                <span>X (m)</span>
+                <el-input-number
+                  v-model="pointQuery.x"
+                  :step="10"
+                  :precision="1"
+                  :min="stageDomain?.xMin"
+                  :max="stageDomain?.xMax"
+                  controls-position="right"
+                />
+              </label>
+              <label class="point-field">
+                <span>Y (m)</span>
+                <el-input-number
+                  v-model="pointQuery.y"
+                  :step="10"
+                  :precision="1"
+                  :min="stageDomain?.yMin"
+                  :max="stageDomain?.yMax"
+                  controls-position="right"
+                />
+              </label>
+              <label class="point-field">
+                <span>Z (m)</span>
+                <el-input-number
+                  v-model="pointQuery.z"
+                  :step="10"
+                  :precision="1"
+                  :min="minHeight"
+                  :max="maxHeight"
+                  controls-position="right"
+                />
+              </label>
+              <div class="point-result">
+                <span>风速</span>
+                <strong>{{ pointSpeedLabel }}</strong>
+              </div>
+              <el-button type="primary" class="point-action" :loading="chartLoading.pointQuery" @click="handlePointQuery">
+                更新
+              </el-button>
             </div>
-            <el-button :loading="chartLoading.pointQuery" @click="handlePointQuery">更新</el-button>
           </div>
 
           <div class="chart-stack">
@@ -236,7 +257,7 @@ const currentHeight = ref(10);
 const selectedTurbine = ref('');
 const profileData = ref(null);
 const wakeData = ref(null);
-const pointQuery = ref({ x: null, y: null });
+const pointQuery = ref({ x: null, y: null, z: null });
 const pointQueryResult = ref(null);
 const isStartingPrecompute = ref(false);
 const isSpeedFieldReady = ref(false);
@@ -245,10 +266,12 @@ const speedFieldContainer = ref(null);
 const speedFieldCanvas = ref(null);
 const profileChartRef = ref(null);
 const wakeChartRef = ref(null);
+const speedLabRoot = ref(null);
 
 let profileInstance = null;
 let wakeInstance = null;
 let resizeObserver = null;
+let lockedParentScrollTargets = null;
 const speedFieldVolume = ref(null);
 let speedFieldCanvasCtx = null;
 let speedFieldImageData = null;
@@ -392,6 +415,10 @@ const pointSpeedLabel = computed(() => {
   if (!pointQueryResult.value) return '-';
   return pointQueryResult.value.speed == null ? '计算域外' : `${formatNumber(pointQueryResult.value.speed, 3)} m/s`;
 });
+const pointQueryHeight = () => {
+  const z = Number(pointQuery.value.z);
+  return Number.isFinite(z) ? z : currentHeight.value;
+};
 const blockingAlert = computed(() => {
   if (!props.caseId) return null;
   if (!caseStore.hasFetchedCalculationStatus) return { type: 'info', title: '加载中', message: '正在加载工况状态与速度场缓存...', actionText: '', loading: false, action: () => {} };
@@ -580,15 +607,16 @@ const clearSpeedFieldCanvas = () => {
 const updatePointQuery = () => {
   const x = Number(pointQuery.value.x);
   const y = Number(pointQuery.value.y);
-  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+  const z = pointQueryHeight();
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
     pointQueryResult.value = null;
     return;
   }
   pointQueryResult.value = {
     x: roundPointCoordinate(x),
     y: roundPointCoordinate(y),
-    z: currentHeight.value,
-    speed: sampleSpeedFieldAtPoint(x, y, currentHeight.value),
+    z: roundPointCoordinate(z),
+    speed: sampleSpeedFieldAtPoint(x, y, z),
   };
 };
 const fetchMetadata = async () => {
@@ -648,7 +676,7 @@ const renderProfileChart = () => {
     .filter(([speed, height]) => Number.isFinite(speed) && Number.isFinite(height));
   const option = {
     animation: false,
-    grid: { left: 48, right: 18, top: 24, bottom: 32 },
+    grid: { left: 14, right: 16, top: 20, bottom: 18, containLabel: true },
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'cross' },
@@ -658,7 +686,7 @@ const renderProfileChart = () => {
       },
     },
     xAxis: { type: 'value', name: '风速 (m/s)', nameLocation: 'middle', nameGap: 24, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.16)' } } },
-    yAxis: { type: 'value', name: '高度 (m)', nameLocation: 'middle', nameGap: 42, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.16)' } } },
+    yAxis: { type: 'value', name: '高度 (m)', nameLocation: 'middle', nameGap: 36, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.16)' } } },
     series: [{
       type: 'line',
       smooth: true,
@@ -685,7 +713,7 @@ const renderWakeChart = () => {
     .filter(([distance, speed]) => Number.isFinite(distance) && Number.isFinite(speed));
   wakeInstance.setOption({
     animation: false,
-    grid: { left: 48, right: 18, top: 24, bottom: 32 },
+    grid: { left: 14, right: 16, top: 20, bottom: 18, containLabel: true },
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'cross' },
@@ -697,7 +725,7 @@ const renderWakeChart = () => {
       },
     },
     xAxis: { type: 'value', name: '距离 (m)', nameLocation: 'middle', nameGap: 24, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.16)' } } },
-    yAxis: { type: 'value', name: '风速 (m/s)', nameLocation: 'middle', nameGap: 42, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.16)' } } },
+    yAxis: { type: 'value', name: '风速 (m/s)', nameLocation: 'middle', nameGap: 36, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.16)' } } },
     series: [{ type: 'line', smooth: true, symbol: 'none', data: validData, lineStyle: { width: 2.4, color: '#12b981' }, areaStyle: { color: 'rgba(18,185,129,0.08)' }, markLine: { symbol: 'none', lineStyle: { type: 'dashed', color: '#ef4444' }, data: [{ xAxis: 0 }] } }],
   }, true);
 };
@@ -716,6 +744,27 @@ const setupResizeObserver = () => {
   else resizeObserver.disconnect();
   elements.forEach((element) => resizeObserver.observe(element));
 };
+const lockParentScroll = () => {
+  const rootElement = speedLabRoot.value;
+  if (!rootElement || lockedParentScrollTargets) return;
+  const subMainContent = rootElement.closest('.sub-main-content--scrollable') || rootElement.closest('.sub-main-content');
+  const mainContent = rootElement.closest('.main-content');
+  lockedParentScrollTargets = {
+    mainContent,
+    subMainContent,
+    mainOverflowY: mainContent?.style.overflowY ?? '',
+    subOverflowY: subMainContent?.style.overflowY ?? '',
+  };
+  if (mainContent) mainContent.style.overflowY = 'hidden';
+  if (subMainContent) subMainContent.style.overflowY = 'hidden';
+};
+const restoreParentScroll = () => {
+  if (!lockedParentScrollTargets) return;
+  const { mainContent, subMainContent, mainOverflowY, subOverflowY } = lockedParentScrollTargets;
+  if (mainContent) mainContent.style.overflowY = mainOverflowY;
+  if (subMainContent) subMainContent.style.overflowY = subOverflowY;
+  lockedParentScrollTargets = null;
+};
 const handleStageClick = (event) => {
   if (!stageDomain.value || !speedFieldContainer.value) return;
   const rect = speedFieldContainer.value.getBoundingClientRect();
@@ -725,14 +774,16 @@ const handleStageClick = (event) => {
   pointQuery.value = {
     x: roundPointCoordinate(stageDomain.value.xMin + (stageDomain.value.xMax - stageDomain.value.xMin) * relativeX),
     y: roundPointCoordinate(stageDomain.value.yMax - (stageDomain.value.yMax - stageDomain.value.yMin) * relativeY),
+    z: roundPointCoordinate(currentHeight.value),
   };
   updatePointQuery();
 };
 const handlePointQuery = async () => {
   const x = Number(pointQuery.value.x);
   const y = Number(pointQuery.value.y);
-  if (!Number.isFinite(x) || !Number.isFinite(y)) {
-    ElMessage.warning('请输入有效的 X/Y 坐标。');
+  const z = pointQueryHeight();
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+    ElMessage.warning('请输入有效的 X / Y / Z 坐标。');
     return;
   }
   chartLoading.value.pointQuery = true;
@@ -798,7 +849,7 @@ const resetState = () => {
   selectedTurbine.value = '';
   profileData.value = null;
   wakeData.value = null;
-  pointQuery.value = { x: null, y: null };
+  pointQuery.value = { x: null, y: null, z: null };
   pointQueryResult.value = null;
   clearSpeedFieldCanvas();
   profileInstance?.clear();
@@ -827,6 +878,7 @@ const loadPageData = async () => {
       pointQuery.value = {
         x: roundPointCoordinate(selectedTurbineMeta.value.plotX),
         y: roundPointCoordinate(selectedTurbineMeta.value.plotY),
+        z: roundPointCoordinate(currentHeight.value),
       };
       updatePointQuery();
     }
@@ -858,9 +910,12 @@ watch(selectedTurbine, async (newValue) => {
   }
   await Promise.allSettled([fetchProfile(newValue), fetchWake(newValue)]);
 });
-watch(currentHeight, () => {
+watch(currentHeight, (newValue, oldValue) => {
   scheduleSpeedFieldRender();
   renderProfileChart();
+  if (!Number.isFinite(Number(pointQuery.value.z)) || Math.abs(Number(pointQuery.value.z) - Number(oldValue)) < 1e-6) {
+    pointQuery.value.z = roundPointCoordinate(newValue);
+  }
   updatePointQuery();
 });
 watch(() => props.caseId, async (newValue, oldValue) => {
@@ -877,6 +932,7 @@ watch(() => caseStore.visualizationStatus, async (status) => {
 onMounted(async () => {
   window.addEventListener('resize', handleResize);
   await nextTick();
+  lockParentScroll();
   if (!props.caseId) return;
   const ok = await ensureCaseLoaded(props.caseId);
   if (ok) await loadPageData();
@@ -884,6 +940,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize);
   resizeObserver?.disconnect();
+  restoreParentScroll();
   clearSpeedFieldCanvas();
   if (profileInstance && !profileInstance.isDisposed()) profileInstance.dispose();
   if (wakeInstance && !wakeInstance.isDisposed()) wakeInstance.dispose();
@@ -893,18 +950,18 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.speed-lab{position:relative;display:flex;min-height:100%;flex-direction:column;gap:16px;padding:18px 20px 22px;background:radial-gradient(circle at top left,rgba(22,119,255,.08),transparent 28%),linear-gradient(180deg,#f8fbff 0%,#f3f7fc 100%)}
+.speed-lab{position:relative;display:flex;height:calc(100% - 40px);max-height:calc(100% - 40px);min-height:0;box-sizing:border-box;overflow:hidden;flex-direction:column;gap:14px;padding:16px 18px 18px;background:radial-gradient(circle at top left,rgba(22,119,255,.08),transparent 28%),linear-gradient(180deg,#f8fbff 0%,#f3f7fc 100%)}
 .status-alert{margin:0}
-.control-strip{display:grid;grid-template-columns:minmax(320px,1.8fr) minmax(220px,.9fr) auto;gap:16px}
-.control-block{display:flex;min-width:0;flex-direction:column;gap:12px;border-radius:18px;border:1px solid rgba(148,163,184,.16);padding:16px 18px;background:rgba(255,255,255,.88);box-shadow:0 16px 30px rgba(15,23,42,.05)}
+.control-strip{display:grid;grid-template-columns:minmax(320px,1.8fr) minmax(220px,.9fr) auto;gap:14px}
+.control-block{display:flex;min-width:0;flex-direction:column;gap:10px;border-radius:18px;border:1px solid rgba(148,163,184,.16);padding:14px 16px;background:rgba(255,255,255,.88);box-shadow:0 16px 30px rgba(15,23,42,.05)}
 .control-label{font-size:.83rem;font-weight:600;letter-spacing:.04em;color:#5d6d88}
 .toolbar-select{width:100%}
 .control-block-actions{justify-content:space-between;min-width:116px}
 .action-row{display:flex;align-items:center;gap:10px}
-.workspace-grid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(360px,.95fr);gap:18px;align-items:stretch;flex:1;min-height:0}
+.workspace-grid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(360px,.95fr);gap:16px;align-items:stretch;flex:1;min-height:0}
 .panel{position:relative;border-radius:22px;border:1px solid rgba(148,163,184,.16);background:rgba(255,255,255,.9);box-shadow:0 22px 36px rgba(15,23,42,.06);overflow:hidden;min-height:0}
-.map-panel,.side-panel{display:flex;flex-direction:column;padding:18px;min-height:0}
-.panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.map-panel,.side-panel{display:flex;flex-direction:column;padding:16px;min-height:0}
+.panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
 .panel-head h2{margin:0;font-size:1.1rem;font-weight:700;color:#15223b}
 .panel-meta{display:flex;align-items:center;gap:10px;color:#70809b;font-size:.82rem}
 .map-stage{position:relative;overflow:hidden;width:100%;flex:1;min-height:0;border-radius:18px;background:linear-gradient(180deg,rgba(248,250,252,.7),rgba(241,245,249,.9));cursor:crosshair}
@@ -919,27 +976,39 @@ onUnmounted(() => {
 .map-marker--active .map-marker-dot{background:#f97316;box-shadow:0 0 0 3px rgba(249,115,22,.24)}
 .query-marker{position:absolute;width:18px;height:18px;transform:translate(-50%,-50%);border-radius:999px;border:2px solid rgba(255,255,255,.96);box-shadow:0 0 0 2px rgba(239,68,68,.24);background:rgba(239,68,68,.2);pointer-events:none;z-index:5}
 .query-marker::after{content:'';position:absolute;inset:50% auto auto 50%;width:6px;height:6px;transform:translate(-50%,-50%);border-radius:999px;background:#ef4444}
-.map-footer{display:flex;flex-direction:column;gap:12px;margin-top:14px}
-.legend-strip{display:flex;align-items:center;gap:12px;margin-top:14px}
-.legend-caption{min-width:28px;font-size:.76rem;font-weight:700;color:#4d5b75}
-.legend-bar{flex:1;height:14px;border-radius:999px}
-.legend-labels{display:flex;min-width:220px;justify-content:space-between;gap:10px;color:#62718b;font-size:.75rem}
-.point-strip{display:flex;flex-wrap:wrap;align-items:center;gap:10px;border-radius:16px;border:1px solid rgba(148,163,184,.16);padding:12px 14px;background:linear-gradient(180deg,rgba(248,250,252,.96),rgba(241,245,249,.9))}
+.map-footer{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+.legend-strip{display:grid;gap:7px}
+.legend-head{display:flex;align-items:center;justify-content:space-between;color:#62718b;font-size:.77rem}
+.legend-head strong{font-size:.76rem;color:#42546f}
+.legend-bar{width:100%;height:14px;border-radius:999px;box-shadow:inset 0 0 0 1px rgba(148,163,184,.22)}
+.legend-scale{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));align-items:center;color:#62718b;font-size:.75rem}
+.legend-scale span:first-child{justify-self:start;text-align:left}
+.legend-scale span:last-child{justify-self:end;text-align:right}
+.legend-scale span:not(:first-child):not(:last-child){justify-self:center;text-align:center}
+.point-strip{display:grid;gap:10px;border-radius:16px;border:1px solid rgba(148,163,184,.16);padding:12px;background:linear-gradient(180deg,rgba(248,250,252,.96),rgba(241,245,249,.9))}
+.point-strip-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .point-strip-title{font-size:.82rem;font-weight:700;color:#15223b}
-.point-chip{display:flex;min-width:110px;flex-direction:column;gap:4px;border-radius:12px;padding:9px 12px;background:rgba(255,255,255,.78);border:1px solid rgba(148,163,184,.18)}
-.point-chip span{font-size:.72rem;color:#66758e}
-.point-chip strong{font-size:.88rem;color:#122038}
-.detail-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:16px}
-.detail-chip{display:flex;min-height:74px;flex-direction:column;justify-content:space-between;gap:8px;border-radius:16px;border:1px solid rgba(148,163,184,.16);padding:14px 15px;background:linear-gradient(180deg,rgba(248,250,252,.96),rgba(241,245,249,.9))}
+.point-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;align-items:end}
+.point-field{display:flex;min-width:0;flex-direction:column;gap:7px}
+.point-field span,.point-result span{font-size:.72rem;color:#66758e}
+.point-field :deep(.el-input-number){width:100%}
+.point-field :deep(.el-input__wrapper){min-height:40px}
+.point-field :deep(.el-input-number .el-input__inner){text-align:left}
+.point-result{display:flex;min-height:40px;flex-direction:column;justify-content:center;gap:4px;border-radius:12px;padding:8px 12px;background:rgba(255,255,255,.86);border:1px solid rgba(148,163,184,.18)}
+.point-result strong{font-size:.94rem;color:#122038;line-height:1.25}
+.point-action{min-height:40px;border-radius:12px}
+.detail-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}
+.detail-chip{display:flex;min-height:66px;flex-direction:column;justify-content:space-between;gap:6px;border-radius:16px;border:1px solid rgba(148,163,184,.16);padding:12px 14px;background:linear-gradient(180deg,rgba(248,250,252,.96),rgba(241,245,249,.9))}
 .detail-chip span{font-size:.78rem;color:#66758e}
 .detail-chip strong{font-size:1rem;font-weight:700;color:#122038;line-height:1.35}
-.chart-stack{display:grid;grid-template-rows:minmax(0,1fr) minmax(0,1fr);gap:16px;flex:1;min-height:0}
-.chart-block{position:relative;display:flex;min-height:0;flex-direction:column;border-radius:18px;border:1px solid rgba(148,163,184,.16);background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(248,250,252,.92));padding:14px}
-.chart-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.chart-stack{display:grid;grid-template-rows:minmax(0,1fr) minmax(0,1fr);gap:12px;flex:1;min-height:0}
+.chart-block{position:relative;display:flex;min-height:0;flex-direction:column;border-radius:18px;border:1px solid rgba(148,163,184,.16);background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(248,250,252,.92));padding:12px}
+.chart-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
 .chart-head h3{margin:0;font-size:.95rem;font-weight:700;color:#15223b}
 .chart-surface{flex:1;min-height:0;border-radius:14px;background:#fff}
 .loading-overlay{backdrop-filter:blur(6px);z-index:20}
 .loading-overlay p{margin:0}
-@media (max-width:1180px){.control-strip,.workspace-grid{grid-template-columns:1fr}.workspace-grid{flex:none}.chart-stack{grid-template-rows:repeat(2,minmax(220px,1fr))}}
-@media (max-width:768px){.speed-lab{padding:14px 14px 20px}.action-row{justify-content:flex-end}.detail-strip{grid-template-columns:1fr}.legend-strip{flex-direction:column;align-items:stretch}.legend-labels{min-width:0}.point-strip{align-items:stretch}.chart-stack{grid-template-rows:repeat(2,minmax(200px,1fr))}}
+@media (max-width:1380px){.point-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.point-action{grid-column:span 4}}
+@media (max-width:1180px){.control-strip,.workspace-grid{grid-template-columns:1fr}.workspace-grid{flex:none}.point-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.point-action{grid-column:span 4}.chart-stack{grid-template-rows:repeat(2,minmax(220px,1fr))}}
+@media (max-width:768px){.speed-lab{padding:14px 14px 16px}.action-row{justify-content:flex-end}.detail-strip{grid-template-columns:1fr}.point-grid{grid-template-columns:1fr 1fr}.point-action{grid-column:span 2}.chart-stack{grid-template-rows:repeat(2,minmax(200px,1fr))}}
 </style>
