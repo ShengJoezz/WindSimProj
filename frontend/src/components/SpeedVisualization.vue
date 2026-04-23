@@ -1,26 +1,5 @@
 <template>
   <div class="speed-lab">
-    <header class="page-header">
-      <div class="title-block">
-        <h1>速度场分析</h1>
-        <div class="badge-row">
-          <div v-for="badge in headerBadges" :key="badge.label" class="meta-pill">
-            <span>{{ badge.label }}</span>
-            <strong>{{ badge.value }}</strong>
-          </div>
-        </div>
-      </div>
-
-      <div class="toolbar">
-        <el-tooltip content="刷新">
-          <el-button :icon="Refresh" circle @click="retryLoad" :loading="loading" />
-        </el-tooltip>
-        <el-tooltip content="导出当前视图">
-          <el-button :icon="Download" circle @click="exportCurrentView" :disabled="!isVisualizationReady" />
-        </el-tooltip>
-      </div>
-    </header>
-
     <el-alert
       v-if="blockingAlert"
       :type="blockingAlert.type"
@@ -73,6 +52,18 @@
             />
           </el-select>
         </div>
+
+        <div class="control-block control-block-actions">
+          <span class="control-label">操作</span>
+          <div class="action-row">
+            <el-tooltip content="刷新">
+              <el-button :icon="Refresh" circle @click="retryLoad" :loading="loading" />
+            </el-tooltip>
+            <el-tooltip content="导出当前视图">
+              <el-button :icon="Download" circle @click="exportCurrentView" :disabled="!isVisualizationReady" />
+            </el-tooltip>
+          </div>
+        </div>
       </section>
 
       <div class="workspace-grid">
@@ -89,6 +80,7 @@
             ref="speedFieldContainer"
             class="map-stage"
             :style="mapStageStyle"
+            @click="handleStageClick"
           >
             <div v-if="!isSpeedFieldReady && !chartLoading.speedField" class="empty-state">
               <el-icon><Picture /></el-icon>
@@ -117,17 +109,21 @@
               <span class="map-marker-label">{{ marker.name }}</span>
             </button>
 
+            <div v-if="queryMarkerStyle" class="query-marker" :style="queryMarkerStyle"></div>
+
             <div v-if="chartLoading.speedField" class="panel-overlay">
               <el-icon class="is-loading"><Loading /></el-icon>
               <span>加载速度场...</span>
             </div>
           </div>
 
-          <div v-if="isSpeedFieldReady" class="legend-strip">
-            <span class="legend-caption">JET</span>
-            <div class="legend-bar" :style="speedFieldLegendBarStyle"></div>
-            <div class="legend-labels">
-              <span v-for="tick in speedFieldLegendTicks" :key="tick">{{ tick }}</span>
+          <div class="map-footer">
+            <div v-if="isSpeedFieldReady" class="legend-strip">
+              <span class="legend-caption">JET</span>
+              <div class="legend-bar" :style="speedFieldLegendBarStyle"></div>
+              <div class="legend-labels">
+                <span v-for="tick in speedFieldLegendTicks" :key="tick">{{ tick }}</span>
+              </div>
             </div>
           </div>
         </section>
@@ -145,6 +141,35 @@
               <span>{{ item.label }}</span>
               <strong>{{ item.value }}</strong>
             </div>
+          </div>
+
+          <div class="point-strip point-strip--side">
+            <span class="point-strip-title">单点查询</span>
+            <el-input-number
+              v-model="pointQuery.x"
+              :step="10"
+              :precision="1"
+              :min="stageDomain?.xMin"
+              :max="stageDomain?.xMax"
+              controls-position="right"
+            />
+            <el-input-number
+              v-model="pointQuery.y"
+              :step="10"
+              :precision="1"
+              :min="stageDomain?.yMin"
+              :max="stageDomain?.yMax"
+              controls-position="right"
+            />
+            <div class="point-chip">
+              <span>Z</span>
+              <strong>{{ formatNumber(currentHeight, 1) }} m</strong>
+            </div>
+            <div class="point-chip">
+              <span>风速</span>
+              <strong>{{ pointSpeedLabel }}</strong>
+            </div>
+            <el-button :loading="chartLoading.pointQuery" @click="handlePointQuery">更新</el-button>
           </div>
 
           <div class="chart-stack">
@@ -205,12 +230,14 @@ const MAX_SPEED_FIELD_PIXELS = 950000;
 const speedFieldColorLut = buildColorLookupTable(SIMULATION_JET_STOPS);
 
 const loading = ref(false);
-const chartLoading = ref({ speedField: false, profile: false, wake: false });
+const chartLoading = ref({ speedField: false, profile: false, wake: false, pointQuery: false });
 const mainMetadata = ref(null);
 const currentHeight = ref(10);
 const selectedTurbine = ref('');
 const profileData = ref(null);
 const wakeData = ref(null);
+const pointQuery = ref({ x: null, y: null });
+const pointQueryResult = ref(null);
 const isStartingPrecompute = ref(false);
 const isSpeedFieldReady = ref(false);
 
@@ -230,6 +257,7 @@ let speedFieldXMap = null;
 let speedFieldYMap = null;
 
 const formatNumber = (value, digits = 2) => (Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : '-');
+const roundPointCoordinate = (value) => (Number.isFinite(Number(value)) ? Number(Number(value).toFixed(1)) : null);
 const rotatePointToSolverFrame = (x, y, windAngleDeg) => {
   const numericX = Number(x);
   const numericY = Number(y);
@@ -280,11 +308,6 @@ const resolvedTurbines = computed(() => {
   });
 });
 const selectedTurbineMeta = computed(() => resolvedTurbines.value.find((item) => item.id === selectedTurbine.value) || null);
-const headerBadges = computed(() => [
-  { label: '工况', value: props.caseId || '-' },
-  { label: '高度', value: `${formatNumber(currentHeight.value, 0)} m` },
-  { label: '风机', value: selectedTurbineMeta.value?.name || '-' },
-]);
 const speedFieldLegendTicks = computed(() => {
   const vmin = Number(mainMetadata.value?.vmin ?? speedFieldVolume.value?.vmin ?? 0);
   const vmax = Number(mainMetadata.value?.vmax ?? speedFieldVolume.value?.vmax ?? 0);
@@ -336,6 +359,18 @@ const markerItems = computed(() => {
       },
     }));
 });
+const queryMarkerStyle = computed(() => {
+  const domain = stageDomain.value;
+  const x = Number(pointQuery.value.x);
+  const y = Number(pointQuery.value.y);
+  if (!domain || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+  const xSpan = domain.xMax - domain.xMin;
+  const ySpan = domain.yMax - domain.yMin;
+  return {
+    left: `${((x - domain.xMin) / xSpan) * 100}%`,
+    top: `${((domain.yMax - y) / ySpan) * 100}%`,
+  };
+});
 const selectedDetailItems = computed(() => {
   const turbine = selectedTurbineMeta.value;
   if (!turbine) {
@@ -352,6 +387,10 @@ const selectedDetailItems = computed(() => {
     { label: '轮毂高度风速', value: Number.isFinite(hubSpeed) ? `${formatNumber(hubSpeed, 2)} m/s` : '-' },
     { label: '轮毂高度', value: `${formatNumber(turbine.hubHeight, 1)} m` },
   ];
+});
+const pointSpeedLabel = computed(() => {
+  if (!pointQueryResult.value) return '-';
+  return pointQueryResult.value.speed == null ? '计算域外' : `${formatNumber(pointQueryResult.value.speed, 3)} m/s`;
 });
 const blockingAlert = computed(() => {
   if (!props.caseId) return null;
@@ -538,6 +577,20 @@ const clearSpeedFieldCanvas = () => {
   speedFieldYMap = null;
   isSpeedFieldReady.value = false;
 };
+const updatePointQuery = () => {
+  const x = Number(pointQuery.value.x);
+  const y = Number(pointQuery.value.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    pointQueryResult.value = null;
+    return;
+  }
+  pointQueryResult.value = {
+    x: roundPointCoordinate(x),
+    y: roundPointCoordinate(y),
+    z: currentHeight.value,
+    speed: sampleSpeedFieldAtPoint(x, y, currentHeight.value),
+  };
+};
 const fetchMetadata = async () => {
   chartLoading.value.speedField = true;
   mainMetadata.value = await getMetadata(props.caseId);
@@ -663,6 +716,32 @@ const setupResizeObserver = () => {
   else resizeObserver.disconnect();
   elements.forEach((element) => resizeObserver.observe(element));
 };
+const handleStageClick = (event) => {
+  if (!stageDomain.value || !speedFieldContainer.value) return;
+  const rect = speedFieldContainer.value.getBoundingClientRect();
+  const relativeX = (event.clientX - rect.left) / rect.width;
+  const relativeY = (event.clientY - rect.top) / rect.height;
+  if (relativeX < 0 || relativeX > 1 || relativeY < 0 || relativeY > 1) return;
+  pointQuery.value = {
+    x: roundPointCoordinate(stageDomain.value.xMin + (stageDomain.value.xMax - stageDomain.value.xMin) * relativeX),
+    y: roundPointCoordinate(stageDomain.value.yMax - (stageDomain.value.yMax - stageDomain.value.yMin) * relativeY),
+  };
+  updatePointQuery();
+};
+const handlePointQuery = async () => {
+  const x = Number(pointQuery.value.x);
+  const y = Number(pointQuery.value.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    ElMessage.warning('请输入有效的 X/Y 坐标。');
+    return;
+  }
+  chartLoading.value.pointQuery = true;
+  try {
+    updatePointQuery();
+  } finally {
+    chartLoading.value.pointQuery = false;
+  }
+};
 const exportCurrentView = () => {
   if (!isVisualizationReady.value) return;
   const filenameBase = `WindSim_${props.caseId}_${selectedTurbine.value || 'field'}_H${formatNumber(currentHeight.value, 0)}`;
@@ -713,12 +792,14 @@ const ensureCaseLoaded = async (id) => {
 };
 const resetState = () => {
   loading.value = false;
-  chartLoading.value = { speedField: false, profile: false, wake: false };
+  chartLoading.value = { speedField: false, profile: false, wake: false, pointQuery: false };
   mainMetadata.value = null;
   currentHeight.value = 10;
   selectedTurbine.value = '';
   profileData.value = null;
   wakeData.value = null;
+  pointQuery.value = { x: null, y: null };
+  pointQueryResult.value = null;
   clearSpeedFieldCanvas();
   profileInstance?.clear();
   wakeInstance?.clear();
@@ -742,6 +823,13 @@ const loadPageData = async () => {
     const availableTurbines = mainMetadata.value?.turbines || [];
     const hasActiveTurbine = availableTurbines.some((turbine) => turbine.id === selectedTurbine.value);
     if (!hasActiveTurbine) selectedTurbine.value = availableTurbines[0]?.id || '';
+    if (selectedTurbineMeta.value && (!Number.isFinite(pointQuery.value.x) || !Number.isFinite(pointQuery.value.y))) {
+      pointQuery.value = {
+        x: roundPointCoordinate(selectedTurbineMeta.value.plotX),
+        y: roundPointCoordinate(selectedTurbineMeta.value.plotY),
+      };
+      updatePointQuery();
+    }
     if (hasActiveTurbine && selectedTurbine.value) {
       await Promise.allSettled([fetchProfile(selectedTurbine.value), fetchWake(selectedTurbine.value)]);
     }
@@ -773,6 +861,7 @@ watch(selectedTurbine, async (newValue) => {
 watch(currentHeight, () => {
   scheduleSpeedFieldRender();
   renderProfileChart();
+  updatePointQuery();
 });
 watch(() => props.caseId, async (newValue, oldValue) => {
   if (oldValue) clearClientCaseCache(oldValue);
@@ -804,25 +893,21 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.speed-lab{position:relative;display:flex;min-height:100%;flex-direction:column;gap:18px;padding:20px 22px 26px;background:radial-gradient(circle at top left,rgba(22,119,255,.08),transparent 28%),linear-gradient(180deg,#f8fbff 0%,#f3f7fc 100%)}
-.page-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;border:1px solid rgba(148,163,184,.18);border-radius:18px;padding:18px 20px;background:rgba(255,255,255,.78);backdrop-filter:blur(10px)}
-.title-block h1{margin:0;font-size:2rem;font-weight:700;color:#15223b}
-.badge-row{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
-.meta-pill{display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:8px 12px;background:rgba(255,255,255,.9);border:1px solid rgba(148,163,184,.2);color:#5b6b86;font-size:.86rem}
-.meta-pill strong{color:#15304d}
-.toolbar{display:flex;align-items:center;gap:10px}
-.status-alert{margin-top:-4px}
-.control-strip{display:grid;grid-template-columns:minmax(320px,1.8fr) minmax(220px,.9fr);gap:16px}
+.speed-lab{position:relative;display:flex;min-height:100%;flex-direction:column;gap:16px;padding:18px 20px 22px;background:radial-gradient(circle at top left,rgba(22,119,255,.08),transparent 28%),linear-gradient(180deg,#f8fbff 0%,#f3f7fc 100%)}
+.status-alert{margin:0}
+.control-strip{display:grid;grid-template-columns:minmax(320px,1.8fr) minmax(220px,.9fr) auto;gap:16px}
 .control-block{display:flex;min-width:0;flex-direction:column;gap:12px;border-radius:18px;border:1px solid rgba(148,163,184,.16);padding:16px 18px;background:rgba(255,255,255,.88);box-shadow:0 16px 30px rgba(15,23,42,.05)}
 .control-label{font-size:.83rem;font-weight:600;letter-spacing:.04em;color:#5d6d88}
 .toolbar-select{width:100%}
-.workspace-grid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(360px,.95fr);gap:18px;align-items:start}
-.panel{position:relative;border-radius:22px;border:1px solid rgba(148,163,184,.16);background:rgba(255,255,255,.9);box-shadow:0 22px 36px rgba(15,23,42,.06);overflow:hidden}
-.map-panel,.side-panel{padding:18px}
+.control-block-actions{justify-content:space-between;min-width:116px}
+.action-row{display:flex;align-items:center;gap:10px}
+.workspace-grid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(360px,.95fr);gap:18px;align-items:stretch;flex:1;min-height:0}
+.panel{position:relative;border-radius:22px;border:1px solid rgba(148,163,184,.16);background:rgba(255,255,255,.9);box-shadow:0 22px 36px rgba(15,23,42,.06);overflow:hidden;min-height:0}
+.map-panel,.side-panel{display:flex;flex-direction:column;padding:18px;min-height:0}
 .panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
 .panel-head h2{margin:0;font-size:1.1rem;font-weight:700;color:#15223b}
 .panel-meta{display:flex;align-items:center;gap:10px;color:#70809b;font-size:.82rem}
-.map-stage{position:relative;overflow:hidden;width:100%;border-radius:18px;background:linear-gradient(180deg,rgba(248,250,252,.7),rgba(241,245,249,.9))}
+.map-stage{position:relative;overflow:hidden;width:100%;flex:1;min-height:0;border-radius:18px;background:linear-gradient(180deg,rgba(248,250,252,.7),rgba(241,245,249,.9));cursor:crosshair}
 .speed-field-canvas{display:block;width:100%;height:100%;opacity:0;transition:opacity .18s ease}
 .speed-field-canvas--visible{opacity:1}
 .empty-state,.panel-overlay,.loading-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#29405f}
@@ -832,21 +917,29 @@ onUnmounted(() => {
 .map-marker-dot{width:11px;height:11px;border-radius:999px;border:2px solid rgba(255,255,255,.95);background:#0f172a;box-shadow:0 0 0 2px rgba(15,23,42,.18)}
 .map-marker-label{font-size:.72rem;font-weight:600;color:rgba(27,47,74,.78);text-shadow:0 1px 0 rgba(255,255,255,.84);white-space:nowrap}
 .map-marker--active .map-marker-dot{background:#f97316;box-shadow:0 0 0 3px rgba(249,115,22,.24)}
+.query-marker{position:absolute;width:18px;height:18px;transform:translate(-50%,-50%);border-radius:999px;border:2px solid rgba(255,255,255,.96);box-shadow:0 0 0 2px rgba(239,68,68,.24);background:rgba(239,68,68,.2);pointer-events:none;z-index:5}
+.query-marker::after{content:'';position:absolute;inset:50% auto auto 50%;width:6px;height:6px;transform:translate(-50%,-50%);border-radius:999px;background:#ef4444}
+.map-footer{display:flex;flex-direction:column;gap:12px;margin-top:14px}
 .legend-strip{display:flex;align-items:center;gap:12px;margin-top:14px}
 .legend-caption{min-width:28px;font-size:.76rem;font-weight:700;color:#4d5b75}
 .legend-bar{flex:1;height:14px;border-radius:999px}
 .legend-labels{display:flex;min-width:220px;justify-content:space-between;gap:10px;color:#62718b;font-size:.75rem}
+.point-strip{display:flex;flex-wrap:wrap;align-items:center;gap:10px;border-radius:16px;border:1px solid rgba(148,163,184,.16);padding:12px 14px;background:linear-gradient(180deg,rgba(248,250,252,.96),rgba(241,245,249,.9))}
+.point-strip-title{font-size:.82rem;font-weight:700;color:#15223b}
+.point-chip{display:flex;min-width:110px;flex-direction:column;gap:4px;border-radius:12px;padding:9px 12px;background:rgba(255,255,255,.78);border:1px solid rgba(148,163,184,.18)}
+.point-chip span{font-size:.72rem;color:#66758e}
+.point-chip strong{font-size:.88rem;color:#122038}
 .detail-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:16px}
 .detail-chip{display:flex;min-height:74px;flex-direction:column;justify-content:space-between;gap:8px;border-radius:16px;border:1px solid rgba(148,163,184,.16);padding:14px 15px;background:linear-gradient(180deg,rgba(248,250,252,.96),rgba(241,245,249,.9))}
 .detail-chip span{font-size:.78rem;color:#66758e}
 .detail-chip strong{font-size:1rem;font-weight:700;color:#122038;line-height:1.35}
-.chart-stack{display:grid;gap:16px}
-.chart-block{position:relative;border-radius:18px;border:1px solid rgba(148,163,184,.16);background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(248,250,252,.92));padding:14px}
+.chart-stack{display:grid;grid-template-rows:minmax(0,1fr) minmax(0,1fr);gap:16px;flex:1;min-height:0}
+.chart-block{position:relative;display:flex;min-height:0;flex-direction:column;border-radius:18px;border:1px solid rgba(148,163,184,.16);background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(248,250,252,.92));padding:14px}
 .chart-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
 .chart-head h3{margin:0;font-size:.95rem;font-weight:700;color:#15223b}
-.chart-surface{min-height:260px;border-radius:14px;background:#fff}
+.chart-surface{flex:1;min-height:0;border-radius:14px;background:#fff}
 .loading-overlay{backdrop-filter:blur(6px);z-index:20}
 .loading-overlay p{margin:0}
-@media (max-width:1180px){.control-strip,.workspace-grid{grid-template-columns:1fr}}
-@media (max-width:768px){.speed-lab{padding:14px 14px 20px}.page-header{flex-direction:column;align-items:stretch}.toolbar{justify-content:flex-end}.detail-strip{grid-template-columns:1fr}.legend-strip{flex-direction:column;align-items:stretch}.legend-labels{min-width:0}.chart-surface{min-height:220px}}
+@media (max-width:1180px){.control-strip,.workspace-grid{grid-template-columns:1fr}.workspace-grid{flex:none}.chart-stack{grid-template-rows:repeat(2,minmax(220px,1fr))}}
+@media (max-width:768px){.speed-lab{padding:14px 14px 20px}.action-row{justify-content:flex-end}.detail-strip{grid-template-columns:1fr}.legend-strip{flex-direction:column;align-items:stretch}.legend-labels{min-width:0}.point-strip{align-items:stretch}.chart-stack{grid-template-rows:repeat(2,minmax(200px,1fr))}}
 </style>
