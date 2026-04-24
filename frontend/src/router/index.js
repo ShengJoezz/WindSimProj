@@ -74,6 +74,13 @@ const routes = [
         meta: { allowScroll: true },
       },
       {
+        path: "wind-performance-diagnostic",
+        name: "WindPerformanceDiagnostic",
+        component: () => import("../components/WindTurbinePerformanceDiagnostic.vue"),
+        props: true,
+        meta: { allowScroll: true },
+      },
+      {
         path: "speed-visualization", // Choose a path
         name: "SpeedVisualization",
         component: () => import("../components/SpeedVisualization.vue"),

@@ -158,7 +158,7 @@
                   :precision="1"
                   :min="stageDomain?.xMin"
                   :max="stageDomain?.xMax"
-                  controls-position="right"
+                  :controls="false"
                 />
               </label>
               <label class="point-field">
@@ -169,7 +169,7 @@
                   :precision="1"
                   :min="stageDomain?.yMin"
                   :max="stageDomain?.yMax"
-                  controls-position="right"
+                  :controls="false"
                 />
               </label>
               <label class="point-field">
@@ -180,7 +180,7 @@
                   :precision="1"
                   :min="minHeight"
                   :max="maxHeight"
-                  controls-position="right"
+                  :controls="false"
                 />
               </label>
               <div class="point-result">
@@ -680,13 +680,15 @@ const renderProfileChart = () => {
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'cross' },
+      appendToBody: true,
+      confine: false,
       formatter: (params) => {
         const item = params?.[0]?.value;
         return item ? `高度 ${formatNumber(item[1], 1)} m<br>风速 ${formatNumber(item[0], 2)} m/s` : '';
       },
     },
     xAxis: { type: 'value', name: '风速 (m/s)', nameLocation: 'middle', nameGap: 24, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.16)' } } },
-    yAxis: { type: 'value', name: '高度 (m)', nameLocation: 'middle', nameGap: 36, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.16)' } } },
+    yAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(148,163,184,0.16)' } } },
     series: [{
       type: 'line',
       smooth: true,
@@ -694,7 +696,7 @@ const renderProfileChart = () => {
       data: validData,
       lineStyle: { width: 2.4, color: '#1677ff' },
       areaStyle: { color: 'rgba(22,119,255,0.08)' },
-      markLine: { symbol: 'none', lineStyle: { type: 'dashed', color: '#64748b' }, data: [{ yAxis: currentHeight.value, label: { formatter: `${formatNumber(currentHeight.value, 0)} m` } }] },
+      markLine: { symbol: 'none', label: { show: false }, lineStyle: { type: 'dashed', color: '#64748b' }, data: [{ yAxis: currentHeight.value }] },
     }],
   };
   const turbine = selectedTurbineMeta.value;
@@ -717,6 +719,8 @@ const renderWakeChart = () => {
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'cross' },
+      appendToBody: true,
+      confine: false,
       formatter: (params) => {
         const item = params?.[0]?.value;
         if (!item) return '';
@@ -725,7 +729,7 @@ const renderWakeChart = () => {
       },
     },
     xAxis: { type: 'value', name: '距离 (m)', nameLocation: 'middle', nameGap: 24, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.16)' } } },
-    yAxis: { type: 'value', name: '风速 (m/s)', nameLocation: 'middle', nameGap: 36, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.16)' } } },
+    yAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(148,163,184,0.16)' } } },
     series: [{ type: 'line', smooth: true, symbol: 'none', data: validData, lineStyle: { width: 2.4, color: '#12b981' }, areaStyle: { color: 'rgba(18,185,129,0.08)' }, markLine: { symbol: 'none', lineStyle: { type: 'dashed', color: '#ef4444' }, data: [{ xAxis: 0 }] } }],
   }, true);
 };
@@ -960,7 +964,7 @@ onUnmounted(() => {
 .action-row{display:flex;align-items:center;gap:10px}
 .workspace-grid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(360px,.95fr);gap:16px;align-items:stretch;flex:1;min-height:0}
 .panel{position:relative;border-radius:22px;border:1px solid rgba(148,163,184,.16);background:rgba(255,255,255,.9);box-shadow:0 22px 36px rgba(15,23,42,.06);overflow:hidden;min-height:0}
-.map-panel,.side-panel{display:flex;flex-direction:column;padding:16px;min-height:0}
+.map-panel,.side-panel{display:flex;min-width:0;flex-direction:column;padding:16px;min-height:0}
 .panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
 .panel-head h2{margin:0;font-size:1.1rem;font-weight:700;color:#15223b}
 .panel-meta{display:flex;align-items:center;gap:10px;color:#70809b;font-size:.82rem}
@@ -988,7 +992,7 @@ onUnmounted(() => {
 .point-strip{display:grid;gap:10px;border-radius:16px;border:1px solid rgba(148,163,184,.16);padding:12px;background:linear-gradient(180deg,rgba(248,250,252,.96),rgba(241,245,249,.9))}
 .point-strip-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .point-strip-title{font-size:.82rem;font-weight:700;color:#15223b}
-.point-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;align-items:end}
+.point-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:end}
 .point-field{display:flex;min-width:0;flex-direction:column;gap:7px}
 .point-field span,.point-result span{font-size:.72rem;color:#66758e}
 .point-field :deep(.el-input-number){width:100%}
@@ -996,19 +1000,18 @@ onUnmounted(() => {
 .point-field :deep(.el-input-number .el-input__inner){text-align:left}
 .point-result{display:flex;min-height:40px;flex-direction:column;justify-content:center;gap:4px;border-radius:12px;padding:8px 12px;background:rgba(255,255,255,.86);border:1px solid rgba(148,163,184,.18)}
 .point-result strong{font-size:.94rem;color:#122038;line-height:1.25}
-.point-action{min-height:40px;border-radius:12px}
+.point-action{grid-column:span 2;min-height:40px;border-radius:12px}
 .detail-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}
 .detail-chip{display:flex;min-height:66px;flex-direction:column;justify-content:space-between;gap:6px;border-radius:16px;border:1px solid rgba(148,163,184,.16);padding:12px 14px;background:linear-gradient(180deg,rgba(248,250,252,.96),rgba(241,245,249,.9))}
 .detail-chip span{font-size:.78rem;color:#66758e}
 .detail-chip strong{font-size:1rem;font-weight:700;color:#122038;line-height:1.35}
-.chart-stack{display:grid;grid-template-rows:minmax(0,1fr) minmax(0,1fr);gap:12px;flex:1;min-height:0}
-.chart-block{position:relative;display:flex;min-height:0;flex-direction:column;border-radius:18px;border:1px solid rgba(148,163,184,.16);background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(248,250,252,.92));padding:12px}
+.chart-stack{display:grid;grid-template-rows:minmax(0,1fr) minmax(0,1fr);gap:12px;flex:1;min-width:0;min-height:0}
+.chart-block{position:relative;display:flex;width:100%;min-width:0;min-height:0;box-sizing:border-box;overflow:hidden;flex-direction:column;border-radius:18px;border:1px solid rgba(148,163,184,.16);background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(248,250,252,.92));padding:12px}
 .chart-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
 .chart-head h3{margin:0;font-size:.95rem;font-weight:700;color:#15223b}
-.chart-surface{flex:1;min-height:0;border-radius:14px;background:#fff}
+.chart-surface{width:100%;max-width:100%;min-width:0;flex:1;min-height:0;overflow:hidden;border-radius:14px;background:#fff}
 .loading-overlay{backdrop-filter:blur(6px);z-index:20}
 .loading-overlay p{margin:0}
-@media (max-width:1380px){.point-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.point-action{grid-column:span 4}}
-@media (max-width:1180px){.control-strip,.workspace-grid{grid-template-columns:1fr}.workspace-grid{flex:none}.point-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.point-action{grid-column:span 4}.chart-stack{grid-template-rows:repeat(2,minmax(220px,1fr))}}
+@media (max-width:1180px){.control-strip,.workspace-grid{grid-template-columns:1fr}.workspace-grid{flex:none}.chart-stack{grid-template-rows:repeat(2,minmax(220px,1fr))}}
 @media (max-width:768px){.speed-lab{padding:14px 14px 16px}.action-row{justify-content:flex-end}.detail-strip{grid-template-columns:1fr}.point-grid{grid-template-columns:1fr 1fr}.point-action{grid-column:span 2}.chart-stack{grid-template-rows:repeat(2,minmax(200px,1fr))}}
 </style>
