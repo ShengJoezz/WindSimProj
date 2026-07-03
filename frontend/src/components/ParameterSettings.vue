@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-04-01 18:51:11
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-07-23 21:01:26
+ * @LastEditTime: 2026-05-22 11:49:19
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\ParameterSettings.vue
  * @Description: 参数设置组件，支持按需加载和预览已存在的性能曲线文件，并支持粗糙度文件上传。
  *
@@ -110,15 +110,7 @@
           >
             <el-input-number v-model="caseStore.parameters.conditions.turbulenceLengthScale" :min="0.1" :step="1" class="input-number" :disabled="caseStore.infoExists"/>
           </el-form-item>
-          <div class="full-width-hint">
-            <el-alert
-              :title="inflowModeNoticeTitle"
-              :description="inflowModeNoticeDescription"
-              :type="inflowModeNoticeType"
-              :closable="false"
-              show-icon
-            />
-          </div>
+
         </el-form-item>
         <el-form-item label="网格" class="parent-form-item">
           <div class="grid-section">
@@ -273,15 +265,6 @@
           <el-form-item label="稳态伪时间步 Δt" prop="simulation.pseudoTimeStep" :inline="true" class="child-form-item">
             <el-input-number v-model="caseStore.parameters.simulation.pseudoTimeStep" :min="0.001" class="input-number" :disabled="caseStore.infoExists" />
           </el-form-item>
-          <div class="full-width-hint">
-            <el-alert
-              title="这里的 Δt 不是物理历时"
-              description="当前主求解器 roughFoam 是稳态 RANS。这个 Δt 会写入 controlDict 的 deltaT，用作稳态迭代推进/写出控制，不代表真实风场演化时间。"
-              type="warning"
-              :closable="false"
-              show-icon
-            />
-          </div>
         </el-form-item>
         <el-form-item label="后处理" class="parent-form-item">
           <el-form-item label="结果层数" prop="postProcessing.resultLayers" :inline="true" class="child-form-item"> <el-input-number v-model="caseStore.parameters.postProcessing.resultLayers" :min="1" class="input-number" :disabled="caseStore.infoExists" /> </el-form-item>

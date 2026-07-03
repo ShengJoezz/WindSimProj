@@ -16,9 +16,7 @@
 
       <div class="stage-header">
         <div class="stage-copy">
-          <span class="eyebrow">Field Stage</span>
           <h3>风场舞台</h3>
-          <p>同一份真实矢量体缓存，切换三种三维表达，不再回到旧切面或旧流线页面。</p>
         </div>
         <div class="stage-actions">
           <el-button type="primary" plain :loading="loading" @click="loadScene(false, false)">重载</el-button>
@@ -36,7 +34,6 @@
           @click="setViewMode(mode.name)"
         >
           <span>{{ mode.title }}</span>
-          <small>{{ mode.description }}</small>
         </button>
       </div>
 
@@ -51,12 +48,12 @@
             <strong>{{ particleCountLabel }}</strong>
           </div>
           <div class="chip">
-            <span>表现</span>
+            <span>模式</span>
             <strong>{{ styleLabel }}</strong>
           </div>
           <div class="chip">
-            <span>口径</span>
-            <strong>服务端矢量体缓存 -> 真实 3D 采样</strong>
+            <span>配色</span>
+            <strong>{{ legendLabel }}</strong>
           </div>
         </div>
       </div>
@@ -161,9 +158,9 @@ const props = defineProps({
 
 const GLYPH_TARGET_COUNT = 6800;
 const viewModes = [
-  { name: 'nebula', title: '风场星云', description: '密集发光粒子，强调速度体感' },
-  { name: 'glyphs', title: '风矢雕塑', description: '速度方向被压成实体矢量' },
-  { name: 'hybrid', title: '混合态', description: '粒子体 + 风矢骨架同时存在' },
+  { name: 'nebula', title: '风场星云' },
+  { name: 'glyphs', title: '风矢雕塑' },
+  { name: 'hybrid', title: '混合态' },
 ];
 
 const canvasHost = ref(null);
@@ -920,15 +917,9 @@ onBeforeUnmount(() => {
 }
 
 .stage-copy h3 {
-  margin: 10px 0 6px;
+  margin: 0;
   font-size: 28px;
   color: #f8fbff;
-}
-
-.stage-copy p {
-  margin: 0;
-  color: rgba(214, 225, 241, 0.8);
-  line-height: 1.7;
 }
 
 .stage-actions {
@@ -966,13 +957,6 @@ onBeforeUnmount(() => {
   display: block;
   font-size: 15px;
   font-weight: 700;
-}
-
-.mode-pill small {
-  display: block;
-  margin-top: 8px;
-  line-height: 1.5;
-  color: rgba(191, 204, 223, 0.76);
 }
 
 .mode-pill--active {

@@ -2,7 +2,7 @@
  * @Author: joe 847304926@qq.com
  * @Date: 2025-03-19 19:43:55
  * @LastEditors: joe 847304926@qq.com
- * @LastEditTime: 2025-05-17 01:38:08
+ * @LastEditTime: 2026-05-22 11:39:47
  * @FilePath: \\wsl.localhost\Ubuntu-22.04\home\joe\wind_project\WindSimProj\frontend\src\components\Dashboard.vue
  * @Description:
  *
@@ -127,10 +127,10 @@ const menuItems = computed(() => {
     { index: `/cases/${caseId.value}/calculation`, icon: Monitor, title: "计算输出" },
     { index: `/cases/${caseId.value}/results`, icon: DataLine, title: "结果展示" },
     { index: `/cases/${caseId.value}/speed-visualization`, icon: WindPower, title: "速度场分析" },
-    { index: `/cases/${caseId.value}/flow-lab`, icon: DataLine, title: "三维风场实验" },
+    //{ index: `/cases/${caseId.value}/flow-lab`, icon: DataLine, title: "三维风场实验" },
     { index: `/cases/${caseId.value}/wind-management`, icon: Files, title: "风机性能分析" },
-    { index: `/cases/${caseId.value}/wind-performance-diagnostic`, icon: DataLine, title: "风机性能诊断" },
-    { index: `/cases/${caseId.value}/wind-management-lab`, icon: DataLine, title: "风资源评估实验" }
+    //{ index: `/cases/${caseId.value}/wind-performance-diagnostic`, icon: DataLine, title: "风机性能诊断" },
+    //{ index: `/cases/${caseId.value}/wind-management-lab`, icon: DataLine, title: "风资源评估实验" }
   ];
 }else {
       return [

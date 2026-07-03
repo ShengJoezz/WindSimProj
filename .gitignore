@@ -1,9 +1,14 @@
 backend/uploads/
 backend/batch_1
 backend/batch_2
+backend/casepacks/
 backend/node_modules
+backend/cache/
 
 # Root vendor/runtime artifacts
+.env
+.env.*
+!.env.example
 node_modules/
 venv/
 temp/
@@ -11,6 +16,8 @@ temp_rou_files/
 clipped/
 China_Dem/
 backend/windmast_data/
+frontend/dist/
+frontend/frontend.zip
 
 
 # Compiled files
